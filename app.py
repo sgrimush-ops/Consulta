@@ -1,8 +1,8 @@
 # app.py
-import openpyxl as xl
 import streamlit as st
 import sqlite3
 import pandas as pd
+#import openpyxl as xl
 from page.consulta import show_consulta_page 
 import hashlib
 
