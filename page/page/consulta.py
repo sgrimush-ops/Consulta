@@ -2,15 +2,19 @@
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta # IMPORTANTE: Verifique se timedelta está aqui
 from typing import Optional, Tuple
 import os
 
 # Esta é a função principal que vamos chamar no app.py
-
 FILE_PATH = 'data/WMS.xlsm'
 
-
+# Define a função para obter 'hoje' e a cacheia por 24 horas (TTL)
+# O Streamlit só vai executar essa função uma vez a cada 24 horas.
+@st.cache_resource(ttl=timedelta(hours=24))
+def get_today():
+    """Retorna a data atual e força o cache a expirar a cada 24h."""
+    return datetime.now().date()
 @st.cache_data
 def load_data(file_path: str, mod_time: float) -> Optional[pd.DataFrame]:
     """Carrega dados do arquivo Excel especificado."""
@@ -150,3 +154,4 @@ if __name__ == "__main__":
 def show_consulta_page():
     """Cria a interface da página de consulta de produtos."""
     main()
+
