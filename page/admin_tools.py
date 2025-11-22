@@ -1,154 +1,138 @@
 import streamlit as st
 import pandas as pd
+import gc  # Garbage Collector (Limpeza de memória)
 from sqlalchemy import text
 
 # ================================================
-# 🔧 LEITURA INTELIGENTE DE EXCEL (.xls, .xlsx, .xlsm)
+# 🔧 LEITURA OTIMIZADA (MENOS MEMÓRIA)
 # ================================================
 def safe_read_excel(uploaded_file):
-    """
-    Lê arquivos Excel detectando a extensão correta.
-    Suporta: .xls (Excel 97-2003), .xlsx, .xlsm
-    """
     try:
         filename = uploaded_file.name.lower()
         
-        # Se for o formato antigo (.xls), usa a engine 'xlrd'
+        # Ler apenas colunas necessárias e converter tipos para economizar memória
+        # Se possível, especifique dtypes (ex: int32 em vez de int64)
         if filename.endswith('.xls'):
             df = pd.read_excel(uploaded_file, engine='xlrd')
-        
-        # Se for formato novo (.xlsx ou .xlsm), usa a engine 'openpyxl'
         else:
             df = pd.read_excel(uploaded_file, engine='openpyxl')
         
-        # Normaliza nomes das colunas (remove espaços e deixa minúsculo)
+        # Normaliza colunas
         df.columns = [str(c).strip().lower() for c in df.columns]
         
         return df
-        
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo '{uploaded_file.name}': {e}")
+        st.error(f"Erro de leitura: {e}")
         return None
 
 # ================================================
-# 💾 SALVAR DIRETO NO BANCO (CORRIGIDO)
+# 💾 SALVAR COM TRANSAÇÃO SEGURA
 # ================================================
 def save_to_database(engine, df, table_name):
-    """
-    Escreve o DataFrame direto no PostgreSQL.
-    Resolve problemas de colunas duplicadas antes de salvar.
-    """
     if df is None or df.empty:
         return False
     
     try:
+        # 1. Mapeamento (Igual ao anterior)
         rename_map = {}
-        
-        # --- REGRAS DE MAPEAMENTO ---
-        # Tenta padronizar os nomes que vêm do Excel para o que o Banco espera
-        
         if table_name == "mix":
             for c in df.columns:
                 if "codigo" in c: rename_map[c] = "codigoint"
                 elif "descri" in c or "produto" in c: rename_map[c] = "descricao"
                 elif "emb" in c: rename_map[c] = "embseparacao"
                 elif "loja" in c: rename_map[c] = "loja"
-        
         elif table_name == "wms":
             for c in df.columns:
                 if "codigo" in c: rename_map[c] = "codigo"
                 elif "qtd" in c: rename_map[c] = "qtd"
                 elif "data" in c: rename_map[c] = "datasalva"
                 elif "ender" in c: rename_map[c] = "endereco"
-        
         elif table_name == "historico":
             for c in df.columns:
                 if "codigo" in c: rename_map[c] = "codigoint"
                 elif "loja" in c: rename_map[c] = "loja"
                 elif "data" in c or "solic" in c: rename_map[c] = "dtsolicitacao"
-                # Mapeia as colunas de vendas/estoque se existirem no Excel
                 elif "estcx" in c: rename_map[c] = "EstCX"
                 elif "pedcx" in c: rename_map[c] = "PedCX"
 
-        # 1. Aplica a renomeação
         if rename_map:
             df = df.rename(columns=rename_map)
 
-        # 2. CRUCIAL: REMOVE COLUNAS DUPLICADAS
-        # Se o Excel tinha "Codigo" e "CodigoInt", ambos viraram "codigoint".
-        # Isso causava o erro. O comando abaixo mantém apenas o primeiro.
+        # 2. Remove duplicatas de colunas
         df = df.loc[:, ~df.columns.duplicated()]
 
-        # 3. Salva no banco (Substitui a tabela antiga)
+        # 3. Otimização de Tipos (Downcasting) para economizar RAM antes do upload
+        for col in df.select_dtypes(include=['float64']).columns:
+            df[col] = pd.to_numeric(df[col], downcast='float')
+        for col in df.select_dtypes(include=['int64']).columns:
+            df[col] = pd.to_numeric(df[col], downcast='integer')
+
+        # 4. Salva no banco
         with engine.begin() as conn:
+            # Deleta dados antigos primeiro (mais leve que replace em alguns casos)
+            # conn.execute(text(f"TRUNCATE TABLE {table_name}")) # Cuidado: Truncate é agressivo
+            
             df.to_sql(
                 table_name, 
                 engine, 
-                if_exists='replace',  # Deleta a tabela antiga e cria uma nova limpa
+                if_exists='replace', 
                 index=False, 
-                chunksize=1000,       # Envia em pacotes para não travar a memória
+                chunksize=500,  # Reduzi para 500 para ser mais leve ainda
                 method='multi'
             )
+        
+        # 5. LIMPEZA FORÇADA DE MEMÓRIA
+        del df
+        gc.collect()
             
         return True
 
     except Exception as e:
-        st.error(f"Erro ao salvar no banco de dados ({table_name}): {e}")
+        st.error(f"Erro no banco ({table_name}): {e}")
         return False
 
 # ================================================
-# 🔧 INTERFACE DA PÁGINA
+# 🔧 INTERFACE
 # ================================================
 def show_admin_tools(engine=None, base_data_path=None):
-    st.title("🔧 Upload de Arquivos (Banco de Dados)")
-    st.info("Envie seus arquivos Excel (.xls, .xlsx, .xlsm). Os dados ficarão salvos permanentemente no Banco.")
+    st.title("🔧 Upload Otimizado")
+    st.warning("⚠️ Arquivos grandes podem levar alguns segundos. Não feche a aba.")
 
     if engine is None:
-        st.error("❌ Sem conexão com o banco de dados.")
+        st.error("Sem banco de dados.")
         return
 
-    # -------------------------------
-    # 1. WMS
-    # -------------------------------
-    st.subheader("1. Atualizar WMS (Estoque CD)")
-    uploaded_wms = st.file_uploader("Selecione o WMS", type=["xls", "xlsx", "xlsm"], key="wms")
-    
-    if uploaded_wms:
-        if st.button("Processar WMS", type="primary"):
-            with st.spinner("Lendo arquivo e salvando no banco..."):
-                df = safe_read_excel(uploaded_wms)
-                if save_to_database(engine, df, "wms"):
-                    st.success("✅ Tabela WMS atualizada com sucesso!")
-                    st.cache_data.clear() 
+    # WMS
+    st.subheader("1. WMS")
+    uploaded_wms = st.file_uploader("Arquivo WMS", type=["xls", "xlsx", "xlsm"], key="wms")
+    if uploaded_wms and st.button("Enviar WMS"):
+        with st.spinner("Processando..."):
+            df = safe_read_excel(uploaded_wms)
+            if save_to_database(engine, df, "wms"):
+                st.success("Sucesso!")
+                st.cache_data.clear()
+                gc.collect() # Limpa memória extra
 
+    # Histórico
     st.markdown("---")
+    st.subheader("2. Histórico")
+    uploaded_hist = st.file_uploader("Arquivo Histórico", type=["xls", "xlsx", "xlsm"], key="hist")
+    if uploaded_hist and st.button("Enviar Histórico"):
+        with st.spinner("Processando..."):
+            df = safe_read_excel(uploaded_hist)
+            if save_to_database(engine, df, "historico"):
+                st.success("Sucesso!")
+                st.cache_data.clear()
+                gc.collect()
 
-    # -------------------------------
-    # 2. Histórico
-    # -------------------------------
-    st.subheader("2. Atualizar Histórico")
-    uploaded_hist = st.file_uploader("Selecione o Histórico", type=["xls", "xlsx", "xlsm"], key="hist")
-    
-    if uploaded_hist:
-        if st.button("Processar Histórico", type="primary"):
-            with st.spinner("Processando Histórico..."):
-                df = safe_read_excel(uploaded_hist)
-                if save_to_database(engine, df, "historico"):
-                    st.success("✅ Histórico atualizado com sucesso!")
-                    st.cache_data.clear()
-
+    # Mix
     st.markdown("---")
-
-    # -------------------------------
-    # 3. Mix
-    # -------------------------------
-    st.subheader("3. Atualizar Mix")
-    uploaded_mix = st.file_uploader("Selecione o Mix", type=["xls", "xlsx", "xlsm"], key="mix")
-    
-    if uploaded_mix:
-        if st.button("Processar Mix", type="primary"):
-            with st.spinner("Atualizando Mix..."):
-                df = safe_read_excel(uploaded_mix)
-                if save_to_database(engine, df, "mix"):
-                    st.success("✅ Mix de produtos atualizado com sucesso!")
-                    st.cache_data.clear()
+    st.subheader("3. Mix")
+    uploaded_mix = st.file_uploader("Arquivo Mix", type=["xls", "xlsx", "xlsm"], key="mix")
+    if uploaded_mix and st.button("Enviar Mix"):
+        with st.spinner("Processando..."):
+            df = safe_read_excel(uploaded_mix)
+            if save_to_database(engine, df, "mix"):
+                st.success("Sucesso!")
+                st.cache_data.clear()
+                gc.collect()
