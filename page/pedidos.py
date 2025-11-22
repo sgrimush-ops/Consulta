@@ -64,7 +64,7 @@ def load_mix_data(base_path_no_ext: str, mod_time: float):
 
     df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
     
-    # CORREÇÃO AQUI: Adicionado .str antes de .zfill
+    # .str adicionado para evitar erro de zfill
     df["Loja"] = df["Loja"].astype(str).str.zfill(3)
 
     if "embseparacao" in df.columns:
@@ -90,7 +90,7 @@ def load_historico_data(base_path_no_ext: str, mod_time: float):
 
     df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
     
-    # CORREÇÃO AQUI: Adicionado .str antes de .zfill
+    # .str adicionado para evitar erro de zfill
     df["Loja"] = df["Loja"].astype(str).str.zfill(3)
     
     df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
@@ -122,9 +122,10 @@ def load_wms_data(base_path_no_ext: str, mod_time: float):
 
     return df
 
+# CORREÇÃO DO HASH: Mudamos 'engine' para '_engine'
 @st.cache_data(ttl=300)
-def load_active_offers(engine):
-    if engine is None:
+def load_active_offers(_engine):
+    if _engine is None:
         return pd.DataFrame()
 
     today = date.today()
@@ -135,7 +136,8 @@ def load_active_offers(engine):
     """)
 
     try:
-        with engine.connect() as conn:
+        # Usa _engine com underscore
+        with _engine.connect() as conn:
             df = pd.read_sql(q, conn, params={"today": today})
         if not df.empty:
             df = df.drop_duplicates(subset=["codigo"], keep="last").set_index("codigo")
@@ -144,7 +146,7 @@ def load_active_offers(engine):
         return pd.DataFrame()
 
 # =========================================================
-#  🔎 BUSCAR HISTÓRICO RECENTE (FUNÇÃO QUE FALTAVA)
+#  🔎 BUSCAR HISTÓRICO RECENTE
 # =========================================================
 def get_recent_orders_display(engine, username):
     """Busca os últimos 10 pedidos do usuário para exibição rápida."""
@@ -169,7 +171,6 @@ def get_recent_orders_display(engine, username):
             
         return df
     except Exception as e:
-        # Retorna vazio se der erro (ex: tabela não existe ainda)
         return pd.DataFrame()
 
 # =========================================================
@@ -259,6 +260,8 @@ def show_pedidos_page(engine=None, base_data_path=None):
     df_mix = load_mix_data(mix_base, mix_mod)
     df_hist = load_historico_data(hist_base, hist_mod)
     df_wms = load_wms_data(wms_base, wms_mod)
+    
+    # A chamada continua 'engine', mas a definição da função agora aceita '_engine'
     df_ofertas = load_active_offers(engine)
 
     if df_mix.empty:
@@ -438,7 +441,6 @@ def show_pedidos_page(engine=None, base_data_path=None):
     st.subheader("4. Histórico Recente")
 
     if engine:
-        # Aqui é onde a nova função é chamada
         df_hist_rec = get_recent_orders_display(engine, st.session_state.get("username", ""))
         if not df_hist_rec.empty:
             st.dataframe(df_hist_rec, use_container_width=True, hide_index=True)
