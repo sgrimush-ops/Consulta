@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 import os
+import numpy as np
 
 # --- Configurações e Path ---
 COLUNA_DESCRICAO = 'Produto' 
@@ -15,32 +16,16 @@ def get_today():
     """Retorna a data atual e força o cache a expirar a cada 24h."""
     return datetime.now().date()
 
-def load_data_optimized(parquet_path, excel_path):
-    """Tenta ler Parquet (rápido), cai para Excel (lento) se necessário."""
-    if os.path.exists(parquet_path):
-        # Leitura ultra-rápida
-        return pd.read_parquet(parquet_path)
-    else:
-        # Fallback para Excel
-        # Verifica se é o Mix (que não tem aba específica 'WMS') ou o WMS
-        if 'Mix' in excel_path:
-            return pd.read_excel(excel_path, dtype=str)
-        return pd.read_excel(excel_path, sheet_name='WMS')
-
+# MUDANÇA: Cache inteligente usando 'mod_time'
 @st.cache_data
-def load_data(base_path_no_ext: str) -> Optional[pd.DataFrame]:
-    """Carrega dados do arquivo Excel especificado (ou Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsm" 
-    
-    # Ajuste para o Mix que é .xlsx
-    if 'Mix' in base_path_no_ext:
-        excel_path = f"{base_path_no_ext}.xlsx"
-
+def load_parquet_data(parquet_path: str, mod_time: float) -> Optional[pd.DataFrame]:
+    """Carrega dados EXCLUSIVAMENTE do arquivo Parquet."""
     try:
-        return load_data_optimized(parquet_path, excel_path)
+        if os.path.exists(parquet_path):
+            return pd.read_parquet(parquet_path)
+        return None
     except Exception as e:
-        st.error(f"Erro ao carregar o arquivo: {e}")
+        st.error(f"Erro ao carregar dados otimizados: {e}")
         return None
 
 def preprocess_wms_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
@@ -65,7 +50,7 @@ def preprocess_wms_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     df['Qtd'] = pd.to_numeric(df['Qtd'], errors='coerce').fillna(0)
     
     # Garante que a coluna 'codigo' é int
-    df['codigo'] = df['codigo'].fillna(0).astype(int)
+    df['codigo'] = pd.to_numeric(df['codigo'], errors='coerce').fillna(0).astype(int)
     
     return df
 
@@ -73,10 +58,11 @@ def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     """Pré-processa o DataFrame do Mix para pegar a embalagem."""
     df = df.copy()
     
-    # Normaliza nomes das colunas para MAIÚSCULAS e remove espaços
+    # CORREÇÃO: Normaliza nomes das colunas (Maiúsculas e sem espaços)
+    # Isso resolve problemas se a coluna vier como " EmbSeparacao " ou "codigoint"
     df.columns = df.columns.astype(str).str.upper().str.strip()
     
-    # Tenta encontrar as colunas com nomes padronizados
+    # Tenta encontrar as colunas pelos nomes padrão
     col_codigo = 'CODIGOINT' if 'CODIGOINT' in df.columns else None
     if not col_codigo and 'CODIGO' in df.columns: col_codigo = 'CODIGO'
     
@@ -84,21 +70,22 @@ def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     if not col_emb and 'EMBALAGEM' in df.columns: col_emb = 'EMBALAGEM'
 
     if not col_codigo or not col_emb:
-        # Retorna vazio se não achar as colunas
+        # Se não achar, retorna vazio (não inventa dados)
         return pd.DataFrame(columns=['codigo', 'embalagem'])
         
     # Renomeia para o padrão interno (minúsculo)
     df = df.rename(columns={col_codigo: 'codigo', col_emb: 'embalagem'})
     
+    # Garante que o código seja INTEIRO (para bater com o WMS)
     df['codigo'] = pd.to_numeric(df['codigo'], errors='coerce').fillna(0).astype(int)
     
-    # Tratamento da embalagem (pode vir como string "12,00")
+    # Tratamento da embalagem
     df['embalagem'] = pd.to_numeric(
         df['embalagem'].astype(str).str.split(',').str[0].str.split('.').str[0].str.strip(),
         errors='coerce'
-    ).fillna(0).astype(int) # MUDANÇA: Se der erro, vira 0 (não 1)
+    ).fillna(0).astype(int) # MUDANÇA: Se der erro, vira 0 (e não 1)
     
-    # Remove duplicatas
+    # Remove duplicatas, mantendo a primeira ocorrência do código
     df = df[['codigo', 'embalagem']].drop_duplicates(subset=['codigo'])
     
     return df
@@ -120,11 +107,11 @@ def show_consulta_page(engine, base_data_path):
     except Exception:
         wms_mod, mix_mod = 0.0, 0.0
 
-    # 3. Carregar Dados
-    df_wms_raw = load_data(os.path.join(base_data_path, "WMS"))
+    # 3. Carregar Dados (Cache invalida se mod_time mudar)
+    df_wms_raw = load_parquet_data(wms_parquet, wms_mod)
     
     if df_wms_raw is None:
-        st.error(f"Arquivo 'WMS' não encontrado. Faça o upload na página de Administração.")
+        st.error(f"Arquivo 'WMS.parquet' não encontrado. Faça o upload na página de Administração para gerar o arquivo otimizado.")
         return
 
     df_wms = preprocess_wms_data(df_wms_raw)
@@ -132,7 +119,7 @@ def show_consulta_page(engine, base_data_path):
         return
 
     # Carrega Mix
-    df_mix_raw = load_data(os.path.join(base_data_path, "__MixAtivoSistema"))
+    df_mix_raw = load_parquet_data(mix_parquet, mix_mod)
     
     # Prepara o Mix (se existir)
     if df_mix_raw is not None:
@@ -157,14 +144,18 @@ def show_consulta_page(engine, base_data_path):
         return
         
     # --- CRUZAMENTO COM MIX ---
+    # Adiciona a informação de embalagem ao dataframe filtrado
     if not df_mix.empty:
+        # Left Join para trazer a embalagem do Mix
         df_filtrado = pd.merge(df_filtrado, df_mix, on='codigo', how='left')
-        # MUDANÇA: Se não achar (NaN), vira 0. Não assume nada.
+        
+        # MUDANÇA: Preenche NaN com 0 (e não 1).
         df_filtrado['embalagem'] = df_filtrado['embalagem'].fillna(0).astype(int)
     else:
         df_filtrado['embalagem'] = 0
 
-    # --- CÁLCULO DE CAIXAS (Com proteção contra divisão por zero) ---
+    # --- CÁLCULO DE CAIXAS (Com proteção) ---
+    # Se embalagem > 0, divide. Se for 0 (não encontrada/inválida), resultado é 0.
     df_filtrado['Qtd (Caixas)'] = df_filtrado.apply(
         lambda x: (x['Qtd'] / x['embalagem']) if x['embalagem'] > 0 else 0, 
         axis=1
@@ -238,13 +229,14 @@ def show_consulta_page(engine, base_data_path):
             
             st.markdown(f"#### {descricao_produto}")
             
-            # Mensagem de alerta se a embalagem estiver zerada (problema no mix)
+            # Mensagem sobre a embalagem
             if emb_produto <= 0:
-                st.error("⚠️ Embalagem não encontrada ou inválida no Mix. Não é possível calcular caixas.")
-                total_caixas_str = "Erro (Emb=0)"
+                st.error("⚠️ Embalagem não encontrada no Mix. Verifique se o código do produto no Mix é idêntico ao do WMS.")
+                total_caixas_str = "---"
             else:
                 st.caption(f"Embalagem: {emb_produto} un/cx")
-                total_caixas_str = f"{(resultados_finais['Qtd'].sum() / emb_produto):.1f} CX"
+                total_caixas_val = resultados_finais['Qtd'].sum() / emb_produto
+                total_caixas_str = f"{total_caixas_val:.1f} CX"
 
             # Cálculos
             total_unidades = resultados_finais['Qtd'].sum()
