@@ -1,282 +1,269 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
 import os
 import numpy as np
 
-# --- Configurações e Path ---
-COLUNA_DESCRICAO = 'Produto' 
-COLUNA_ENDERECO = 'Endereço'
+# =========================================================
+# CONFIGURAÇÕES GERAIS
+# =========================================================
 
-# --- Funções de Cache e Helpers ---
+COLUNA_DESCRICAO = "Produto"
+COLUNA_ENDERECO = "Endereço"
 
-@st.cache_resource(ttl=timedelta(hours=24))
+# =========================================================
+# CACHE
+# =========================================================
+
+@st.cache_resource(ttl=24 * 3600)
 def get_today():
-    """Retorna a data atual e força o cache a expirar a cada 24h."""
+    """Data do dia, com cache expira a cada 24h."""
     return datetime.now().date()
 
-# MUDANÇA: Cache inteligente usando 'mod_time'
 @st.cache_data
-def load_parquet_data(parquet_path: str, mod_time: float) -> Optional[pd.DataFrame]:
-    """Carrega dados EXCLUSIVAMENTE do arquivo Parquet."""
+def load_parquet_data(path: str, mod_time: float):
+    """Carrega arquivo Parquet com proteção total."""
     try:
-        if os.path.exists(parquet_path):
-            return pd.read_parquet(parquet_path)
-        return None
+        if os.path.exists(path):
+            return pd.read_parquet(path)
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro ao carregar dados otimizados: {e}")
-        return None
+        st.error(f"Erro ao ler Parquet: {e}")
+        return pd.DataFrame()
 
-def preprocess_wms_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Pré-processa o DataFrame do WMS."""
+
+# =========================================================
+# PRÉ-PROCESSAMENTOS
+# =========================================================
+
+def preprocess_wms(df: pd.DataFrame):
+    """Normaliza WMS: datas, Qtd, código, remoção de colunas inúteis."""
+    if df.empty:
+        return pd.DataFrame()
+
     df = df.copy()
-    
-    # Validação de colunas necessárias
-    if 'datasalva' not in df.columns or 'codigo' not in df.columns or 'Qtd' not in df.columns:
-        st.error("Colunas essenciais do WMS (datasalva, codigo, Qtd) não encontradas.")
-        return None
 
-    df.dropna(axis=1, how='all', inplace=True)
+    # Garantir colunas essenciais
+    col_datasalva = next((c for c in df.columns if c.lower() == "datasalva"), None)
+    col_codigo = next((c for c in df.columns if c.lower() == "codigo"), None)
+    col_qtd = next((c for c in df.columns if c.lower() == "qtd"), None)
 
-    colunas_para_remover = ['Lote', 'Almoxarifado']
-    df.drop(columns=[col for col in colunas_para_remover if col in df.columns], inplace=True)
+    if not col_datasalva or not col_codigo or not col_qtd:
+        st.error("Colunas essenciais ausentes no WMS (datasalva, codigo, qtd).")
+        return pd.DataFrame()
 
-    df['datasalva'] = pd.to_datetime(df['datasalva'], errors='coerce')
-    df.dropna(subset=['datasalva'], inplace=True)
-    df['datasalva_formatada'] = df['datasalva'].dt.date
-    
-    # Converte 'Qtd' para garantir a soma correta
-    df['Qtd'] = pd.to_numeric(df['Qtd'], errors='coerce').fillna(0)
-    
-    # Garante que a coluna 'codigo' é int
-    df['codigo'] = pd.to_numeric(df['codigo'], errors='coerce').fillna(0).astype(int)
-    
+    # Normalização
+    df[col_datasalva] = pd.to_datetime(df[col_datasalva], errors="coerce")
+    df.dropna(subset=[col_datasalva], inplace=True)
+    df["datasalva_formatada"] = df[col_datasalva].dt.date
+
+    df[col_codigo] = pd.to_numeric(df[col_codigo], errors="coerce").fillna(0).astype(int)
+    df[col_qtd] = pd.to_numeric(df[col_qtd], errors="coerce").fillna(0)
+
+    # Remover colunas lixo
+    drop_cols = ["Lote", "Almoxarifado"]
+    for c in drop_cols:
+        if c in df.columns:
+            df.drop(columns=c, inplace=True)
+
     return df
 
-def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Pré-processa o DataFrame do Mix para pegar a embalagem."""
+
+def preprocess_mix(df: pd.DataFrame):
+    """Normaliza Mix, trazendo código + embalagem."""
+    if df.empty:
+        return pd.DataFrame(columns=["codigo", "embalagem"])
+
     df = df.copy()
-    
-    # CORREÇÃO: Normaliza nomes das colunas (Maiúsculas e sem espaços)
-    # Isso resolve problemas se a coluna vier como " EmbSeparacao " ou "codigoint"
+
+    # Normaliza nomes
     df.columns = df.columns.astype(str).str.upper().str.strip()
-    
-    # Tenta encontrar as colunas pelos nomes padrão
-    col_codigo = 'CODIGOINT' if 'CODIGOINT' in df.columns else None
-    if not col_codigo and 'CODIGO' in df.columns: col_codigo = 'CODIGO'
-    
-    col_emb = 'EMBSEPARACAO' if 'EMBSEPARACAO' in df.columns else None
-    if not col_emb and 'EMBALAGEM' in df.columns: col_emb = 'EMBALAGEM'
+
+    col_codigo = next((c for c in df.columns if c in ["CODIGOINT", "CODIGO"]), None)
+    col_emb = next((c for c in df.columns if c in ["EMBSEPARACAO", "EMBALAGEM"]), None)
 
     if not col_codigo or not col_emb:
-        # Se não achar, retorna vazio (não inventa dados)
-        return pd.DataFrame(columns=['codigo', 'embalagem'])
-        
-    # Renomeia para o padrão interno (minúsculo)
-    df = df.rename(columns={col_codigo: 'codigo', col_emb: 'embalagem'})
-    
-    # Garante que o código seja INTEIRO (para bater com o WMS)
-    df['codigo'] = pd.to_numeric(df['codigo'], errors='coerce').fillna(0).astype(int)
-    
-    # Tratamento da embalagem
-    df['embalagem'] = pd.to_numeric(
-        df['embalagem'].astype(str).str.split(',').str[0].str.split('.').str[0].str.strip(),
-        errors='coerce'
-    ).fillna(0).astype(int) # MUDANÇA: Se der erro, vira 0 (e não 1)
-    
-    # Remove duplicatas, mantendo a primeira ocorrência do código
-    df = df[['codigo', 'embalagem']].drop_duplicates(subset=['codigo'])
-    
+        return pd.DataFrame(columns=["codigo", "embalagem"])
+
+    df.rename(columns={col_codigo: "codigo", col_emb: "embalagem"}, inplace=True)
+
+    df["codigo"] = pd.to_numeric(df["codigo"], errors="coerce").fillna(0).astype(int)
+    df["embalagem"] = df["embalagem"].astype(str).str.replace(",", ".", regex=False)
+    df["embalagem"] = pd.to_numeric(df["embalagem"], errors="coerce").fillna(0).astype(int)
+
+    df = df[["codigo", "embalagem"]].drop_duplicates(subset=["codigo"])
+
     return df
 
-# --- Função Principal de Exibição ---
+
+# =========================================================
+# PÁGINA PRINCIPAL
+# =========================================================
 
 def show_consulta_page(engine=None, base_data_path=None):
-    """Cria a interface da página de consulta de produtos com busca por descrição."""
-    st.title("Consulta de Itens por Descrição/Código")
 
-    # 1. Definir caminhos para arquivos PARQUET
-    wms_parquet = os.path.join(base_data_path, "WMS.parquet")
-    mix_parquet = os.path.join(base_data_path, "__MixAtivoSistema.parquet")
+    st.title("🔍 Consulta de Itens — Estoque CD")
 
-    # 2. Obter data de modificação para controle de cache automático
-    try:
-        wms_mod = os.path.getmtime(wms_parquet) if os.path.exists(wms_parquet) else 0.0
-        mix_mod = os.path.getmtime(mix_parquet) if os.path.exists(mix_parquet) else 0.0
-    except Exception:
-        wms_mod, mix_mod = 0.0, 0.0
-
-    # 3. Carregar Dados (Cache invalida se mod_time mudar)
-    df_wms_raw = load_parquet_data(wms_parquet, wms_mod)
-    
-    if df_wms_raw is None:
-        st.error(f"Arquivo 'WMS.parquet' não encontrado. Faça o upload na página de Administração para gerar o arquivo otimizado.")
+    if not base_data_path:
+        st.error("Caminho base não informado.")
         return
 
-    df_wms = preprocess_wms_data(df_wms_raw)
-    if df_wms is None:
+    # -----------------------------------------------------
+    # Caminhos dos arquivos
+    # -----------------------------------------------------
+    wms_path = os.path.join(base_data_path, "WMS.parquet")
+    mix_path = os.path.join(base_data_path, "__MixAtivoSistema.parquet")
+
+    # -----------------------------------------------------
+    # mod_time → força recarregamento quando arquivo mudar
+    # -----------------------------------------------------
+    def mod(p):
+        return os.path.getmtime(p) if os.path.exists(p) else 0
+
+    wms_mod = mod(wms_path)
+    mix_mod = mod(mix_path)
+
+    # -----------------------------------------------------
+    # Carregar dados
+    # -----------------------------------------------------
+    df_wms_raw = load_parquet_data(wms_path, wms_mod)
+    if df_wms_raw.empty:
+        st.error("WMS.parquet não encontrado. Carregue o arquivo em Admin Tools.")
         return
 
-    # Carrega Mix
-    df_mix_raw = load_parquet_data(mix_parquet, mix_mod)
-    
-    # Prepara o Mix (se existir)
-    if df_mix_raw is not None:
-        df_mix = preprocess_mix_data(df_mix_raw)
-    else:
-        df_mix = pd.DataFrame(columns=['codigo', 'embalagem'])
+    df_mix_raw = load_parquet_data(mix_path, mix_mod)
 
-    # 3. Filtragem de Data
-    hoje = get_today() 
-    df_hoje = df_wms[df_wms['datasalva_formatada'] == hoje]
+    df_wms = preprocess_wms(df_wms_raw)
+    df_mix = preprocess_mix(df_mix_raw)
 
-    if df_hoje.empty:
-        st.warning(f"Não há informações para a data de hoje ({hoje.strftime('%d/%m/%Y')}).")
-        st.info("Por favor, selecione uma data para pesquisar.")
-        data_pesquisa = st.date_input("Escolha a data da pesquisa:", value=hoje)
-        df_filtrado = df_wms[df_wms['datasalva_formatada'] == data_pesquisa]
-    else:
-        df_filtrado = df_hoje
-    
-    if df_filtrado.empty:
-        st.info("Nenhum dado encontrado para a data selecionada.")
+    if df_wms.empty:
+        st.error("Falha ao processar dados do WMS.")
         return
-        
-    # --- CRUZAMENTO COM MIX ---
-    # Adiciona a informação de embalagem ao dataframe filtrado
-    if not df_mix.empty:
-        # Left Join para trazer a embalagem do Mix
-        df_filtrado = pd.merge(df_filtrado, df_mix, on='codigo', how='left')
-        
-        # MUDANÇA: Preenche NaN com 0 (e não 1).
-        df_filtrado['embalagem'] = df_filtrado['embalagem'].fillna(0).astype(int)
-    else:
-        df_filtrado['embalagem'] = 0
 
-    # --- CÁLCULO DE CAIXAS (Com proteção) ---
-    # Se embalagem > 0, divide. Se for 0 (não encontrada/inválida), resultado é 0.
-    df_filtrado['Qtd (Caixas)'] = df_filtrado.apply(
-        lambda x: (x['Qtd'] / x['embalagem']) if x['embalagem'] > 0 else 0, 
-        axis=1
-    ).round(1)
+    # -----------------------------------------------------
+    # Selecionar data
+    # -----------------------------------------------------
+    hoje = get_today()
+    df_dia = df_wms[df_wms["datasalva_formatada"] == hoje]
 
     st.markdown("---")
-    st.write(f"Dados exibidos para a data: **{df_filtrado['datasalva_formatada'].iloc[0].strftime('%d/%m/%Y')}**")
 
-    # --- CAMPOS DE BUSCA ---
+    if df_dia.empty:
+        st.warning(f"Não há dados para hoje ({hoje.strftime('%d/%m/%Y')}).")
+        data_sel = st.date_input("Escolha uma data:", value=hoje)
+        df_dia = df_wms[df_wms["datasalva_formatada"] == data_sel]
+
+        if df_dia.empty:
+            st.info("Sem dados para a data selecionada.")
+            return
+    else:
+        data_sel = hoje
+
+    st.success(f"Exibindo dados do dia **{data_sel.strftime('%d/%m/%Y')}**")
+
+    # -----------------------------------------------------
+    # Merge com Mix
+    # -----------------------------------------------------
+    if df_mix.empty:
+        df_dia["embalagem"] = 0
+    else:
+        df_dia = df_dia.merge(df_mix, on="codigo", how="left")
+        df_dia["embalagem"] = df_dia["embalagem"].fillna(0).astype(int)
+
+    # cálculo de caixas
+    df_dia["Qtd (Caixas)"] = np.where(
+        df_dia["embalagem"] > 0,
+        (df_dia["Qtd"] / df_dia["embalagem"]).round(1),
+        0
+    )
+
+    # -----------------------------------------------------
+    # BUSCA
+    # -----------------------------------------------------
+    st.markdown("---")
     st.subheader("Buscar Item")
-    
-    col_busca_desc, col_busca_cod = st.columns(2)
 
-    with col_busca_desc:
-        termo_busca = st.text_input("Digite a descrição ou parte dela:")
+    col1, col2 = st.columns(2)
+    with col1:
+        busca_desc = st.text_input("Descrição:")
+    with col2:
+        busca_cod = st.text_input("Código (numérico):")
 
-    with col_busca_cod:
-        codigo_direto = st.text_input("Ou digite o Código (apenas números):")
+    codigo_escolhido = None
 
-    item_selecionado_code = None
-    
-    if codigo_direto and codigo_direto.isdigit():
-        item_selecionado_code = int(codigo_direto)
-        termo_busca = None 
-        
-    elif termo_busca:
-        if COLUNA_DESCRICAO not in df_filtrado.columns:
-             st.error(f"Coluna '{COLUNA_DESCRICAO}' não encontrada no WMS.")
-             return
+    # Busca por código
+    if busca_cod.strip().isdigit():
+        codigo_escolhido = int(busca_cod)
 
-        df_filtrado['Descrição_Lower'] = df_filtrado[COLUNA_DESCRICAO].astype(str).str.lower()
-        termo_lower = termo_busca.lower()
-        
-        mask = df_filtrado['Descrição_Lower'].str.contains(termo_lower, na=False)
-        resultados_parciais = df_filtrado[mask].sort_values(by=COLUNA_DESCRICAO, ascending=True)
+    # Busca por descrição → exibe lista
+    elif busca_desc.strip():
+        termo = busca_desc.lower()
 
-        opcoes_unicas = resultados_parciais.drop_duplicates(subset=['codigo'])
-        
-        lista_opcoes = opcoes_unicas.apply(
-            lambda row: f"{row[COLUNA_DESCRICAO]} (Código: {row['codigo']})", 
-            axis=1
-        ).tolist()
-        
-        if lista_opcoes:
-            escolha = st.selectbox(
-                "Selecione o produto na lista:",
-                options=[''] + lista_opcoes,
-                index=0
-            )
-            
+        if COLUNA_DESCRICAO not in df_dia.columns:
+            st.error(f"Coluna '{COLUNA_DESCRICAO}' não existe no WMS.")
+            return
+
+        df_tmp = df_dia[
+            df_dia[COLUNA_DESCRICAO].astype(str).str.lower().str.contains(termo)
+        ].copy()
+
+        if df_tmp.empty:
+            st.warning("Nenhum produto encontrado.")
+        else:
+            # Lista única
+            df_uniq = df_tmp.drop_duplicates(subset=["codigo"])
+            df_uniq["label"] = df_uniq[COLUNA_DESCRICAO] + " (Código: " + df_uniq["codigo"].astype(str) + ")"
+
+            escolha = st.selectbox("Selecione o item:", [""] + df_uniq["label"].tolist())
             if escolha:
-                try:
-                    code_str = escolha.split('(Código: ')[1].strip(')')
-                    item_selecionado_code = int(float(code_str))
-                except Exception as e:
-                    st.error(f"Erro ao processar o código selecionado: {e}") 
-                    pass 
+                codigo_escolhido = int(escolha.split("Código: ")[1].replace(")", ""))
+
+    # -----------------------------------------------------
+    # RESULTADO
+    # -----------------------------------------------------
+
+    if codigo_escolhido is not None:
+        df_item = df_dia[df_dia["codigo"] == codigo_escolhido]
+
+        if df_item.empty:
+            st.warning("Nenhum registro encontrado para esse código.")
+            return
+
+        nome = df_item[COLUNA_DESCRICAO].iloc[0]
+        emb = df_item["embalagem"].iloc[0]
+        total_un = df_item["Qtd"].sum()
+
+        st.markdown("---")
+        st.header(nome)
+
+        c1, c2 = st.columns(2)
+        c1.metric("Unidades", f"{total_un:,.0f}")
+
+        if emb > 0:
+            c2.metric("Caixas", f"{(total_un / emb):.1f} CX")
         else:
-            st.warning("Nenhum produto encontrado com o termo digitado.")
+            c2.metric("Caixas", "---")
 
-    # --- EXIBIÇÃO FINAL DO RESULTADO ---
+        # Endereços
+        if COLUNA_ENDERECO in df_item.columns:
+            st.subheader("Endereços")
+            for e in df_item[COLUNA_ENDERECO].dropna().unique():
+                st.write(f"- {e}")
 
-    if item_selecionado_code:
-        resultados_finais = df_filtrado[df_filtrado['codigo'] == item_selecionado_code].copy()
+        # Tabela
+        st.subheader("Detalhamento")
+        st.dataframe(
+            df_item.drop(columns=["datasalva_formatada"]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-        if not resultados_finais.empty:
-            st.write("### Resultado da Busca")
-            
-            descricao_produto = resultados_finais[COLUNA_DESCRICAO].iloc[0]
-            emb_produto = int(resultados_finais['embalagem'].iloc[0])
-            
-            st.markdown(f"#### {descricao_produto}")
-            
-            # Mensagem sobre a embalagem
-            if emb_produto <= 0:
-                st.error("⚠️ Embalagem não encontrada no Mix. Verifique se o código do produto no Mix é idêntico ao do WMS.")
-                total_caixas_str = "---"
-            else:
-                st.caption(f"Embalagem: {emb_produto} un/cx")
-                total_caixas_val = resultados_finais['Qtd'].sum() / emb_produto
-                total_caixas_str = f"{total_caixas_val:.1f} CX"
-
-            # Cálculos
-            total_unidades = resultados_finais['Qtd'].sum()
-            
-            # Exibe Métricas lado a lado
-            col_metric1, col_metric2 = st.columns(2)
-            col_metric1.metric(label="Total (Unidades)", value=f"{total_unidades:,.0f}")
-            col_metric2.metric(label="Total (Caixas)", value=total_caixas_str)
-            
-            if COLUNA_ENDERECO in resultados_finais.columns:
-                enderecos_encontrados = resultados_finais[COLUNA_ENDERECO].unique()
-                st.write("### Endereços")
-                for endereco in enderecos_encontrados:
-                    st.write(f"- {endereco}")
-            else:
-                pass
-            
-            st.write("---")
-            
-            # Reordena colunas para mostrar as Caixas perto da Qtd
-            cols_to_show = [c for c in resultados_finais.columns if c not in ['datasalva', 'datasalva_formatada', 'Descrição_Lower', 'embalagem']]
-            if 'Qtd' in cols_to_show and 'Qtd (Caixas)' in cols_to_show:
-                cols_to_show.remove('Qtd (Caixas)')
-                idx_qtd = cols_to_show.index('Qtd')
-                cols_to_show.insert(idx_qtd + 1, 'Qtd (Caixas)')
-                
-            st.dataframe(resultados_finais[cols_to_show], hide_index=True)
-        else:
-            st.warning(f"Nenhum item encontrado com o código {item_selecionado_code} na data exibida.")
-    
-    elif not termo_busca and not codigo_direto:
-        st.write("### Planilha do Dia (Primeiras Linhas)")
-        # Calcula caixas para o preview também
-        df_preview = df_filtrado.head(10).copy()
-        
-        cols_to_show = [c for c in df_preview.columns if c not in ['datasalva', 'datasalva_formatada', 'Descrição_Lower', 'embalagem']]
-        if 'Qtd' in cols_to_show and 'Qtd (Caixas)' in cols_to_show:
-            cols_to_show.remove('Qtd (Caixas)')
-            idx_qtd = cols_to_show.index('Qtd')
-            cols_to_show.insert(idx_qtd + 1, 'Qtd (Caixas)')
-            
-        st.dataframe(df_preview[cols_to_show], hide_index=True)
+    else:
+        # Preview
+        st.subheader("Primeiras Linhas do Dia")
+        st.dataframe(
+            df_dia.drop(columns=["datasalva_formatada"]).head(20),
+            use_container_width=True,
+            hide_index=True,
+        )
 
