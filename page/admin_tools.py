@@ -1,138 +1,170 @@
 import streamlit as st
 import pandas as pd
-import gc  # Garbage Collector (Limpeza de memória)
+import os
+import tempfile
+import csv
 from sqlalchemy import text
+import openpyxl
+import gc
 
 # ================================================
-# 🔧 LEITURA OTIMIZADA (MENOS MEMÓRIA)
+# 1. CONVERSOR DE BAIXA MEMÓRIA (STREAMING)
 # ================================================
-def safe_read_excel(uploaded_file):
+def stream_excel_to_csv(uploaded_file):
+    """
+    Converte Excel (.xlsx) para CSV linha por linha, sem carregar tudo na RAM.
+    Retorna o caminho do arquivo CSV temporário.
+    """
     try:
-        filename = uploaded_file.name.lower()
+        # Cria um arquivo temporário no disco
+        temp_csv = tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w', newline='', encoding='utf-8')
+        writer = csv.writer(temp_csv)
         
-        # Ler apenas colunas necessárias e converter tipos para economizar memória
-        # Se possível, especifique dtypes (ex: int32 em vez de int64)
-        if filename.endswith('.xls'):
+        # Se for .xlsx ou .xlsm (usa openpyxl em modo read_only = BAIXA MEMÓRIA)
+        if uploaded_file.name.lower().endswith(('.xlsx', '.xlsm')):
+            wb = openpyxl.load_workbook(uploaded_file, read_only=True, data_only=True)
+            sheet = wb.active
+            
+            # Itera linha a linha (Generator) - O segredo está aqui!
+            first_row = True
+            for row in sheet.iter_rows(values_only=True):
+                if not any(row): continue # Pula linhas vazias
+                
+                # Normaliza o cabeçalho (primeira linha)
+                if first_row:
+                    row = [str(cell).strip().lower() for cell in row if cell is not None]
+                    first_row = False
+                
+                writer.writerow(row)
+            
+            wb.close()
+        
+        # Se for .xls antigo (infelizmente não tem modo streaming nativo bom, usamos pandas padrão)
+        elif uploaded_file.name.lower().endswith('.xls'):
             df = pd.read_excel(uploaded_file, engine='xlrd')
-        else:
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
-        
-        # Normaliza colunas
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        
-        return df
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            df.to_csv(temp_csv.name, index=False)
+            del df
+            
+        temp_csv.close()
+        return temp_csv.name
+
     except Exception as e:
-        st.error(f"Erro de leitura: {e}")
+        st.error(f"Erro na conversão automática: {e}")
         return None
 
 # ================================================
-# 💾 SALVAR COM TRANSAÇÃO SEGURA
+# 2. SALVAR CSV NO BANCO (EM CHUNKS)
 # ================================================
-def save_to_database(engine, df, table_name):
-    if df is None or df.empty:
-        return False
-    
+def process_csv_to_db(engine, csv_path, table_name):
+    """
+    Lê o CSV gerado em pedaços (Chunks) e salva no banco.
+    Isso impede picos de memória.
+    """
     try:
-        # 1. Mapeamento (Igual ao anterior)
+        # Mapeamento de colunas (Para garantir que o Banco entenda)
         rename_map = {}
         if table_name == "mix":
-            for c in df.columns:
-                if "codigo" in c: rename_map[c] = "codigoint"
-                elif "descri" in c or "produto" in c: rename_map[c] = "descricao"
-                elif "emb" in c: rename_map[c] = "embseparacao"
-                elif "loja" in c: rename_map[c] = "loja"
+            base_cols = {'codigoint': 'codigoint', 'codigo': 'codigoint', 
+                         'descricao': 'descricao', 'produto': 'descricao', 
+                         'embseparacao': 'embseparacao', 'emb': 'embseparacao', 'loja': 'loja'}
         elif table_name == "wms":
-            for c in df.columns:
-                if "codigo" in c: rename_map[c] = "codigo"
-                elif "qtd" in c: rename_map[c] = "qtd"
-                elif "data" in c: rename_map[c] = "datasalva"
-                elif "ender" in c: rename_map[c] = "endereco"
+            base_cols = {'codigo': 'codigo', 'qtd': 'qtd', 'data': 'datasalva', 'datasalva': 'datasalva', 'endereco': 'endereco'}
         elif table_name == "historico":
-            for c in df.columns:
-                if "codigo" in c: rename_map[c] = "codigoint"
-                elif "loja" in c: rename_map[c] = "loja"
-                elif "data" in c or "solic" in c: rename_map[c] = "dtsolicitacao"
-                elif "estcx" in c: rename_map[c] = "EstCX"
-                elif "pedcx" in c: rename_map[c] = "PedCX"
+            base_cols = {'codigo': 'codigoint', 'codigoint': 'codigoint', 'loja': 'loja', 
+                         'dtsolicitacao': 'dtsolicitacao', 'data': 'dtsolicitacao',
+                         'estcx': 'EstCX', 'pedcx': 'PedCX'}
+        else:
+            base_cols = {}
 
-        if rename_map:
-            df = df.rename(columns=rename_map)
-
-        # 2. Remove duplicatas de colunas
-        df = df.loc[:, ~df.columns.duplicated()]
-
-        # 3. Otimização de Tipos (Downcasting) para economizar RAM antes do upload
-        for col in df.select_dtypes(include=['float64']).columns:
-            df[col] = pd.to_numeric(df[col], downcast='float')
-        for col in df.select_dtypes(include=['int64']).columns:
-            df[col] = pd.to_numeric(df[col], downcast='integer')
-
-        # 4. Salva no banco
+        # Prepara a transação de banco (Limpa a tabela antiga antes de começar)
         with engine.begin() as conn:
-            # Deleta dados antigos primeiro (mais leve que replace em alguns casos)
-            # conn.execute(text(f"TRUNCATE TABLE {table_name}")) # Cuidado: Truncate é agressivo
+            # Opcional: Limpar tabela antes de inserir
+            # conn.execute(text(f"TRUNCATE TABLE {table_name}")) 
             
-            df.to_sql(
-                table_name, 
-                engine, 
-                if_exists='replace', 
-                index=False, 
-                chunksize=500,  # Reduzi para 500 para ser mais leve ainda
-                method='multi'
-            )
-        
-        # 5. LIMPEZA FORÇADA DE MEMÓRIA
-        del df
-        gc.collect()
+            # Lê o CSV em pedaços de 2000 linhas
+            chunk_size = 2000
+            first_chunk = True
             
+            for chunk in pd.read_csv(csv_path, chunksize=chunk_size):
+                
+                # 1. Renomear colunas dinamicamente
+                cols_to_rename = {}
+                for col in chunk.columns:
+                    for key, val in base_cols.items():
+                        if key in col.lower():
+                            cols_to_rename[col] = val
+                            break
+                
+                if cols_to_rename:
+                    chunk = chunk.rename(columns=cols_to_rename)
+
+                # 2. Remover colunas duplicadas (se houver erro de mapeamento)
+                chunk = chunk.loc[:, ~chunk.columns.duplicated()]
+                
+                # 3. Define se substitui (primeiro lote) ou adiciona (próximos lotes)
+                if first_chunk:
+                    mode = 'replace'
+                    first_chunk = False
+                else:
+                    mode = 'append'
+
+                # 4. Salva no banco
+                chunk.to_sql(table_name, engine, if_exists=mode, index=False, method='multi')
+                
+                # Limpa memória do chunk
+                del chunk
+                gc.collect()
+
         return True
 
     except Exception as e:
-        st.error(f"Erro no banco ({table_name}): {e}")
+        st.error(f"Erro ao salvar no banco: {e}")
         return False
+    finally:
+        # Remove o arquivo CSV temporário do disco para não encher o servidor
+        if os.path.exists(csv_path):
+            os.remove(csv_path)
 
 # ================================================
-# 🔧 INTERFACE
+# 3. INTERFACE DO USUÁRIO
 # ================================================
 def show_admin_tools(engine=None, base_data_path=None):
-    st.title("🔧 Upload Otimizado")
-    st.warning("⚠️ Arquivos grandes podem levar alguns segundos. Não feche a aba.")
+    st.title("🔧 Upload Otimizado (Smart Convert)")
+    st.info("O sistema converterá automaticamente seus arquivos Excel para CSV antes de processar, economizando memória.")
 
     if engine is None:
-        st.error("Sem banco de dados.")
+        st.error("Sem conexão com o banco.")
         return
 
-    # WMS
+    # --- WMS ---
     st.subheader("1. WMS")
-    uploaded_wms = st.file_uploader("Arquivo WMS", type=["xls", "xlsx", "xlsm"], key="wms")
-    if uploaded_wms and st.button("Enviar WMS"):
-        with st.spinner("Processando..."):
-            df = safe_read_excel(uploaded_wms)
-            if save_to_database(engine, df, "wms"):
-                st.success("Sucesso!")
+    file_wms = st.file_uploader("Arquivo WMS", type=["xlsx", "xlsm", "xls"], key="wms")
+    if file_wms and st.button("Processar WMS"):
+        with st.spinner("Convertendo e enviando..."):
+            csv_path = stream_excel_to_csv(file_wms)
+            if csv_path and process_csv_to_db(engine, csv_path, "wms"):
+                st.success("WMS Atualizado!")
                 st.cache_data.clear()
-                gc.collect() # Limpa memória extra
 
-    # Histórico
+    # --- HISTÓRICO ---
     st.markdown("---")
     st.subheader("2. Histórico")
-    uploaded_hist = st.file_uploader("Arquivo Histórico", type=["xls", "xlsx", "xlsm"], key="hist")
-    if uploaded_hist and st.button("Enviar Histórico"):
-        with st.spinner("Processando..."):
-            df = safe_read_excel(uploaded_hist)
-            if save_to_database(engine, df, "historico"):
-                st.success("Sucesso!")
+    file_hist = st.file_uploader("Arquivo Histórico", type=["xlsx", "xlsm", "xls"], key="hist")
+    if file_hist and st.button("Processar Histórico"):
+        with st.spinner("Convertendo e enviando..."):
+            csv_path = stream_excel_to_csv(file_hist)
+            if csv_path and process_csv_to_db(engine, csv_path, "historico"):
+                st.success("Histórico Atualizado!")
                 st.cache_data.clear()
-                gc.collect()
 
-    # Mix
+    # --- MIX ---
     st.markdown("---")
     st.subheader("3. Mix")
-    uploaded_mix = st.file_uploader("Arquivo Mix", type=["xls", "xlsx", "xlsm"], key="mix")
-    if uploaded_mix and st.button("Enviar Mix"):
-        with st.spinner("Processando..."):
-            df = safe_read_excel(uploaded_mix)
-            if save_to_database(engine, df, "mix"):
-                st.success("Sucesso!")
+    file_mix = st.file_uploader("Arquivo Mix", type=["xlsx", "xlsm", "xls"], key="mix")
+    if file_mix and st.button("Processar Mix"):
+        with st.spinner("Convertendo e enviando..."):
+            csv_path = stream_excel_to_csv(file_mix)
+            if csv_path and process_csv_to_db(engine, csv_path, "mix"):
+                st.success("Mix Atualizado!")
                 st.cache_data.clear()
-                gc.collect()
