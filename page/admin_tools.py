@@ -1,170 +1,126 @@
 import streamlit as st
 import pandas as pd
-import os
-import tempfile
-import csv
 from sqlalchemy import text
-import openpyxl
+from datetime import datetime
 import gc
 
 # ================================================
-# 1. CONVERSOR DE BAIXA MEMÓRIA (STREAMING)
+# 🚀 PROCESSAMENTO RÁPIDO E DIRETO
 # ================================================
-def stream_excel_to_csv(uploaded_file):
+def process_file_fast(engine, uploaded_file, table_name):
     """
-    Converte Excel (.xlsx) para CSV linha por linha, sem carregar tudo na RAM.
-    Retorna o caminho do arquivo CSV temporário.
+    Lê o Excel diretamente para a memória (Rápido) e salva no banco.
     """
     try:
-        # Cria um arquivo temporário no disco
-        temp_csv = tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='w', newline='', encoding='utf-8')
-        writer = csv.writer(temp_csv)
-        
-        # Se for .xlsx ou .xlsm (usa openpyxl em modo read_only = BAIXA MEMÓRIA)
-        if uploaded_file.name.lower().endswith(('.xlsx', '.xlsm')):
-            wb = openpyxl.load_workbook(uploaded_file, read_only=True, data_only=True)
-            sheet = wb.active
-            
-            # Itera linha a linha (Generator) - O segredo está aqui!
-            first_row = True
-            for row in sheet.iter_rows(values_only=True):
-                if not any(row): continue # Pula linhas vazias
-                
-                # Normaliza o cabeçalho (primeira linha)
-                if first_row:
-                    row = [str(cell).strip().lower() for cell in row if cell is not None]
-                    first_row = False
-                
-                writer.writerow(row)
-            
-            wb.close()
-        
-        # Se for .xls antigo (infelizmente não tem modo streaming nativo bom, usamos pandas padrão)
-        elif uploaded_file.name.lower().endswith('.xls'):
+        # 1. Leitura Rápida (Pandas Nativo)
+        # Engine openpyxl é o padrão para xlsx/xlsm
+        if uploaded_file.name.endswith('.xls'):
             df = pd.read_excel(uploaded_file, engine='xlrd')
-            df.columns = [str(c).strip().lower() for c in df.columns]
-            df.to_csv(temp_csv.name, index=False)
-            del df
-            
-        temp_csv.close()
-        return temp_csv.name
-
-    except Exception as e:
-        st.error(f"Erro na conversão automática: {e}")
-        return None
-
-# ================================================
-# 2. SALVAR CSV NO BANCO (EM CHUNKS)
-# ================================================
-def process_csv_to_db(engine, csv_path, table_name):
-    """
-    Lê o CSV gerado em pedaços (Chunks) e salva no banco.
-    Isso impede picos de memória.
-    """
-    try:
-        # Mapeamento de colunas (Para garantir que o Banco entenda)
-        rename_map = {}
-        if table_name == "mix":
-            base_cols = {'codigoint': 'codigoint', 'codigo': 'codigoint', 
-                         'descricao': 'descricao', 'produto': 'descricao', 
-                         'embseparacao': 'embseparacao', 'emb': 'embseparacao', 'loja': 'loja'}
-        elif table_name == "wms":
-            base_cols = {'codigo': 'codigo', 'qtd': 'qtd', 'data': 'datasalva', 'datasalva': 'datasalva', 'endereco': 'endereco'}
-        elif table_name == "historico":
-            base_cols = {'codigo': 'codigoint', 'codigoint': 'codigoint', 'loja': 'loja', 
-                         'dtsolicitacao': 'dtsolicitacao', 'data': 'dtsolicitacao',
-                         'estcx': 'EstCX', 'pedcx': 'PedCX'}
         else:
-            base_cols = {}
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
 
-        # Prepara a transação de banco (Limpa a tabela antiga antes de começar)
+        # Normaliza nomes das colunas
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
+        # 2. Mapeamento de Colunas (Garante que o Banco aceite)
+        rename_map = {}
+        
+        if table_name == "mix":
+            for c in df.columns:
+                if "codigo" in c: rename_map[c] = "codigoint"
+                elif "descri" in c or "produto" in c: rename_map[c] = "descricao"
+                elif "emb" in c: rename_map[c] = "embseparacao"
+                elif "loja" in c: rename_map[c] = "loja"
+        
+        elif table_name == "wms":
+            for c in df.columns:
+                if "codigo" in c: rename_map[c] = "codigo"
+                elif "qtd" in c: rename_map[c] = "qtd"
+                elif "data" in c: rename_map[c] = "datasalva"
+                elif "ender" in c: rename_map[c] = "endereco"
+        
+        elif table_name == "historico":
+            for c in df.columns:
+                if "codigo" in c: rename_map[c] = "codigoint"
+                elif "loja" in c: rename_map[c] = "loja"
+                elif "data" in c or "solic" in c: rename_map[c] = "dtsolicitacao"
+                elif "estcx" in c: rename_map[c] = "EstCX"
+                elif "pedcx" in c: rename_map[c] = "PedCX"
+
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        # 3. Remove colunas duplicadas (Segurança)
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        # 4. Salva no Banco
         with engine.begin() as conn:
-            # Opcional: Limpar tabela antes de inserir
-            # conn.execute(text(f"TRUNCATE TABLE {table_name}")) 
-            
-            # Lê o CSV em pedaços de 2000 linhas
-            chunk_size = 2000
-            first_chunk = True
-            
-            for chunk in pd.read_csv(csv_path, chunksize=chunk_size):
-                
-                # 1. Renomear colunas dinamicamente
-                cols_to_rename = {}
-                for col in chunk.columns:
-                    for key, val in base_cols.items():
-                        if key in col.lower():
-                            cols_to_rename[col] = val
-                            break
-                
-                if cols_to_rename:
-                    chunk = chunk.rename(columns=cols_to_rename)
+            # Chunksize 2000 é um bom equilíbrio entre velocidade e estabilidade de rede
+            df.to_sql(table_name, engine, if_exists='replace', index=False, chunksize=2000, method='multi')
 
-                # 2. Remover colunas duplicadas (se houver erro de mapeamento)
-                chunk = chunk.loc[:, ~chunk.columns.duplicated()]
-                
-                # 3. Define se substitui (primeiro lote) ou adiciona (próximos lotes)
-                if first_chunk:
-                    mode = 'replace'
-                    first_chunk = False
-                else:
-                    mode = 'append'
-
-                # 4. Salva no banco
-                chunk.to_sql(table_name, engine, if_exists=mode, index=False, method='multi')
-                
-                # Limpa memória do chunk
-                del chunk
-                gc.collect()
-
+        # Limpa memória imediatamente
+        del df
+        gc.collect()
+        
         return True
 
     except Exception as e:
-        st.error(f"Erro ao salvar no banco: {e}")
+        st.error(f"Erro ao processar {table_name}: {e}")
         return False
-    finally:
-        # Remove o arquivo CSV temporário do disco para não encher o servidor
-        if os.path.exists(csv_path):
-            os.remove(csv_path)
 
 # ================================================
-# 3. INTERFACE DO USUÁRIO
+# 🖥️ INTERFACE (AUTOMÁTICA)
 # ================================================
 def show_admin_tools(engine=None, base_data_path=None):
-    st.title("🔧 Upload Otimizado (Smart Convert)")
-    st.info("O sistema converterá automaticamente seus arquivos Excel para CSV antes de processar, economizando memória.")
+    st.title("⚡ Upload Automático")
+    st.info("Basta selecionar o arquivo. O processamento iniciará automaticamente.")
 
     if engine is None:
         st.error("Sem conexão com o banco.")
         return
 
-    # --- WMS ---
-    st.subheader("1. WMS")
-    file_wms = st.file_uploader("Arquivo WMS", type=["xlsx", "xlsm", "xls"], key="wms")
-    if file_wms and st.button("Processar WMS"):
-        with st.spinner("Convertendo e enviando..."):
-            csv_path = stream_excel_to_csv(file_wms)
-            if csv_path and process_csv_to_db(engine, csv_path, "wms"):
-                st.success("WMS Atualizado!")
-                st.cache_data.clear()
+    # Inicializa histórico de uploads na sessão se não existir
+    if "upload_history" not in st.session_state:
+        st.session_state.upload_history = {}
 
-    # --- HISTÓRICO ---
+    # --- Função auxiliar para o Widget de Upload ---
+    def handle_upload(key_name, table_name, label):
+        uploaded_file = st.file_uploader(label, type=["xlsx", "xlsm", "xls"], key=key_name)
+        
+        if uploaded_file is not None:
+            # Cria uma chave única baseada no nome e tamanho para saber se já processamos esse arquivo específico
+            file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+            
+            # Se ainda não foi processado nesta sessão, processa agora
+            if file_id not in st.session_state.upload_history:
+                with st.status(f"Processando {uploaded_file.name}...", expanded=True) as status:
+                    st.write("Lendo arquivo...")
+                    if process_file_fast(engine, uploaded_file, table_name):
+                        timestamp = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+                        st.session_state.upload_history[file_id] = timestamp
+                        status.update(label="Concluído!", state="complete", expanded=False)
+                        st.cache_data.clear() # Limpa cache para atualizar as consultas
+                        st.rerun() # Atualiza a tela para mostrar o timestamp
+                    else:
+                        status.update(label="Falha no processamento", state="error")
+            
+            # Se já foi processado, mostra quando foi
+            else:
+                ts = st.session_state.upload_history[file_id]
+                st.success(f"✅ **{uploaded_file.name}** processado em: **{ts}**")
+
+    # --- 1. WMS ---
+    st.subheader("1. WMS (Estoque)")
+    handle_upload("u_wms", "wms", "Selecione arquivo WMS")
+
     st.markdown("---")
+
+    # --- 2. Histórico ---
     st.subheader("2. Histórico")
-    file_hist = st.file_uploader("Arquivo Histórico", type=["xlsx", "xlsm", "xls"], key="hist")
-    if file_hist and st.button("Processar Histórico"):
-        with st.spinner("Convertendo e enviando..."):
-            csv_path = stream_excel_to_csv(file_hist)
-            if csv_path and process_csv_to_db(engine, csv_path, "historico"):
-                st.success("Histórico Atualizado!")
-                st.cache_data.clear()
+    handle_upload("u_hist", "historico", "Selecione arquivo Histórico")
 
-    # --- MIX ---
     st.markdown("---")
+
+    # --- 3. Mix ---
     st.subheader("3. Mix")
-    file_mix = st.file_uploader("Arquivo Mix", type=["xlsx", "xlsm", "xls"], key="mix")
-    if file_mix and st.button("Processar Mix"):
-        with st.spinner("Convertendo e enviando..."):
-            csv_path = stream_excel_to_csv(file_mix)
-            if csv_path and process_csv_to_db(engine, csv_path, "mix"):
-                st.success("Mix Atualizado!")
-                st.cache_data.clear()
+    handle_upload("u_mix", "mix", "Selecione arquivo Mix")
