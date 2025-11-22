@@ -92,7 +92,7 @@ def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
 
 # --- Função Principal de Exibição ---
 
-def show_consulta_page(engine, base_data_path):
+def show_consulta_page(engine=None, base_data_path=None):
     """Cria a interface da página de consulta de produtos com busca por descrição."""
     st.title("Consulta de Itens por Descrição/Código")
 
@@ -279,3 +279,4 @@ def show_consulta_page(engine, base_data_path):
             cols_to_show.insert(idx_qtd + 1, 'Qtd (Caixas)')
             
         st.dataframe(df_preview[cols_to_show], hide_index=True)
+
