@@ -1,250 +1,161 @@
-# page/admin_tools.py
 import streamlit as st
-import pandas as pd
-import tempfile
 import os
-import threading
-import traceback
-from concurrent.futures import ThreadPoolExecutor, Future
-from pathlib import Path
-import time
+import pandas as pd
+from datetime import datetime
 
-# ----------------------------
-# Config
-# ----------------------------
-st.set_page_config(page_title="Ferramentas de Admin: Upload de Arquivos", layout="wide")
+# ================================================
+# 🔧 ENGINE FIX — Impede crash durante import no Render
+# ================================================
+SUPPORTED_EXCEL_TYPES = (".xlsx", ".xlsm")
+UNSUPPORTED_TYPES = (".xls",)
 
-# Diretório persistente para os parquet gerados (ajuste conforme necessário)
-OUTPUT_DIR = Path(os.getenv("PROJETOBAK_UPLOADS_DIR", "/tmp/projetobak_uploads"))
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def safe_read_excel(uploaded_file):
+    ext = uploaded_file.name.lower().split(".")[-1]
 
-# Thread pool para processar uploads sem bloquear Streamlit
-_executor = ThreadPoolExecutor(max_workers=3)
+    # Impedir crash com XLS
+    if uploaded_file.name.lower().endswith(".xls"):
+        st.error("❌ Arquivos .xls não são suportados. Converta para .xlsx antes de enviar.")
+        return None
 
-
-# ----------------------------
-# Helpers
-# ----------------------------
-def init_state():
-    if "uploads" not in st.session_state:
-        # estrutura por seção: status, file_info, future, parquet_path, error
-        st.session_state.uploads = {
-            "wms": {"status": "idle", "filename": None, "future": None, "parquet": None, "error": None},
-            "historico": {"status": "idle", "filename": None, "future": None, "parquet": None, "error": None},
-            "mix": {"status": "idle", "filename": None, "future": None, "parquet": None, "error": None},
-        }
+    try:
+        return pd.read_excel(uploaded_file, engine="openpyxl")
+    except Exception as e:
+        st.error(f"Erro ao ler Excel com openpyxl: {e}")
+        return None
 
 
-def write_uploadedfile_to_disk(uploaded_file, suffix=None):
-    """
-    Writes a Streamlit UploadedFile to a temporary file on disk and returns the path.
-    Uses streaming copy to avoid holding extra copies in Python memory.
-    """
-    suffix = suffix or Path(uploaded_file.name).suffix
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        # UploadedFile has .getbuffer() or .read(); we will use .seek/read in chunks
+# ================================================
+# UTILITÁRIOS
+# ================================================
+def get_file_info(file_path):
+    """Retorna data de modificação legível do arquivo."""
+    if os.path.exists(file_path):
+        mod_time = os.path.getmtime(file_path)
+        return datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y às %H:%M:%S')
+    return "Ainda não enviado"
+
+
+def save_file_as_parquet(uploaded_file, target_path_no_ext):
+    """Lê o arquivo Excel e salva como Parquet."""
+    try:
         uploaded_file.seek(0)
-        chunk_size = 1024 * 1024
-        while True:
-            chunk = uploaded_file.read(chunk_size)
-            if not chunk:
-                break
-            tmp.write(chunk)
-        tmp_path = Path(tmp.name)
-    return tmp_path
 
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = safe_read_excel(uploaded_file)
+            if df is None:
+                return False  # erro já exibido
 
-def process_excel_to_parquet(tmp_excel_path: Path, output_basename: str):
-    """
-    Reads an excel file from disk and writes a parquet file to OUTPUT_DIR.
-    Returns the parquet path.
-    """
-    try:
-        # Try reading with pandas
-        # If .xlsm present, engine openpyxl is best effort. For enormous files, this may still be slow.
-        df = pd.read_excel(tmp_excel_path, engine="openpyxl")
-        parquet_path = OUTPUT_DIR / f"{output_basename}.parquet"
-        # To reduce memory overhead, write directly with pandas
+        parquet_path = f"{target_path_no_ext}.parquet"
         df.to_parquet(parquet_path, index=False)
-        return str(parquet_path)
-    except MemoryError as me:
-        raise
+
+        return True
+
     except Exception as e:
-        # propagate with traceback
-        raise
+        st.error(f"Erro ao converter para Parquet: {e}")
+        return False
 
 
-def background_process(section_key: str, uploaded_file):
-    """
-    Function executed in background thread to:
-    - write upload to disk
-    - convert to parquet
-    - update session_state (thread-safe via st.session_state assignments in main thread)
-    NOTE: modifying st.session_state from background threads can be racey; we only store results and rely on main thread to reflect them.
-    """
-    # Mark started time for logging
-    start_ts = time.time()
-    try:
-        tmp_path = write_uploadedfile_to_disk(uploaded_file)
-        # we store temporary filename for debugging
-        result_parquet = process_excel_to_parquet(tmp_path, output_basename=f"{section_key}_{int(start_ts)}")
-        # save result into a small state file so main thread can pick it up
-        st.session_state.uploads[section_key]["parquet"] = result_parquet
-        st.session_state.uploads[section_key]["status"] = "done"
-        st.session_state.uploads[section_key]["error"] = None
-        st.session_state.uploads[section_key]["tmp_path"] = str(tmp_path)
-    except MemoryError:
-        st.session_state.uploads[section_key]["status"] = "error"
-        st.session_state.uploads[section_key]["error"] = "MemoryError: possível estouro de memória ao processar o arquivo."
-        st.session_state.uploads[section_key]["tmp_path"] = str(tmp_path) if 'tmp_path' in locals() else None
-        traceback.print_exc()
-    except Exception as e:
-        st.session_state.uploads[section_key]["status"] = "error"
-        st.session_state.uploads[section_key]["error"] = f"{type(e).__name__}: {str(e)}"
-        st.session_state.uploads[section_key]["tmp_path"] = str(tmp_path) if 'tmp_path' in locals() else None
-        traceback.print_exc()
+def process_automatic_upload(uploaded_file, base_path_no_ext, file_key):
+    """Gerencia upload + conversão automática."""
+    if uploaded_file:
+        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+
+        if st.session_state.get(f"processed_{file_key}") != file_id:
+
+            progress_container = st.empty()
+            progress_bar = progress_container.progress(0, text="Iniciando upload...")
+
+            try:
+                progress_bar.progress(30, text="Lendo arquivo e convertendo para Parquet...")
+
+                if save_file_as_parquet(uploaded_file, base_path_no_ext):
+
+                    progress_bar.progress(100, text="Concluído!")
+                    st.session_state[f"processed_{file_key}"] = file_id
+
+                    st.toast(f"Arquivo {file_key.upper()} otimizado com sucesso!", icon="✅")
+
+                    st.rerun()
+
+            except Exception as e:
+                st.error(f"Erro no processamento: {e}")
+
+            finally:
+                progress_container.empty()
 
 
-def start_background(section_key: str, uploaded_file):
-    """
-    Submete a tarefa ao executor e guarda o Future em session_state.
-    """
-    st.session_state.uploads[section_key]["status"] = "processing"
-    st.session_state.uploads[section_key]["filename"] = uploaded_file.name
-    # submit to executor
-    future: Future = _executor.submit(background_process, section_key, uploaded_file)
-    st.session_state.uploads[section_key]["future"] = future
+# ================================================
+# 🔧 FUNÇÃO PRINCIPAL DA PÁGINA
+# ================================================
+def show_admin_tools(engine=None, base_data_path=None):
+    st.title("🔧 Ferramentas de Admin — Upload de Arquivos")
+    st.info("Envie arquivos .xlsx ou .xlsm. O sistema converte automaticamente para .parquet (rápido).")
 
+    # -------------------------------
+    # 1. WMS
+    # -------------------------------
+    st.subheader("1. WMS (Estoque CD)")
 
-# ----------------------------
-# UI
-# ----------------------------
-init_state()
+    wms_base = os.path.join(base_data_path, "WMS")
+    wms_parquet = wms_base + ".parquet"
 
-st.title("🔧 Ferramentas de Admin: Upload de Arquivos")
-st.info("Arraste os arquivos ou use 'Browse files'. O sistema processará em background e salvará Parquet em disco.")
+    if os.path.exists(wms_parquet):
+        st.caption(f"📅 Última atualização: **{get_file_info(wms_parquet)}**")
+    else:
+        st.caption("⚠️ Arquivo otimizado não encontrado.")
 
-col1, col2 = st.columns([2, 1])
+    uploaded_wms = st.file_uploader(
+        "Selecione o WMS (xlsx, xlsm)",
+        type=["xlsx", "xlsm"],
+        key="wms_uploader"
+    )
 
-with col1:
-    st.header("1. WMS (Estoque CD)")
-    wms_file = st.file_uploader("Selecione o WMS (xls, xlsx, xlsm)", type=["xls", "xlsx", "xlsm"], key="uploader_wms")
-    if wms_file is not None:
-        # botão para iniciar processamento (evita processamento automático repetido)
-        if st.button("Processar WMS", key="btn_process_wms"):
-            start_background("wms", wms_file)
+    process_automatic_upload(uploaded_wms, wms_base, "wms")
 
-    upload_state = st.session_state.uploads["wms"]
-    if upload_state["status"] == "idle":
-        st.info("Arquivo otimizado não encontrado.")
-    elif upload_state["status"] == "processing":
-        st.warning(f"Processando {upload_state.get('filename')}... (em background)")
-        # se houver um future, mostrar se já terminou
-        future = upload_state.get("future")
-        if future is not None:
-            if future.done():
-                # result is stored directly by background_process
-                if upload_state.get("status") == "done":
-                    st.success(f"Processamento finalizado: {upload_state.get('parquet')}")
-                elif upload_state.get("status") == "error":
-                    st.error(f"Erro: {upload_state.get('error')}")
-            else:
-                st.progress(0.2)  # progress visual simples; não temos progresso fino sem instrumentação extra
-    elif upload_state["status"] == "done":
-        st.success(f"Arquivo convertido: {upload_state.get('parquet')}")
-        st.write(f"Arquivo origem temporário (para debug): {upload_state.get('tmp_path')}")
-    elif upload_state["status"] == "error":
-        st.error(f"Erro ao processar: {upload_state.get('error')}")
-        if upload_state.get("tmp_path"):
-            st.write(f"Arquivo temporário em: {upload_state.get('tmp_path')}")
+    st.markdown("---")
 
+    # -------------------------------
+    # 2. Histórico de Solicitações
+    # -------------------------------
+    st.subheader("2. Histórico de Solicitações")
 
-st.markdown("---")
+    hist_base = os.path.join(base_data_path, "historico_solic")
+    hist_parquet = hist_base + ".parquet"
 
-with col1:
-    st.header("2. Histórico de Solicitações")
-    hist_file = st.file_uploader("Selecione o Histórico (xls, xlsx, xlsm)", type=["xls", "xlsx", "xlsm"], key="uploader_hist")
-    if hist_file is not None:
-        if st.button("Processar Histórico", key="btn_process_hist"):
-            start_background("historico", hist_file)
+    if os.path.exists(hist_parquet):
+        st.caption(f"📅 Última atualização: **{get_file_info(hist_parquet)}**")
+    else:
+        st.caption("⚠️ Arquivo otimizado não encontrado.")
 
-    upload_state = st.session_state.uploads["historico"]
-    if upload_state["status"] == "idle":
-        st.info("Arquivo otimizado não encontrado.")
-    elif upload_state["status"] == "processing":
-        st.warning(f"Processando {upload_state.get('filename')}... (em background)")
-        future = upload_state.get("future")
-        if future is not None:
-            if future.done():
-                if upload_state.get("status") == "done":
-                    st.success(f"Processamento finalizado: {upload_state.get('parquet')}")
-                elif upload_state.get("status") == "error":
-                    st.error(f"Erro: {upload_state.get('error')}")
-            else:
-                st.progress(0.15)
-    elif upload_state["status"] == "done":
-        st.success(f"Arquivo convertido: {upload_state.get('parquet')}")
-        st.write(f"Arquivo origem temporário (para debug): {upload_state.get('tmp_path')}")
-    elif upload_state["status"] == "error":
-        st.error(f"Erro ao processar: {upload_state.get('error')}")
-        if upload_state.get("tmp_path"):
-            st.write(f"Arquivo temporário em: {upload_state.get('tmp_path')}")
+    uploaded_hist = st.file_uploader(
+        "Selecione o Histórico (xlsx, xlsm)",
+        type=["xlsx", "xlsm"],
+        key="hist_uploader"
+    )
 
+    process_automatic_upload(uploaded_hist, hist_base, "hist")
 
-st.markdown("---")
+    st.markdown("---")
 
-with col1:
-    st.header("3. Mix Ativo")
-    mix_file = st.file_uploader("Selecione o Mix (xls, xlsx)", type=["xls", "xlsx", "xlsm"], key="uploader_mix")
-    if mix_file is not None:
-        if st.button("Processar Mix", key="btn_process_mix"):
-            start_background("mix", mix_file)
+    # -------------------------------
+    # 3. Mix Ativo
+    # -------------------------------
+    st.subheader("3. Mix Ativo")
 
-    upload_state = st.session_state.uploads["mix"]
-    if upload_state["status"] == "idle":
-        st.info("Arquivo otimizado não encontrado.")
-    elif upload_state["status"] == "processing":
-        st.warning(f"Processando {upload_state.get('filename')}... (em background)")
-        future = upload_state.get("future")
-        if future is not None:
-            if future.done():
-                if upload_state.get("status") == "done":
-                    st.success(f"Processamento finalizado: {upload_state.get('parquet')}")
-                elif upload_state.get("status") == "error":
-                    st.error(f"Erro: {upload_state.get('error')}")
-            else:
-                st.progress(0.1)
-    elif upload_state["status"] == "done":
-        st.success(f"Arquivo convertido: {upload_state.get('parquet')}")
-        st.write(f"Arquivo origem temporário (para debug): {upload_state.get('tmp_path')}")
-    elif upload_state["status"] == "error":
-        st.error(f"Erro ao processar: {upload_state.get('error')}")
-        if upload_state.get("tmp_path"):
-            st.write(f"Arquivo temporário em: {upload_state.get('tmp_path')}")
+    mix_base = os.path.join(base_data_path, "__MixAtivoSistema")
+    mix_parquet = mix_base + ".parquet"
 
+    if os.path.exists(mix_parquet):
+        st.caption(f"📅 Última atualização: **{get_file_info(mix_parquet)}**")
+    else:
+        st.caption("⚠️ Arquivo otimizado não encontrado.")
 
-with col2:
-    st.header("Status & Logs")
-    st.write("Status atual das tarefas:")
-    st.json(st.session_state.uploads)
+    uploaded_mix = st.file_uploader(
+        "Selecione o Mix (xlsx, xlsm)",
+        type=["xlsx", "xlsm"],
+        key="mix_uploader"
+    )
 
-    st.write("Local de saída (parquets):")
-    st.write(str(OUTPUT_DIR))
-
-    st.markdown("**Imagem de referência (screenshot do crash):**")
-    st.write("/mnt/data/b37d9612-adab-40c9-83a2-a1ae457e2a72.png")
-
-# ----------------------------
-# Observações finais/boas práticas
-# ----------------------------
-st.markdown(
-    """
-    **Observações / próximos passos recomendados**
-    - Em produção, rode este app com um worker separado para processamento (ex: enviar jobs a um serviço de fila como Celery/RQ ou a um container separado).
-    - Se os arquivos forem consistentemente grandes (> 10-20MB), prefira:
-       - Pré-processá-los (remover macros, salvar como .csv no cliente) ou
-       - Fazer upload para um storage (S3 / Azure Blob) e processar em worker.
-    - Para progresso real (porcentagem de leitura/transformação), instrumente `process_excel_to_parquet`
-      para salvar checkpoints (por ex. linhas lidas) em disco, mas isso requer leitura em chunks ou conversão via csv intermediário.
-    """
-)
+    process_automatic_upload(uploaded_mix, mix_base, "mix")
