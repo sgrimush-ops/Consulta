@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta, date
-import json
+from datetime import datetime, date
 import re
 import os
 from sqlalchemy import text
@@ -64,7 +63,9 @@ def load_mix_data(base_path_no_ext: str, mod_time: float):
         return df
 
     df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
-    df["Loja"] = df["Loja"].astype(str).zfill(3)
+    
+    # CORREÇÃO AQUI: Adicionado .str antes de .zfill
+    df["Loja"] = df["Loja"].astype(str).str.zfill(3)
 
     if "embseparacao" in df.columns:
         df["embseparacao"] = (
@@ -88,7 +89,10 @@ def load_historico_data(base_path_no_ext: str, mod_time: float):
         return df
 
     df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
-    df["Loja"] = df["Loja"].astype(str).zfill(3)
+    
+    # CORREÇÃO AQUI: Adicionado .str antes de .zfill
+    df["Loja"] = df["Loja"].astype(str).str.zfill(3)
+    
     df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
     df.dropna(subset=["Data"], inplace=True)
 
@@ -139,6 +143,34 @@ def load_active_offers(engine):
     except Exception:
         return pd.DataFrame()
 
+# =========================================================
+#  🔎 BUSCAR HISTÓRICO RECENTE (FUNÇÃO QUE FALTAVA)
+# =========================================================
+def get_recent_orders_display(engine, username):
+    """Busca os últimos 10 pedidos do usuário para exibição rápida."""
+    if engine is None:
+        return pd.DataFrame()
+    
+    try:
+        query = text("""
+            SELECT id, codigo, produto, data_pedido, total_cx, status_aprovacao
+            FROM pedidos_consolidados
+            WHERE usuario_pedido = :user
+            ORDER BY data_pedido DESC
+            LIMIT 10
+        """)
+        
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={"user": username})
+            
+        # Formatar data se existir
+        if not df.empty and "data_pedido" in df.columns:
+            df["data_pedido"] = pd.to_datetime(df["data_pedido"]).dt.strftime('%d/%m/%Y %H:%M')
+            
+        return df
+    except Exception as e:
+        # Retorna vazio se der erro (ex: tabela não existe ainda)
+        return pd.DataFrame()
 
 # =========================================================
 #  💾 SALVAR PEDIDO
@@ -406,6 +438,7 @@ def show_pedidos_page(engine=None, base_data_path=None):
     st.subheader("4. Histórico Recente")
 
     if engine:
+        # Aqui é onde a nova função é chamada
         df_hist_rec = get_recent_orders_display(engine, st.session_state.get("username", ""))
         if not df_hist_rec.empty:
             st.dataframe(df_hist_rec, use_container_width=True, hide_index=True)
