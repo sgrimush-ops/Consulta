@@ -28,7 +28,8 @@ def get_ofertas_atuais(_engine):
         df = pd.read_sql(query, conn, params={"today": today})
     return df
 
-def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
+def show_upload_ofertas_page(engine=None, base_data_path=None):
+    
     """Atualiza um único campo de uma oferta."""
     try:
         with engine.begin() as conn:
