@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import text
+# MUDANÇA: Removido import sqlite3
+from sqlalchemy import text  # MUDANÇA: Adicionado import text
 import io
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 
-# --- Configurações ---
+# MUDANÇA: Removido PEDIDOS_DB_PATH
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
                "007", "008", "011", "012", "013", "014", "017", "018"]
 COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
@@ -26,38 +27,22 @@ def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
         df['embseparacao'] = pd.to_numeric(
             df['embseparacao'], errors='coerce').fillna(0).astype(int)
 
-    # Garante que o código seja numérico para cruzamento com ofertas
-    if 'codigo' in df.columns:
-        df['codigo'] = pd.to_numeric(df['codigo'], errors='coerce').fillna(0).astype(int)
-
     return df
 
-def get_offers_data(engine):
-    """Busca ofertas ativas ou futuras (ignora passadas)."""
-    today = date.today()
-    query = text("""
-        SELECT codigo, data_inicio, data_final
-        FROM ofertas
-        WHERE data_final >= :today
-    """)
-    try:
-        with engine.connect() as conn:
-            df = pd.read_sql_query(query, conn, params={"today": today})
-            # Remove duplicatas (caso haja) mantendo a última vigência
-            df = df.drop_duplicates(subset=['codigo'], keep='last')
-        return df
-    except Exception:
-        return pd.DataFrame(columns=['codigo', 'data_inicio', 'data_final'])
 
+# MUDANÇA: Removido @st.cache_data
+# MUDANÇA: Adicionado 'engine' como argumento
 def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool) -> pd.DataFrame:
     """Busca pedidos para a grade de aprovação, com filtros de data e status."""
     try:
+        # MUDANÇA: Removidas conexões manuais com sqlite
         start_str = datetime.combine(
             date_start, datetime.min.time()).strftime('%Y-%m-%d %H:%M:%S')
         end_str = datetime.combine(
             date_end, datetime.max.time()).strftime('%Y-%m-%d %H:%M:%S')
         lojas_sql = ", ".join(COLUNAS_LOJAS_PEDIDO)
 
+        # MUDANÇA: Query convertida para Postgres (TO_CHAR) e parâmetros nomeados (:param)
         query = text(f"""
             SELECT 
                 id AS id_pedido, 
@@ -77,39 +62,28 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
         params = {"start_str": start_str, "end_str": end_str}
 
         if only_pending:
+            # MUDANÇA: Concatenação de string de query
             query = text(str(query) + " AND status_aprovacao = 'Pendente'")
         
         query = text(str(query) + " ORDER BY data_pedido ASC")
 
-        df_pedidos = pd.read_sql_query(query, con=engine, params=params)
-        df_pedidos = formatar_tipos_df(df_pedidos)
-
-        # --- MUDANÇA: Cruzar com Ofertas ---
-        if not df_pedidos.empty:
-            df_ofertas = get_offers_data(engine)
-            if not df_ofertas.empty:
-                # Merge (Left Join) para trazer info da oferta
-                df_pedidos = pd.merge(df_pedidos, df_ofertas, on='codigo', how='left')
-                
-                # Formata as datas de oferta para string (DD/MM/YYYY)
-                df_pedidos['inicio_oferta'] = pd.to_datetime(df_pedidos['data_inicio']).dt.strftime('%d/%m/%Y').fillna('-')
-                df_pedidos['fim_oferta'] = pd.to_datetime(df_pedidos['data_final']).dt.strftime('%d/%m/%Y').fillna('-')
-            else:
-                df_pedidos['inicio_oferta'] = '-'
-                df_pedidos['fim_oferta'] = '-'
-        
-        return df_pedidos
-
+        df = pd.read_sql_query(query, con=engine, params=params)
+        df = formatar_tipos_df(df)
+        return df
     except Exception as e:
         st.error(f"Erro ao buscar pedidos para aprovação: {e}")
         return pd.DataFrame()
 
 
+# MUDANÇA: Removido @st.cache_data
+# MUDANÇA: Adicionado 'engine' como argumento
 def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
     """Busca TODOS os pedidos 'Aprovados' para o download."""
     try:
+        # MUDANÇA: Removida conexão sqlite
         lojas_sql = ", ".join(COLUNAS_LOJAS_PEDIDO)
         
+        # MUDANÇA: Query convertida para Postgres (TO_CHAR)
         query = text(f"""
             SELECT 
                 id AS id_pedido, 
@@ -137,11 +111,13 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
 #   FUNÇÕES DE ATUALIZAÇÃO
 # ===========================================================
 
+# MUDANÇA: Adicionado 'engine' como argumento
 def update_pedidos_aprovados(engine, df_editado_selecionado):
     """Atualiza o banco com quantidades editadas e aprova os itens."""
     try:
-        data_aprovacao_dt = datetime.now()
+        data_aprovacao_dt = datetime.now() # MUDANÇA: Passar como objeto
         
+        # MUDANÇA: SQL com parâmetros nomeados
         set_lojas_sql = ", ".join(
             [f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
 
@@ -155,6 +131,7 @@ def update_pedidos_aprovados(engine, df_editado_selecionado):
             WHERE id = :id_pedido
         """)
 
+        # MUDANÇA: Construir lista de dicionários para SQLAlchemy
         updates_list = []
         for _, row in df_editado_selecionado.iterrows():
             novas_lojas_vals = {col: int(pd.to_numeric(
@@ -169,20 +146,24 @@ def update_pedidos_aprovados(engine, df_editado_selecionado):
             }
             updates_list.append(params)
 
+        # MUDANÇA: Usar 'engine.begin()' para transação
         with engine.begin() as conn:
             conn.execute(query, updates_list)
             
         return True, f"{len(updates_list)} itens foram aprovados com sucesso."
     
     except Exception as e:
+        # MUDANÇA: Captura de exceção genérica
         return False, f"Erro ao atualizar o banco de dados: {e}"
 
 
+# MUDANÇA: Adicionado 'engine' como argumento
 def rejeitar_pedidos(engine, ids_pedidos: list):
     """Atualiza o status de uma lista de pedidos para 'Rejeitado'."""
     try:
-        data_aprovacao_dt = datetime.now()
+        data_aprovacao_dt = datetime.now() # MUDANÇA: Passar como objeto
 
+        # MUDANÇA: Query com 'IN :ids_list' (SQLAlchemy trata a tupla)
         query = text("""
             UPDATE pedidos_consolidados
             SET 
@@ -193,9 +174,10 @@ def rejeitar_pedidos(engine, ids_pedidos: list):
         
         params = {
             "data_aprovacao": data_aprovacao_dt,
-            "ids_list": tuple(ids_pedidos)
+            "ids_list": tuple(ids_pedidos) # MUDANÇA: Passar como tupla
         }
 
+        # MUDANÇA: Usar 'engine.begin()' para transação
         with engine.begin() as conn:
             conn.execute(query, params)
             
@@ -213,6 +195,7 @@ def to_excel(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='PedidosAprovados')
+        # Formatando colunas (sem alteração)
         worksheet = writer.sheets['PedidosAprovados']
         for idx, col in enumerate(df):
             series = df[col]
@@ -228,6 +211,8 @@ def to_excel(df: pd.DataFrame) -> bytes:
 #   PÁGINA PRINCIPAL
 # ===========================================================
 
+# MUDANÇA: Adicionado 'engine' e 'base_data_path' como argumentos
+# (base_data_path não é usado aqui, mas é necessário para consistência)
 def show_aprovacao_page(engine, base_data_path):
     st.title("📋 Aprovação Detalhada de Pedidos")
     st.info(
@@ -249,6 +234,7 @@ def show_aprovacao_page(engine, base_data_path):
             "Mostrar apenas Pedidos Pendentes", value=True)
     st.markdown("---")
 
+    # MUDANÇA: Passando 'engine'
     df_pedidos_filtrados = get_pedidos_para_aprovacao(
         engine, data_inicio, data_fim, ver_pendentes)
 
@@ -257,11 +243,9 @@ def show_aprovacao_page(engine, base_data_path):
     else:
         df_pedidos_filtrados['Selecionar'] = False
 
-        # MUDANÇA: Adicionadas as novas colunas de oferta na lista de info
         colunas_info = [
             'Selecionar', 'id_pedido', 'data_pedido_str', 'usuario_pedido',
-            'codigo', 'produto', 'inicio_oferta', 'fim_oferta', # <-- Novas Colunas
-            'embseparacao', 'status_item', 'status_aprovacao'
+            'codigo', 'produto', 'embseparacao', 'status_item', 'status_aprovacao'
         ]
         colunas_editaveis = COLUNAS_LOJAS_PEDIDO
         colunas_total = ['total_cx']
@@ -277,9 +261,6 @@ def show_aprovacao_page(engine, base_data_path):
             "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True),
             "codigo": st.column_config.TextColumn("Código", disabled=True),
             "produto": st.column_config.TextColumn("Produto", width="medium", disabled=True),
-            # MUDANÇA: Configuração das colunas de oferta
-            "inicio_oferta": st.column_config.TextColumn("Início Oferta", disabled=True),
-            "fim_oferta": st.column_config.TextColumn("Fim Oferta", disabled=True),
             "embseparacao": st.column_config.NumberColumn("Emb.", disabled=True, format="%d"),
             "status_item": st.column_config.TextColumn("Status Mix", disabled=True),
             "total_cx": st.column_config.NumberColumn("Total CX (Original)", disabled=True, format="%d"),
@@ -321,10 +302,12 @@ def show_aprovacao_page(engine, base_data_path):
                             "Nenhum item 'Pendente' foi selecionado para aprovar.")
                     else:
                         with st.spinner("Aprovando itens..."):
+                            # MUDANÇA: Passando 'engine'
                             success, message = update_pedidos_aprovados(
                                 engine, df_para_aprovar)
                             if success:
                                 st.success(message)
+                                # MUDANÇA: Removido .clear() dos caches
                                 st.rerun()
                             else:
                                 st.error(message)
@@ -341,10 +324,12 @@ def show_aprovacao_page(engine, base_data_path):
                             "Nenhum item 'Pendente' foi selecionado para rejeitar.")
                     else:
                         with st.spinner("Rejeitando itens..."):
+                            # MUDANÇA: Passando 'engine'
                             success, message = rejeitar_pedidos(
                                 engine, ids_para_rejeitar)
                             if success:
                                 st.success(message)
+                                # MUDANÇA: Removido .clear() dos caches
                                 st.rerun()
                             else:
                                 st.error(message)
@@ -359,6 +344,7 @@ def show_aprovacao_page(engine, base_data_path):
     st.caption(
         "Esta seção baixa TODOS os pedidos aprovados, independente do filtro de data acima.")
 
+    # MUDANÇA: Passando 'engine'
     df_aprovados = get_pedidos_aprovados_download(engine)
 
     if df_aprovados.empty:

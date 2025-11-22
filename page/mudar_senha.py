@@ -53,8 +53,7 @@ def update_user_password(engine, username, old_password, new_password):
 
 # --- Função Principal da Página ---
 
-def show_mudar_senha_page(engine=None, base_data_path=None):
-
+def show_mudar_senha_page(engine, base_data_path):
     """Cria a interface da página de alteração de senha."""
     
     st.title("🔑 Alterar Minha Senha")

@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date # MUDANÇA: Importado 'date'
 import json
 import re
 import os
@@ -10,6 +10,9 @@ import numpy as np
 # =========================================================
 #  🧩 CONSTANTES E MAPEAMENTOS
 # =========================================================
+MIX_FILE_PATH = 'data/__MixAtivoSistema.xlsx'
+HIST_FILE_PATH = 'data/historico_solic.xlsm'
+WMS_FILE_PATH = 'data/WMS.xlsm'
 
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
                "007", "008", "011", "012", "013", "014", "017", "018"]
@@ -30,72 +33,42 @@ COLS_WMS_MAP = {
 }
 
 # =========================================================
-#  📂 FUNÇÕES DE LEITURA DE DADOS (OTIMIZADAS)
+#  📂 FUNÇÕES DE LEITURA DE DADOS (COM CACHE)
 # =========================================================
-
-def load_data_optimized(parquet_path, excel_path, usecols_map=None, dtype=None):
-    """Tenta ler Parquet (rápido), cai para Excel (lento) se necessário."""
-    if os.path.exists(parquet_path):
-        # Leitura ultra-rápida
-        df = pd.read_parquet(parquet_path)
-        if usecols_map:
-            # Garante que as colunas existam antes de filtrar
-            cols_to_keep = [c for c in usecols_map.keys() if c in df.columns]
-            df = df[cols_to_keep]
-    else:
-        # Fallback para Excel
-        if excel_path.endswith('.csv'):
-             df = pd.read_csv(excel_path)
-        else:
-             sheet = 'WMS' if 'WMS' in excel_path else 0
-             cols = list(usecols_map.keys()) if usecols_map else None
-             df = pd.read_excel(excel_path, sheet_name=sheet, usecols=cols, dtype=dtype)
-    return df
-
+# MUDANÇA: Adicionado 'mod_time' para quebrar o cache em novo upload
 @st.cache_data
-def load_mix_data(base_path_no_ext: str, mod_time: float):
-    """Carrega dados do Mix (Prioriza Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsx"
-    
+def load_mix_data(file_path: str, mod_time: float):
+    """Carrega dados do Mix de produtos."""
     try:
-        df = load_data_optimized(parquet_path, excel_path, dtype=str)
-        cols_renomear = {k:v for k,v in COLS_MIX_MAP.items() if k in df.columns}
-        df.rename(columns=cols_renomear, inplace=True)
-        
+        df = pd.read_excel(file_path, dtype=str)
+        df.rename(columns=COLS_MIX_MAP, inplace=True)
         df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce').fillna(0).astype(int)
-        
-        if 'embseparacao' in df.columns:
-             df['embseparacao'] = pd.to_numeric(
-                df['embseparacao'].astype(str).str.split(',').str[0].str.strip(),
-                errors='coerce'
-            ).fillna(0).astype(int)
-            
+        df['embseparacao'] = pd.to_numeric(
+            df['embseparacao'].astype(str).str.split(
+                ',').str[0].str.split('.').str[0].str.strip(),
+            errors='coerce'
+        ).fillna(0).astype(int)
         df['Loja'] = df['Loja'].astype(str).str.zfill(3)
         return df
     except Exception as e:
         st.error(f"Erro ao carregar Mix: {e}")
         return pd.DataFrame()
 
+# MUDANÇA: Adicionado 'mod_time' para quebrar o cache em novo upload
 @st.cache_data
-def load_historico_data(base_path_no_ext: str, mod_time: float):
-    """Carrega dados do Histórico (Prioriza Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsm" 
-    
+def load_historico_data(file_path: str, mod_time: float):
+    """MUDANÇA: Carrega dados do Histórico, incluindo colunas G a K."""
     try:
-        df = load_data_optimized(parquet_path, excel_path, usecols_map=COLS_HIST_MAP)
-        cols_renomear = {k:v for k,v in COLS_HIST_MAP.items() if k in df.columns}
-        df.rename(columns=cols_renomear, inplace=True)
-
+        use_cols = list(COLS_HIST_MAP.keys())
+        df = pd.read_excel(file_path, sheet_name=0, usecols=use_cols)
+        df.rename(columns=COLS_HIST_MAP, inplace=True)
         df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce').fillna(0).astype(int)
         df['Loja'] = df['Loja'].astype(str).str.zfill(3)
         df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
         
         metric_cols = ['Estoque_G', 'Pedido_H', 'Venda_I', 'Venda_J', 'Venda_K']
         for col in metric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
         df.dropna(subset=['Data'], inplace=True)
         return df
@@ -103,33 +76,29 @@ def load_historico_data(base_path_no_ext: str, mod_time: float):
         st.error(f"Erro ao carregar Histórico: {e}")
         return pd.DataFrame()
 
+# MUDANÇA: Adicionado 'mod_time' para quebrar o cache em novo upload
 @st.cache_data
-def load_wms_data(base_path_no_ext: str, mod_time: float):
-    """Carrega dados do WMS (Prioriza Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsm"
-    
+def load_wms_data(file_path: str, mod_time: float):
+    """MUDANÇA: Carrega dados do WMS e filtra pelo último dia de upload."""
     try:
-        df = load_data_optimized(parquet_path, excel_path, usecols_map=COLS_WMS_MAP)
-        cols_renomear = {k:v for k,v in COLS_WMS_MAP.items() if k in df.columns}
-        df.rename(columns=cols_renomear, inplace=True)
+        df = pd.read_excel(file_path, sheet_name='WMS', usecols=COLS_WMS_MAP.keys())
+        df.rename(columns=COLS_WMS_MAP, inplace=True)
         
         df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce').fillna(0).astype(int)
         df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
         df['Qtd_CD'] = pd.to_numeric(df['Qtd_CD'], errors='coerce').fillna(0)
         df.dropna(subset=['Data'], inplace=True)
 
-        if not df.empty:
-            latest_date = df['Data'].max()
-            df_latest = df[df['Data'] == latest_date]
-            return df_latest
-        return df
+        latest_date = df['Data'].max()
+        df_latest = df[df['Data'] == latest_date]
+        return df_latest
         
     except Exception as e:
         st.error(f"Erro ao carregar WMS: {e}")
         return pd.DataFrame(columns=['Codigo', 'Qtd_CD', 'Data'])
 
-@st.cache_data(ttl=300)
+# MUDANÇA: Nova função para carregar ofertas ativas
+@st.cache_data(ttl=300) # Cache de 5 minutos
 def load_active_offers(_engine):
     """Busca ofertas do banco de dados que estão ativas hoje OU no futuro."""
     today = date.today()
@@ -137,21 +106,21 @@ def load_active_offers(_engine):
         SELECT codigo, oferta, data_inicio, data_final
         FROM ofertas
         WHERE data_final >= :today
-    """)
+    """) # MUDANÇA: Removido 'data_inicio' para pegar também ofertas futuras
     try:
         with _engine.connect() as conn:
             df = pd.read_sql(query, conn, params={"today": today})
         
+        # Indexa por código para busca rápida. Remove duplicados se houver.
         if not df.empty:
-            # Remove duplicatas mantendo a última inserção
             df = df.drop_duplicates(subset=['codigo'], keep='last').set_index('codigo')
         return df
     except Exception as e:
-        # Em caso de erro (ex: tabela não existe ainda), retorna vazio sem quebrar
+        st.error(f"Erro ao carregar ofertas: {e}")
         return pd.DataFrame()
 
 # =========================================================
-#  💾 SALVAR PEDIDO
+#  💾 SALVAR PEDIDO NO BANCO (Sem alterações)
 # =========================================================
 def save_order_to_db(engine, pedido_final: list[dict]):
     try:
@@ -194,7 +163,7 @@ def save_order_to_db(engine, pedido_final: list[dict]):
         return False
 
 # =========================================================
-#  📊 HISTÓRICO DE PEDIDOS
+#  📊 HISTÓRICO DE PEDIDOS (Sem alterações)
 # =========================================================
 def get_recent_orders_display(engine, username: str) -> pd.DataFrame:
     try:
@@ -228,30 +197,28 @@ def show_pedidos_page(engine, base_data_path):
     if 'pedido_atual' not in st.session_state:
         st.session_state.pedido_atual = []
 
-    # Caminhos base (sem extensão)
-    mix_base = os.path.join(base_data_path, "__MixAtivoSistema")
-    hist_base = os.path.join(base_data_path, "historico_solic")
-    wms_base = os.path.join(base_data_path, "WMS")
+    mix_file_path = os.path.join(base_data_path, "__MixAtivoSistema.xlsx")
+    hist_file_path = os.path.join(base_data_path, "historico_solic.xlsm")
+    wms_file_path = os.path.join(base_data_path, "WMS.xlsm")
     
-    # Verifica modificação para quebrar cache
-    def get_mod_time(base_path, ext):
-        if os.path.exists(f"{base_path}.parquet"):
-            return os.path.getmtime(f"{base_path}.parquet")
-        elif os.path.exists(f"{base_path}.{ext}"):
-             return os.path.getmtime(f"{base_path}.{ext}")
-        return 0.0
-
+    # MUDANÇA: Obter a data de modificação dos arquivos
     try:
-        mix_mod = get_mod_time(mix_base, "xlsx")
-        hist_mod = get_mod_time(hist_base, "xlsm")
-        wms_mod = get_mod_time(wms_base, "xlsm")
-    except Exception:
-        mix_mod, hist_mod, wms_mod = 0.0, 0.0, 0.0
+        mix_mod_time = os.path.getmtime(mix_file_path)
+        hist_mod_time = os.path.getmtime(hist_file_path)
+        wms_mod_time = os.path.getmtime(wms_file_path)
+    except FileNotFoundError:
+        st.error("Arquivos de dados (Mix, WMS ou Histórico) não encontrados. Faça o upload na página 'Atualização de Dependências'.")
+        return
+    except Exception as e:
+        st.error(f"Erro ao verificar arquivos de dados: {e}")
+        return
     
-    df_mix = load_mix_data(mix_base, mix_mod)
-    df_hist = load_historico_data(hist_base, hist_mod)
-    df_wms = load_wms_data(wms_base, wms_mod) 
-    df_ofertas = load_active_offers(engine)
+    # Carrega todos os dados (funções cacheadas)
+    # MUDANÇA: Passa os 'mod_time' para quebrar o cache
+    df_mix = load_mix_data(mix_file_path, mix_mod_time)
+    df_hist = load_historico_data(hist_file_path, hist_mod_time)
+    df_wms = load_wms_data(wms_file_path, wms_mod_time) 
+    df_ofertas = load_active_offers(engine) # MUDANÇA: Carrega ofertas ativas
 
     if df_mix.empty:
         st.warning("Falha ao carregar o Mix de Produtos.")
@@ -265,10 +232,12 @@ def show_pedidos_page(engine, base_data_path):
     st.subheader("1. Buscar Produto")
     df_mix_user = df_mix[df_mix['Loja'].isin(lojas_user)].copy()
 
+    # MUDANÇA: Ordem das abas alterada
     tab_cod, tab_prod, tab_ean = st.tabs(["Por Código", "Por Produto", "Por EAN"])
     prod_sel = None
 
     with tab_cod:
+        # Lógica da "Por Código" (veio primeiro)
         busca_cod = st.text_input("Código:")
         if busca_cod:
             try:
@@ -282,6 +251,7 @@ def show_pedidos_page(engine, base_data_path):
                 st.warning("Código deve ser numérico.")
 
     with tab_prod:
+        # Lógica da "Por Produto" (veio em segundo)
         busca_nome = st.text_input("Nome do Produto:")
         if busca_nome:
             res = df_mix_user[df_mix_user['Produto'].str.contains(
@@ -297,6 +267,7 @@ def show_pedidos_page(engine, base_data_path):
                 prod_sel = df_mix[df_mix['Codigo'] == cod].iloc[0]
 
     with tab_ean:
+        # Lógica da "Por EAN" (veio em terceiro)
         busca_ean = st.text_input("EAN:")
         if busca_ean:
             res = df_mix[df_mix['EAN'] == busca_ean.strip()]
@@ -304,6 +275,7 @@ def show_pedidos_page(engine, base_data_path):
                 prod_sel = res.iloc[0]
             else:
                 st.warning("EAN não encontrado.")
+    # FIM DA MUDANÇA DE ORDEM
 
     st.markdown("---")
 
@@ -313,7 +285,7 @@ def show_pedidos_page(engine, base_data_path):
         cod = int(prod_sel['Codigo'])
         emb = int(prod_sel.get('embseparacao', 0))
 
-        # Estoque CD
+        # Lógica do Estoque CD (barra azul)
         stock_cd_units = df_wms[df_wms['Codigo'] == cod]['Qtd_CD'].sum()
         stock_display = "Esta em falta"
         
@@ -322,39 +294,47 @@ def show_pedidos_page(engine, base_data_path):
             if stock_cd_cases > 0:
                 stock_display = f"{stock_cd_cases:,.0f} CX"
         
+        # Barra de informação padrão
         st.info(f"**Item:** {prod_sel['Produto']} (Cód: {cod}) | **Emb:** {emb} un/cx | **Estoque CD:** {stock_display}")
         
-        # Ofertas
+        # MUDANÇA: Lógica para buscar e exibir a oferta (ativa OU futura)
         try:
-            today = date.today()
+            today = date.today() # Pega a data de hoje
             if not df_ofertas.empty and cod in df_ofertas.index:
+                # .loc[cod] pega a linha onde o índice é o código do produto
                 oferta_data = df_ofertas.loc[cod] 
-                if isinstance(oferta_data, pd.DataFrame):
-                     oferta_data = oferta_data.iloc[-1]
-                
                 preco = f"R$ {oferta_data['oferta']:.2f}"
-                inicio = oferta_data['data_inicio']
-                fim = oferta_data['data_final']
+                inicio = oferta_data['data_inicio'] # Pega como objeto data
+                fim = oferta_data['data_final']       # Pega como objeto data
                 
                 inicio_str = inicio.strftime('%d/%m')
                 fim_str = fim.strftime('%d/%m/%Y')
                 
                 if today >= inicio:
+                    # A oferta está ativa HOJE
                     st.success(f"🛍️ **OFERTA ATIVA:** Este item está em promoção por **{preco}** (Vigência: de {inicio_str} até {fim_str})")
                 else:
+                    # A oferta é FUTURA
                     st.warning(f"📣 **OFERTA FUTURA:** Este item entrará em promoção por **{preco}** (Vigência: de {inicio_str} até {fim_str})")
         except Exception as e:
+            # Se der erro (ex: múltiplas ofertas, o que não deve acontecer), ignora
             pass 
+        # FIM DA MUDANÇA DA OFERTA
 
-        # Dados Históricos
+        # Preparar dados históricos para o item
         if not df_hist.empty:
             latest_hist_date = df_hist['Data'].max()
-            df_hist_item_raw = df_hist[
+            df_hist_item_raw = df_hist[ # MUDANÇA: Renomeado para 'raw'
                 (df_hist['Codigo'] == cod) & 
                 (df_hist['Data'] == latest_hist_date)
             ]
+            
+            # MUDANÇA: Remove duplicatas por 'Loja', mantendo a primeira ocorrência
+            # Isso garante que o índice 'Loja' será único
             df_hist_item = df_hist_item_raw.drop_duplicates(subset=['Loja'], keep='first')
-            hist_item_map = df_hist_item.set_index('Loja').to_dict('index')
+            
+            # Agora .set_index('Loja') é seguro
+            hist_item_map = df_hist_item.set_index('Loja').to_dict('index') 
             data_atualizacao = latest_hist_date.strftime('%d/%m/%Y')
         else:
             hist_item_map = {}
@@ -368,7 +348,7 @@ def show_pedidos_page(engine, base_data_path):
                 col_render = cols[i % len(cols)]
                 
                 sugestao_int = 0
-                caption_text = f"Sem dados (Atu: {data_atualizacao})"
+                caption_text = f"Sem dados históricos (Atu: {data_atualizacao})"
                 
                 if loja in hist_item_map:
                     row = hist_item_map[loja]

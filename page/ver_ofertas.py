@@ -28,8 +28,7 @@ def get_ofertas_atuais(_engine):
         df = pd.read_sql(query, conn, params={"today": today})
     return df
 
-def show_upload_ofertas_page(engine=None, base_data_path=None):
-    
+def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
     """Atualiza um único campo de uma oferta."""
     try:
         with engine.begin() as conn:
@@ -81,8 +80,6 @@ def show_ver_ofertas_page(engine, base_data_path):
     # Define se o usuário pode editar
     pode_editar = (role == 'admin') or (role == 'mkt')
 
-    # MUDANÇA: Passa 'engine' como '_engine' (implícito pelo decorador @st.cache_data)
-    # Na chamada, usamos o objeto engine normal.
     df_ofertas = get_ofertas_atuais(engine)
     
     if df_ofertas.empty:
@@ -131,6 +128,7 @@ def show_ver_ofertas_page(engine, base_data_path):
         # --- Lógica para Salvar Mudanças ---
         if df_editado is not None:
             # 1. Processar Deleções
+            # (Precisamos processar deleções primeiro)
             ids_para_deletar = df_editado[df_editado["Deletar"] == True]["id"]
             if not ids_para_deletar.empty:
                 for id_oferta in ids_para_deletar:
@@ -140,31 +138,33 @@ def show_ver_ofertas_page(engine, base_data_path):
                 st.rerun()
 
             # 2. Processar Edições
+            # Compara o DataFrame editado com o original
             try:
-                # Compara se houve mudança
-                if not df_editado.equals(st.session_state.df_ofertas_original):
-                    # Encontra linhas diferentes
-                    # (Lógica simplificada: itera e compara)
-                    for index, linha in df_editado.iterrows():
-                        if index not in st.session_state.df_ofertas_original.index:
-                            continue
-                            
-                        linha_original = st.session_state.df_ofertas_original.loc[index]
+                # 'ne' faz a comparação elemento a elemento
+                mudancas = (df_editado != st.session_state.df_ofertas_original).any(axis=1)
+                linhas_mudadas = df_editado[mudancas]
+                
+                if not linhas_mudadas.empty:
+                    for index, linha in linhas_mudadas.iterrows():
+                        id_mudado = linha['id']
+                        # Compara cada coluna da linha mudada com a original
+                        original_linha = st.session_state.df_ofertas_original.loc[index]
                         
-                        # Se marcou deletar, ignora edição
-                        if linha['Deletar']: continue
-
-                        for col in ['codigo', 'produto', 'oferta', 'data_inicio', 'data_final']:
-                            if linha[col] != linha_original[col]:
-                                update_oferta_no_banco(engine, linha['id'], col, linha[col])
-                                st.toast(f"Oferta {linha['codigo']} atualizada!", icon="✅")
+                        for col_nome in df_editado.columns:
+                            if col_nome == 'Deletar' or col_nome == 'id':
+                                continue # Ignora colunas de controle
+                                
+                            if linha[col_nome] != original_linha[col_nome]:
+                                # Achamos a célula que mudou!
+                                update_oferta_no_banco(engine, id_mudado, col_nome, linha[col_nome])
+                                st.success(f"Oferta ID {id_mudado} atualizada (Campo: {col_nome}).")
                     
-                    # Atualiza o estado original
-                    st.session_state.df_ofertas_original = df_editado.copy()
-                    # st.rerun() # Opcional: recarregar para confirmar
+                    st.session_state.df_ofertas_original = None # Força recarregar
+                    st.rerun()
 
-            except Exception:
-                pass 
+            except Exception as e:
+                # Isso pode falhar se as colunas mudarem (ex: após deleção)
+                pass # Ignora erros de comparação de dataframe
 
     else:
         # --- Visão Somente Leitura (Usuário Padrão) ---
