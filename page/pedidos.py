@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, date
 import json
 import re
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 import numpy as np
 
 # =========================================================
@@ -33,273 +33,253 @@ COLS_WMS_MAP = {
 #  📂 FUNÇÕES DE LEITURA DE DADOS (OTIMIZADAS)
 # =========================================================
 
+def safe_load_parquet_or_excel(parquet_path, excel_path, usecols=None):
+    """Leitura segura com fallback e proteção de erros."""
+    try:
+        if os.path.exists(parquet_path):
+            return pd.read_parquet(parquet_path)
+        if excel_path.endswith(".csv"):
+            return pd.read_csv(excel_path)
+        return pd.read_excel(excel_path, engine="openpyxl", usecols=usecols)
+    except Exception:
+        return pd.DataFrame()
+
 def load_data_optimized(parquet_path, excel_path, usecols_map=None, dtype=None):
-    """Tenta ler Parquet (rápido), cai para Excel (lento) se necessário."""
-    if os.path.exists(parquet_path):
-        # Leitura ultra-rápida
-        df = pd.read_parquet(parquet_path)
-        if usecols_map:
-            # Garante que as colunas existam antes de filtrar
-            cols_to_keep = [c for c in usecols_map.keys() if c in df.columns]
-            df = df[cols_to_keep]
-    else:
-        # Fallback para Excel
-        if excel_path.endswith('.csv'):
-             df = pd.read_csv(excel_path)
-        else:
-             sheet = 'WMS' if 'WMS' in excel_path else 0
-             cols = list(usecols_map.keys()) if usecols_map else None
-             df = pd.read_excel(excel_path, sheet_name=sheet, usecols=cols, dtype=dtype)
+    """Tenta ler Parquet rapidamente, cai pra Excel se necessário."""
+    df = safe_load_parquet_or_excel(parquet_path, excel_path, usecols=list(usecols_map.keys()) if usecols_map else None)
+    if df.empty:
+        return df
+    if usecols_map:
+        cols = {k: v for k, v in usecols_map.items() if k in df.columns}
+        df.rename(columns=cols, inplace=True)
     return df
 
 @st.cache_data
 def load_mix_data(base_path_no_ext: str, mod_time: float):
-    """Carrega dados do Mix (Prioriza Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsx"
-    
-    try:
-        df = load_data_optimized(parquet_path, excel_path, dtype=str)
-        cols_renomear = {k:v for k,v in COLS_MIX_MAP.items() if k in df.columns}
-        df.rename(columns=cols_renomear, inplace=True)
-        
-        df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce').fillna(0).astype(int)
-        
-        if 'embseparacao' in df.columns:
-             df['embseparacao'] = pd.to_numeric(
-                df['embseparacao'].astype(str).str.split(',').str[0].str.strip(),
-                errors='coerce'
-            ).fillna(0).astype(int)
-            
-        df['Loja'] = df['Loja'].astype(str).str.zfill(3)
+    parquet = f"{base_path_no_ext}.parquet"
+    excel = f"{base_path_no_ext}.xlsx"
+    df = load_data_optimized(parquet, excel, usecols_map=COLS_MIX_MAP)
+
+    if df.empty:
         return df
-    except Exception as e:
-        st.error(f"Erro ao carregar Mix: {e}")
-        return pd.DataFrame()
+
+    df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
+    df["Loja"] = df["Loja"].astype(str).zfill(3)
+
+    if "embseparacao" in df.columns:
+        df["embseparacao"] = (
+            df["embseparacao"]
+            .astype(str)
+            .str.split(",")
+            .str[0]
+            .str.strip()
+        )
+        df["embseparacao"] = pd.to_numeric(df["embseparacao"], errors="coerce").fillna(0).astype(int)
+
+    return df
 
 @st.cache_data
 def load_historico_data(base_path_no_ext: str, mod_time: float):
-    """Carrega dados do Histórico (Prioriza Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsm" 
-    
-    try:
-        df = load_data_optimized(parquet_path, excel_path, usecols_map=COLS_HIST_MAP)
-        cols_renomear = {k:v for k,v in COLS_HIST_MAP.items() if k in df.columns}
-        df.rename(columns=cols_renomear, inplace=True)
+    parquet = f"{base_path_no_ext}.parquet"
+    excel = f"{base_path_no_ext}.xlsm"
+    df = load_data_optimized(parquet, excel, usecols_map=COLS_HIST_MAP)
 
-        df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce').fillna(0).astype(int)
-        df['Loja'] = df['Loja'].astype(str).str.zfill(3)
-        df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
-        
-        metric_cols = ['Estoque_G', 'Pedido_H', 'Venda_I', 'Venda_J', 'Venda_K']
-        for col in metric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
-        df.dropna(subset=['Data'], inplace=True)
+    if df.empty:
         return df
-    except Exception as e:
-        st.error(f"Erro ao carregar Histórico: {e}")
-        return pd.DataFrame()
+
+    df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
+    df["Loja"] = df["Loja"].astype(str).zfill(3)
+    df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
+    df.dropna(subset=["Data"], inplace=True)
+
+    for c in ["Estoque_G", "Pedido_H", "Venda_I", "Venda_J", "Venda_K"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
+    return df
 
 @st.cache_data
 def load_wms_data(base_path_no_ext: str, mod_time: float):
-    """Carrega dados do WMS (Prioriza Parquet)."""
-    parquet_path = f"{base_path_no_ext}.parquet"
-    excel_path = f"{base_path_no_ext}.xlsm"
-    
-    try:
-        df = load_data_optimized(parquet_path, excel_path, usecols_map=COLS_WMS_MAP)
-        cols_renomear = {k:v for k,v in COLS_WMS_MAP.items() if k in df.columns}
-        df.rename(columns=cols_renomear, inplace=True)
-        
-        df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce').fillna(0).astype(int)
-        df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
-        df['Qtd_CD'] = pd.to_numeric(df['Qtd_CD'], errors='coerce').fillna(0)
-        df.dropna(subset=['Data'], inplace=True)
+    parquet = f"{base_path_no_ext}.parquet"
+    excel = f"{base_path_no_ext}.xlsm"
+    df = load_data_optimized(parquet, excel, usecols_map=COLS_WMS_MAP)
 
-        if not df.empty:
-            latest_date = df['Data'].max()
-            df_latest = df[df['Data'] == latest_date]
-            return df_latest
+    if df.empty:
         return df
-        
-    except Exception as e:
-        st.error(f"Erro ao carregar WMS: {e}")
-        return pd.DataFrame(columns=['Codigo', 'Qtd_CD', 'Data'])
+
+    df["Codigo"] = pd.to_numeric(df["Codigo"], errors="coerce").fillna(0).astype(int)
+    df["Qtd_CD"] = pd.to_numeric(df["Qtd_CD"], errors="coerce").fillna(0)
+    df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
+    df.dropna(subset=["Data"], inplace=True)
+
+    if not df.empty:
+        last = df["Data"].max()
+        df = df[df["Data"] == last]
+
+    return df
 
 @st.cache_data(ttl=300)
-def load_active_offers(_engine):
-    """Busca ofertas do banco de dados que estão ativas hoje OU no futuro."""
+def load_active_offers(engine):
+    if engine is None:
+        return pd.DataFrame()
+
     today = date.today()
-    query = text("""
+    q = text("""
         SELECT codigo, oferta, data_inicio, data_final
         FROM ofertas
         WHERE data_final >= :today
     """)
+
     try:
-        with _engine.connect() as conn:
-            df = pd.read_sql(query, conn, params={"today": today})
-        
+        with engine.connect() as conn:
+            df = pd.read_sql(q, conn, params={"today": today})
         if not df.empty:
-            # Remove duplicatas mantendo a última inserção
-            df = df.drop_duplicates(subset=['codigo'], keep='last').set_index('codigo')
+            df = df.drop_duplicates(subset=["codigo"], keep="last").set_index("codigo")
         return df
-    except Exception as e:
-        # Em caso de erro (ex: tabela não existe ainda), retorna vazio sem quebrar
+    except Exception:
         return pd.DataFrame()
+
 
 # =========================================================
 #  💾 SALVAR PEDIDO
 # =========================================================
-def save_order_to_db(engine, pedido_final: list[dict]):
+def save_order_to_db(engine, pedido_final):
+    if engine is None:
+        st.error("Sem conexão com banco.")
+        return False
+
     try:
         data_pedido = datetime.now()
-        usuario = st.session_state.get('username', 'desconhecido')
-        cols_lojas = ", ".join([f"loja_{l}" for l in LISTA_LOJAS])
-        params_lojas = ", ".join([f":loja_{l}" for l in LISTA_LOJAS])
+        usuario = st.session_state.get("username", "desconhecido")
+
+        cols = ", ".join([f"loja_{l}" for l in LISTA_LOJAS])
+        params = ", ".join([f":loja_{l}" for l in LISTA_LOJAS])
 
         query = text(f"""
-            INSERT INTO pedidos_consolidados (
-                codigo, produto, ean, embseparacao,
-                data_pedido, data_aprovacao, usuario_pedido,
-                status_item, {cols_lojas}, total_cx, status_aprovacao
-            ) VALUES (
-                :codigo, :produto, :ean, :embseparacao,
-                :data_pedido, :data_aprovacao, :usuario_pedido,
-                :status_item, {params_lojas}, :total_cx, :status_aprovacao
-            )
+            INSERT INTO pedidos_consolidados
+            (codigo, produto, ean, embseparacao,
+             data_pedido, data_aprovacao, usuario_pedido,
+             status_item, {cols}, total_cx, status_aprovacao)
+            VALUES
+            (:codigo, :produto, :ean, :embseparacao,
+             :data_pedido, NULL, :usuario_pedido,
+             :status_item, {params}, :total_cx, 'Pendente')
         """)
 
         params_list = []
         for item in pedido_final:
-            vals_lojas = {f"loja_{l}": item.get(
-                f"loja_{l}", 0) for l in LISTA_LOJAS}
-            emb_val = int(pd.to_numeric(
-                item.get("embseparacao", 0), errors="coerce") or 0)
-            
+            lojas_vals = {f"loja_{l}": item.get(f"loja_{l}", 0) for l in LISTA_LOJAS}
             params_list.append({
-                "codigo": item["Codigo"], "produto": item["Produto"], "ean": item["EAN"],
-                "embseparacao": emb_val, "data_pedido": data_pedido, "data_aprovacao": None,
-                "usuario_pedido": usuario, "status_item": item["Status"],
-                **vals_lojas, "total_cx": item["Total_CX"], "status_aprovacao": "Pendente"
+                "codigo": item["Codigo"],
+                "produto": item["Produto"],
+                "ean": item["EAN"],
+                "embseparacao": int(item.get("embseparacao", 0)),
+                "data_pedido": data_pedido,
+                "usuario_pedido": usuario,
+                "status_item": item["Status"],
+                "total_cx": item["Total_CX"],
+                **lojas_vals
             })
 
         with engine.begin() as conn:
             conn.execute(query, params_list)
+
         return True
+
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+        st.error(f"Erro ao salvar pedido: {e}")
         return False
 
-# =========================================================
-#  📊 HISTÓRICO DE PEDIDOS
-# =========================================================
-def get_recent_orders_display(engine, username: str) -> pd.DataFrame:
-    try:
-        dt_lim = (datetime.now() - timedelta(days=3)
-                  ).strftime('%Y-%m-%d 00:00:00')
-        q = text("""
-            SELECT codigo AS "Cód", produto AS "Produto",
-                   embseparacao AS "Emb", total_cx AS "Total",
-                   status_aprovacao AS "Status",
-                   data_pedido AS "Data"
-            FROM pedidos_consolidados
-            WHERE usuario_pedido = :username
-              AND data_pedido >= :dt_lim
-            ORDER BY data_pedido DESC
-        """)
-        df = pd.read_sql_query(q, con=engine, params={
-                               "username": username, "dt_lim": dt_lim})
-        df["Emb"] = pd.to_numeric(
-            df["Emb"], errors='coerce').fillna(0).astype(int)
-        return df
-    except Exception as e:
-        st.error(f"Erro ao ler histórico: {e}")
-        return pd.DataFrame()
 
 # =========================================================
 #  🧭 INTERFACE PRINCIPAL
 # =========================================================
-def show_pedidos_page(engine, base_data_path):
+def show_pedidos_page(engine=None, base_data_path=None):
     st.title("🛒 Digitação de Pedidos")
 
-    if 'pedido_atual' not in st.session_state:
+    if engine is None:
+        st.warning("⚠️ Sem conexão com banco. Algumas funções ficarão limitadas.")
+
+    if base_data_path is None:
+        st.error("Caminho base dos dados não informado.")
+        return
+
+    if "pedido_atual" not in st.session_state:
         st.session_state.pedido_atual = []
 
-    # Caminhos base (sem extensão)
+    # Caminhos dos datasets
     mix_base = os.path.join(base_data_path, "__MixAtivoSistema")
     hist_base = os.path.join(base_data_path, "historico_solic")
     wms_base = os.path.join(base_data_path, "WMS")
-    
-    # Verifica modificação para quebrar cache
-    def get_mod_time(base_path, ext):
-        if os.path.exists(f"{base_path}.parquet"):
-            return os.path.getmtime(f"{base_path}.parquet")
-        elif os.path.exists(f"{base_path}.{ext}"):
-             return os.path.getmtime(f"{base_path}.{ext}")
-        return 0.0
 
-    try:
-        mix_mod = get_mod_time(mix_base, "xlsx")
-        hist_mod = get_mod_time(hist_base, "xlsm")
-        wms_mod = get_mod_time(wms_base, "xlsm")
-    except Exception:
-        mix_mod, hist_mod, wms_mod = 0.0, 0.0, 0.0
-    
+    def mod(path, ext):
+        p = f"{path}.parquet"
+        if os.path.exists(p):
+            return os.path.getmtime(p)
+        p2 = f"{path}.{ext}"
+        return os.path.getmtime(p2) if os.path.exists(p2) else 0.0
+
+    mix_mod = mod(mix_base, "xlsx")
+    hist_mod = mod(hist_base, "xlsm")
+    wms_mod = mod(wms_base, "xlsm")
+
+    # Carregamentos
     df_mix = load_mix_data(mix_base, mix_mod)
     df_hist = load_historico_data(hist_base, hist_mod)
-    df_wms = load_wms_data(wms_base, wms_mod) 
+    df_wms = load_wms_data(wms_base, wms_mod)
     df_ofertas = load_active_offers(engine)
 
     if df_mix.empty:
-        st.warning("Falha ao carregar o Mix de Produtos.")
-        st.stop()
+        st.error("Falha ao carregar MIX.")
+        return
 
-    lojas_user = st.session_state.get('lojas_acesso', [])
+    lojas_user = st.session_state.get("lojas_acesso", [])
     if not lojas_user:
-        st.warning("Sem acesso a lojas.")
-        st.stop()
+        st.error("Você não possui lojas vinculadas.")
+        return
 
+    # ==============================
+    # BUSCA DO PRODUTO
+    # ==============================
     st.subheader("1. Buscar Produto")
-    df_mix_user = df_mix[df_mix['Loja'].isin(lojas_user)].copy()
+    df_mix_user = df_mix[df_mix["Loja"].isin(lojas_user)].copy()
 
-    tab_cod, tab_prod, tab_ean = st.tabs(["Por Código", "Por Produto", "Por EAN"])
+    tab_cod, tab_nome, tab_ean = st.tabs(["Código", "Descrição", "EAN"])
+
     prod_sel = None
 
     with tab_cod:
-        busca_cod = st.text_input("Código:")
-        if busca_cod:
+        codigo_txt = st.text_input("Código:")
+        if codigo_txt:
             try:
-                cod = int(busca_cod.strip())
-                res = df_mix[df_mix['Codigo'] == cod]
+                codigo_num = int(codigo_txt)
+                res = df_mix[df_mix["Codigo"] == codigo_num]
                 if not res.empty:
                     prod_sel = res.iloc[0]
                 else:
-                    st.warning("Código não encontrado.")
-            except ValueError:
-                st.warning("Código deve ser numérico.")
+                    st.warning("Produto não encontrado.")
+            except:
+                st.warning("Código inválido.")
 
-    with tab_prod:
-        busca_nome = st.text_input("Nome do Produto:")
-        if busca_nome:
-            res = df_mix_user[df_mix_user['Produto'].str.contains(
-                busca_nome, case=False, na=False)]
-            unicos = res.drop_duplicates(subset=['Codigo'])
-            unicos['Show'] = unicos['Produto'] + \
-                " (Cód: " + unicos['Codigo'].astype(str) + ")"
+    with tab_nome:
+        nome = st.text_input("Nome do Produto:")
+        if nome:
+            res = df_mix_user[df_mix_user["Produto"].str.contains(nome, case=False, na=False)]
+            lista = res.drop_duplicates(subset=["Codigo"])
+            lista["Mostrar"] = lista["Produto"] + " (Cód: " + lista["Codigo"].astype(str) + ")"
+
             sel = st.selectbox(
-                "Selecione:", ["Selecione..."] + unicos['Show'].tolist())
+                "Selecionar:",
+                ["Selecione..."] + lista["Mostrar"].tolist()
+            )
             if sel != "Selecione...":
-                cod_str = re.search(r'\(Cód: (\d+)\)', sel).group(1)
-                cod = int(cod_str)
-                prod_sel = df_mix[df_mix['Codigo'] == cod].iloc[0]
+                codigo = int(re.search(r'\(Cód: (\d+)\)', sel).group(1))
+                prod_sel = df_mix[df_mix["Codigo"] == codigo].iloc[0]
 
     with tab_ean:
-        busca_ean = st.text_input("EAN:")
-        if busca_ean:
-            res = df_mix[df_mix['EAN'] == busca_ean.strip()]
+        ean = st.text_input("EAN:")
+        if ean:
+            res = df_mix[df_mix["EAN"] == ean]
             if not res.empty:
                 prod_sel = res.iloc[0]
             else:
@@ -307,137 +287,129 @@ def show_pedidos_page(engine, base_data_path):
 
     st.markdown("---")
 
+    # ==============================
+    # INSERÇÃO DE QUANTIDADES
+    # ==============================
     if prod_sel is not None:
-        st.subheader("2. Distribuir Quantidades (Caixas)")
-        
-        cod = int(prod_sel['Codigo'])
-        emb = int(prod_sel.get('embseparacao', 0))
+        st.subheader("2. Distribuição")
 
-        # Estoque CD
-        stock_cd_units = df_wms[df_wms['Codigo'] == cod]['Qtd_CD'].sum()
-        stock_display = "Esta em falta"
-        
-        if emb > 0 and stock_cd_units > 0:
-            stock_cd_cases = int(stock_cd_units // emb)
-            if stock_cd_cases > 0:
-                stock_display = f"{stock_cd_cases:,.0f} CX"
-        
-        st.info(f"**Item:** {prod_sel['Produto']} (Cód: {cod}) | **Emb:** {emb} un/cx | **Estoque CD:** {stock_display}")
-        
-        # Ofertas
-        try:
-            today = date.today()
-            if not df_ofertas.empty and cod in df_ofertas.index:
-                oferta_data = df_ofertas.loc[cod] 
-                if isinstance(oferta_data, pd.DataFrame):
-                     oferta_data = oferta_data.iloc[-1]
-                
-                preco = f"R$ {oferta_data['oferta']:.2f}"
-                inicio = oferta_data['data_inicio']
-                fim = oferta_data['data_final']
-                
-                inicio_str = inicio.strftime('%d/%m')
-                fim_str = fim.strftime('%d/%m/%Y')
-                
-                if today >= inicio:
-                    st.success(f"🛍️ **OFERTA ATIVA:** Este item está em promoção por **{preco}** (Vigência: de {inicio_str} até {fim_str})")
-                else:
-                    st.warning(f"📣 **OFERTA FUTURA:** Este item entrará em promoção por **{preco}** (Vigência: de {inicio_str} até {fim_str})")
-        except Exception as e:
-            pass 
+        codigo = int(prod_sel["Codigo"])
+        emb = int(prod_sel.get("embseparacao", 0))
 
-        # Dados Históricos
-        if not df_hist.empty:
-            latest_hist_date = df_hist['Data'].max()
-            df_hist_item_raw = df_hist[
-                (df_hist['Codigo'] == cod) & 
-                (df_hist['Data'] == latest_hist_date)
-            ]
-            df_hist_item = df_hist_item_raw.drop_duplicates(subset=['Loja'], keep='first')
-            hist_item_map = df_hist_item.set_index('Loja').to_dict('index')
-            data_atualizacao = latest_hist_date.strftime('%d/%m/%Y')
+        estoque_un = df_wms[df_wms["Codigo"] == codigo]["Qtd_CD"].sum()
+        if emb > 0 and estoque_un > 0:
+            estoque_cx = estoque_un // emb
+            estoque_txt = f"{estoque_cx:,.0f} CX"
         else:
-            hist_item_map = {}
-            data_atualizacao = "N/A"
+            estoque_txt = "Sem estoque"
 
+        st.info(f"**{prod_sel['Produto']}** (Cód: {codigo}) | Emb: {emb} un/cx | CD: {estoque_txt}")
+
+        # OFERTAS
+        if not df_ofertas.empty and codigo in df_ofertas.index:
+            dados = df_ofertas.loc[codigo]
+            if isinstance(dados, pd.DataFrame):
+                dados = dados.iloc[-1]
+            preco = f"R$ {dados['oferta']:.2f}"
+            ini = dados["data_inicio"].strftime("%d/%m")
+            fim = dados["data_final"].strftime("%d/%m/%Y")
+            hoje = date.today()
+
+            if hoje >= dados["data_inicio"]:
+                st.success(f"OFERTA ATIVA: **{preco}** até {fim}")
+            else:
+                st.warning(f"OFERTA FUTURA: **{preco}** → inicia em {ini}")
+
+        # HISTÓRICO
+        if not df_hist.empty:
+            ultima = df_hist["Data"].max()
+            df_hist_item = df_hist[(df_hist["Codigo"] == codigo) & (df_hist["Data"] == ultima)].drop_duplicates(subset=["Loja"])
+            hist_map = df_hist_item.set_index("Loja").to_dict("index")
+            atualizacao = ultima.strftime("%d/%m/%Y")
+        else:
+            hist_map = {}
+            atualizacao = "N/A"
+
+        # FORM
         with st.form("form_qty"):
-            qtys, total = {}, 0
-            cols = st.columns(min(len(lojas_user), 3))
-            
+            total = 0
+            quantidades = {}
+            cols = st.columns(3)
+
             for i, loja in enumerate(lojas_user):
-                col_render = cols[i % len(cols)]
-                
-                sugestao_int = 0
-                caption_text = f"Sem dados (Atu: {data_atualizacao})"
-                
-                if loja in hist_item_map:
-                    row = hist_item_map[loja]
-                    est_g = row['Estoque_G']
-                    ped_h = row['Pedido_H']
-                    vd_i = row['Venda_I']
-                    vd_j = row['Venda_J']
-                    vm_k = row['Venda_K']
-                    
-                    sugestao_float = (vm_k / 7 * 4) - est_g
-                    sugestao_int = int(np.round(sugestao_float)) 
-                    
-                    if sugestao_int < 1:
-                        sugestao_int = 0 
-                    
-                    caption_text = (
-                        f"Est: {est_g:.1f} | Ult.Ped: {ped_h:.0f} | "
-                        f"Vd1: {vd_i:.1f} | Vd2: {vd_j:.1f} | VM30: {vm_k:.1f} | "
-                        f"(Atu: {data_atualizacao})"
+                c = cols[i % 3]
+
+                sugestao = 0
+                legenda = f"Sem dados ({atualizacao})"
+                if loja in hist_map:
+                    h = hist_map[loja]
+                    vm = h["Venda_K"]
+                    est = h["Estoque_G"]
+                    sugestao = max(0, int(np.round((vm / 7 * 4) - est)))
+                    legenda = (
+                        f"Est:{est:.1f} | Ped:{h['Pedido_H']:.0f} | "
+                        f"V1:{h['Venda_I']:.1f} | V2:{h['Venda_J']:.1f} | VM:{vm:.1f} "
+                        f"({atualizacao})"
                     )
 
-                q = col_render.number_input(
-                    f"Loja {loja}", 
-                    min_value=0, 
-                    step=1, 
-                    value=sugestao_int,
-                    key=f"q_{cod}_{loja}"
-                )
-                
-                col_render.caption(caption_text)
-                
+                q = c.number_input(f"Loja {loja}", min_value=0, step=1, value=sugestao)
+                c.caption(legenda)
+
                 if q > 0:
-                    qtys[f"loja_{loja}"] = q
+                    quantidades[f"loja_{loja}"] = q
                     total += q
 
-            if st.form_submit_button("Adicionar ao Pedido"):
+            if st.form_submit_button("Adicionar"):
                 if total > 0:
                     st.session_state.pedido_atual.append({
-                        "Codigo": str(cod), "Produto": prod_sel["Produto"],
-                        "EAN": prod_sel["EAN"], "embseparacao": emb,
-                        "Status": "Ativo", "Total_CX": total, **qtys
+                        "Codigo": str(codigo),
+                        "Produto": prod_sel["Produto"],
+                        "EAN": prod_sel["EAN"],
+                        "embseparacao": emb,
+                        "Status": "Ativo",
+                        "Total_CX": total,
+                        **quantidades
                     })
-                    st.success("Item adicionado!")
+                    st.success("Item incluído!")
                 else:
-                    st.warning("Digite ao menos uma quantidade.")
+                    st.warning("Informe ao menos 1 unidade.")
 
+    # ==============================
+    # PEDIDO ATUAL
+    # ==============================
     st.markdown("---")
     st.subheader("3. Pedido Atual")
+
     if st.session_state.pedido_atual:
         df_ped = pd.DataFrame(st.session_state.pedido_atual)
-        st.dataframe(df_ped, hide_index=True, use_container_width=True)
+        st.dataframe(df_ped, use_container_width=True, hide_index=True)
+
         c1, c2 = st.columns(2)
+
         if c1.button("Salvar Pedido", type="primary"):
             if save_order_to_db(engine, st.session_state.pedido_atual):
-                st.success("Salvo com sucesso!")
+                st.success("Pedido salvo!")
                 st.session_state.pedido_atual = []
                 st.rerun()
-            else:
-                st.error("Erro ao salvar.")
-        if c2.button("Limpar"):
+
+        if c2.button("Limpar Pedido"):
             st.session_state.pedido_atual = []
             st.rerun()
+
     else:
         st.info("Carrinho vazio.")
 
+    # ==============================
+    # HISTÓRICO
+    # ==============================
     st.markdown("---")
     st.subheader("4. Histórico Recente")
-    df_rec = get_recent_orders_display(engine, st.session_state.get('username', ''))
-    if not df_rec.empty:
-        st.dataframe(df_rec, hide_index=True, use_container_width=True)
+
+    if engine:
+        df_hist_rec = get_recent_orders_display(engine, st.session_state.get("username", ""))
+        if not df_hist_rec.empty:
+            st.dataframe(df_hist_rec, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum pedido recente.")
     else:
-        st.info("Sem pedidos recentes.")
+        st.warning("Histórico indisponível sem conexão com banco.")
