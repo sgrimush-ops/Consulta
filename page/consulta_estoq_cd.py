@@ -15,16 +15,32 @@ def get_today():
     """Retorna a data atual e força o cache a expirar a cada 24h."""
     return datetime.now().date()
 
-# Cache inteligente: usa mod_time para invalidar se o arquivo mudar
+def load_data_optimized(parquet_path, excel_path):
+    """Tenta ler Parquet (rápido), cai para Excel (lento) se necessário."""
+    if os.path.exists(parquet_path):
+        # Leitura ultra-rápida
+        return pd.read_parquet(parquet_path)
+    else:
+        # Fallback para Excel
+        # Verifica se é o Mix (que não tem aba específica 'WMS') ou o WMS
+        if 'Mix' in excel_path:
+            return pd.read_excel(excel_path, dtype=str)
+        return pd.read_excel(excel_path, sheet_name='WMS')
+
 @st.cache_data
-def load_parquet_data(parquet_path: str, mod_time: float) -> Optional[pd.DataFrame]:
-    """Carrega dados EXCLUSIVAMENTE do arquivo Parquet."""
+def load_data(base_path_no_ext: str) -> Optional[pd.DataFrame]:
+    """Carrega dados do arquivo Excel especificado (ou Parquet)."""
+    parquet_path = f"{base_path_no_ext}.parquet"
+    excel_path = f"{base_path_no_ext}.xlsm" 
+    
+    # Ajuste para o Mix que é .xlsx
+    if 'Mix' in base_path_no_ext:
+        excel_path = f"{base_path_no_ext}.xlsx"
+
     try:
-        if os.path.exists(parquet_path):
-            return pd.read_parquet(parquet_path)
-        return None
+        return load_data_optimized(parquet_path, excel_path)
     except Exception as e:
-        st.error(f"Erro ao carregar dados otimizados: {e}")
+        st.error(f"Erro ao carregar o arquivo: {e}")
         return None
 
 def preprocess_wms_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
@@ -57,7 +73,7 @@ def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     """Pré-processa o DataFrame do Mix para pegar a embalagem."""
     df = df.copy()
     
-    # CORREÇÃO ROBUSTA: Normaliza nomes das colunas para MAIÚSCULAS e remove espaços
+    # Normaliza nomes das colunas para MAIÚSCULAS e remove espaços
     df.columns = df.columns.astype(str).str.upper().str.strip()
     
     # Tenta encontrar as colunas com nomes padronizados
@@ -68,7 +84,7 @@ def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     if not col_emb and 'EMBALAGEM' in df.columns: col_emb = 'EMBALAGEM'
 
     if not col_codigo or not col_emb:
-        # Retorna vazio se não achar as colunas, para não quebrar o app
+        # Retorna vazio se não achar as colunas
         return pd.DataFrame(columns=['codigo', 'embalagem'])
         
     # Renomeia para o padrão interno (minúsculo)
@@ -80,10 +96,7 @@ def preprocess_mix_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     df['embalagem'] = pd.to_numeric(
         df['embalagem'].astype(str).str.split(',').str[0].str.split('.').str[0].str.strip(),
         errors='coerce'
-    ).fillna(1).astype(int) 
-    
-    # Se a embalagem for 0 ou negativa, força ser 1 para evitar erro
-    df.loc[df['embalagem'] <= 0, 'embalagem'] = 1
+    ).fillna(0).astype(int) # MUDANÇA: Se der erro, vira 0 (não 1)
     
     # Remove duplicatas
     df = df[['codigo', 'embalagem']].drop_duplicates(subset=['codigo'])
@@ -107,11 +120,11 @@ def show_consulta_page(engine, base_data_path):
     except Exception:
         wms_mod, mix_mod = 0.0, 0.0
 
-    # 3. Carregar Dados (Cache invalida se mod_time mudar)
-    df_wms_raw = load_parquet_data(wms_parquet, wms_mod)
+    # 3. Carregar Dados
+    df_wms_raw = load_data(os.path.join(base_data_path, "WMS"))
     
     if df_wms_raw is None:
-        st.error(f"Arquivo 'WMS.parquet' não encontrado. Faça o upload na página de Administração para gerar o arquivo otimizado.")
+        st.error(f"Arquivo 'WMS' não encontrado. Faça o upload na página de Administração.")
         return
 
     df_wms = preprocess_wms_data(df_wms_raw)
@@ -119,7 +132,7 @@ def show_consulta_page(engine, base_data_path):
         return
 
     # Carrega Mix
-    df_mix_raw = load_parquet_data(mix_parquet, mix_mod)
+    df_mix_raw = load_data(os.path.join(base_data_path, "__MixAtivoSistema"))
     
     # Prepara o Mix (se existir)
     if df_mix_raw is not None:
@@ -144,13 +157,18 @@ def show_consulta_page(engine, base_data_path):
         return
         
     # --- CRUZAMENTO COM MIX ---
-    # Adiciona a informação de embalagem ao dataframe filtrado
     if not df_mix.empty:
         df_filtrado = pd.merge(df_filtrado, df_mix, on='codigo', how='left')
-        # Se não achar a embalagem no Mix (NaN), assume 1
-        df_filtrado['embalagem'] = df_filtrado['embalagem'].fillna(1).astype(int)
+        # MUDANÇA: Se não achar (NaN), vira 0. Não assume nada.
+        df_filtrado['embalagem'] = df_filtrado['embalagem'].fillna(0).astype(int)
     else:
-        df_filtrado['embalagem'] = 1
+        df_filtrado['embalagem'] = 0
+
+    # --- CÁLCULO DE CAIXAS (Com proteção contra divisão por zero) ---
+    df_filtrado['Qtd (Caixas)'] = df_filtrado.apply(
+        lambda x: (x['Qtd'] / x['embalagem']) if x['embalagem'] > 0 else 0, 
+        axis=1
+    ).round(1)
 
     st.markdown("---")
     st.write(f"Dados exibidos para a data: **{df_filtrado['datasalva_formatada'].iloc[0].strftime('%d/%m/%Y')}**")
@@ -220,30 +238,28 @@ def show_consulta_page(engine, base_data_path):
             
             st.markdown(f"#### {descricao_produto}")
             
-            if emb_produto == 1:
-                st.caption(f"⚠️ Embalagem não encontrada no Mix ou é unitária. Usando padrão: 1 un/cx")
+            # Mensagem de alerta se a embalagem estiver zerada (problema no mix)
+            if emb_produto <= 0:
+                st.error("⚠️ Embalagem não encontrada ou inválida no Mix. Não é possível calcular caixas.")
+                total_caixas_str = "Erro (Emb=0)"
             else:
                 st.caption(f"Embalagem: {emb_produto} un/cx")
+                total_caixas_str = f"{(resultados_finais['Qtd'].sum() / emb_produto):.1f} CX"
 
             # Cálculos
             total_unidades = resultados_finais['Qtd'].sum()
-            total_caixas = total_unidades / emb_produto
             
             # Exibe Métricas lado a lado
             col_metric1, col_metric2 = st.columns(2)
             col_metric1.metric(label="Total (Unidades)", value=f"{total_unidades:,.0f}")
-            col_metric2.metric(label="Total (Caixas)", value=f"{total_caixas:,.1f} CX")
+            col_metric2.metric(label="Total (Caixas)", value=total_caixas_str)
             
-            # Calcula caixas para cada linha da tabela também
-            resultados_finais['Qtd (Caixas)'] = (resultados_finais['Qtd'] / resultados_finais['embalagem']).round(1)
-
             if COLUNA_ENDERECO in resultados_finais.columns:
                 enderecos_encontrados = resultados_finais[COLUNA_ENDERECO].unique()
                 st.write("### Endereços")
                 for endereco in enderecos_encontrados:
                     st.write(f"- {endereco}")
             else:
-                # st.warning(f"Coluna '{COLUNA_ENDERECO}' não encontrada para exibição.")
                 pass
             
             st.write("---")
@@ -263,7 +279,6 @@ def show_consulta_page(engine, base_data_path):
         st.write("### Planilha do Dia (Primeiras Linhas)")
         # Calcula caixas para o preview também
         df_preview = df_filtrado.head(10).copy()
-        df_preview['Qtd (Caixas)'] = (df_preview['Qtd'] / df_preview['embalagem']).round(1)
         
         cols_to_show = [c for c in df_preview.columns if c not in ['datasalva', 'datasalva_formatada', 'Descrição_Lower', 'embalagem']]
         if 'Qtd' in cols_to_show and 'Qtd (Caixas)' in cols_to_show:
