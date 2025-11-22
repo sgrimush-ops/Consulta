@@ -1,161 +1,131 @@
 import streamlit as st
-import os
 import pandas as pd
-from datetime import datetime
+from sqlalchemy import text
+import numpy as np
 
 # ================================================
-# 🔧 ENGINE FIX — Impede crash durante import no Render
+# 🔧 LEITURA SEGURA DE EXCEL
 # ================================================
-SUPPORTED_EXCEL_TYPES = (".xlsx", ".xlsm")
-UNSUPPORTED_TYPES = (".xls",)
-
 def safe_read_excel(uploaded_file):
-    ext = uploaded_file.name.lower().split(".")[-1]
-
-    # Impedir crash com XLS
-    if uploaded_file.name.lower().endswith(".xls"):
-        st.error("❌ Arquivos .xls não são suportados. Converta para .xlsx antes de enviar.")
-        return None
-
+    """Lê Excel ou CSV e retorna DataFrame padronizado."""
     try:
-        return pd.read_excel(uploaded_file, engine="openpyxl")
-    except Exception as e:
-        st.error(f"Erro ao ler Excel com openpyxl: {e}")
-        return None
-
-
-# ================================================
-# UTILITÁRIOS
-# ================================================
-def get_file_info(file_path):
-    """Retorna data de modificação legível do arquivo."""
-    if os.path.exists(file_path):
-        mod_time = os.path.getmtime(file_path)
-        return datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y às %H:%M:%S')
-    return "Ainda não enviado"
-
-
-def save_file_as_parquet(uploaded_file, target_path_no_ext):
-    """Lê o arquivo Excel e salva como Parquet."""
-    try:
-        uploaded_file.seek(0)
-
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         else:
-            df = safe_read_excel(uploaded_file)
-            if df is None:
-                return False  # erro já exibido
-
-        parquet_path = f"{target_path_no_ext}.parquet"
-        df.to_parquet(parquet_path, index=False)
-
-        return True
-
+            df = pd.read_excel(uploaded_file, engine="openpyxl")
+        
+        # Normaliza colunas para minúsculas para evitar erros de SQL
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        return df
     except Exception as e:
-        st.error(f"Erro ao converter para Parquet: {e}")
+        st.error(f"Erro ao ler arquivo: {e}")
+        return None
+
+# ================================================
+# 💾 SALVAR DIRETO NO BANCO (POSTGRES)
+# ================================================
+def save_to_database(engine, df, table_name):
+    """Escreve o DataFrame direto no PostgreSQL, substituindo a tabela antiga."""
+    if df is None or df.empty:
         return False
+    
+    try:
+        # Mapeamento de colunas para garantir compatibilidade
+        # Ajuste conforme as colunas reais dos seus Excels
+        rename_map = {}
+        
+        # Regras para MIX
+        if table_name == "mix":
+            for c in df.columns:
+                if "codigo" in c: rename_map[c] = "codigoint"
+                if "descri" in c or "produto" in c: rename_map[c] = "descricao"
+                if "emb" in c: rename_map[c] = "embseparacao"
+                if "loja" in c: rename_map[c] = "loja"
+        
+        # Regras para WMS
+        elif table_name == "wms":
+            for c in df.columns:
+                if "codigo" in c: rename_map[c] = "codigo"
+                if "qtd" in c: rename_map[c] = "qtd"
+                if "data" in c: rename_map[c] = "datasalva"
+                if "ender" in c: rename_map[c] = "endereco"
 
+        # Aplica renomeação
+        if rename_map:
+            df = df.rename(columns=rename_map)
 
-def process_automatic_upload(uploaded_file, base_path_no_ext, file_key):
-    """Gerencia upload + conversão automática."""
-    if uploaded_file:
-        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
-
-        if st.session_state.get(f"processed_{file_key}") != file_id:
-
-            progress_container = st.empty()
-            progress_bar = progress_container.progress(0, text="Iniciando upload...")
-
-            try:
-                progress_bar.progress(30, text="Lendo arquivo e convertendo para Parquet...")
-
-                if save_file_as_parquet(uploaded_file, base_path_no_ext):
-
-                    progress_bar.progress(100, text="Concluído!")
-                    st.session_state[f"processed_{file_key}"] = file_id
-
-                    st.toast(f"Arquivo {file_key.upper()} otimizado com sucesso!", icon="✅")
-
-                    st.rerun()
-
-            except Exception as e:
-                st.error(f"Erro no processamento: {e}")
-
-            finally:
-                progress_container.empty()
-
+        # Salva no banco (Chunksize ajuda a não estourar a memória)
+        with engine.begin() as conn:
+            # Limpa dados antigos (Opcional: depende se você quer acumular ou substituir)
+            # Aqui estamos substituindo (REPLACE logic via Pandas to_sql não deleta a tabela, 
+            # mas o if_exists='replace' recria a tabela)
+            df.to_sql(
+                table_name, 
+                engine, 
+                if_exists='replace', 
+                index=False, 
+                chunksize=1000, # Salva de 1000 em 1000 linhas para economizar memória
+                method='multi'
+            )
+            
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar no banco de dados: {e}")
+        return False
 
 # ================================================
 # 🔧 FUNÇÃO PRINCIPAL DA PÁGINA
 # ================================================
 def show_admin_tools(engine=None, base_data_path=None):
-    st.title("🔧 Ferramentas de Admin — Upload de Arquivos")
-    st.info("Envie arquivos .xlsx ou .xlsm. O sistema converte automaticamente para .parquet (rápido).")
+    st.title("🔧 Ferramentas de Admin — Atualizar Banco de Dados")
+    st.info("Os arquivos enviados atualizarão diretamente o Banco de Dados (PostgreSQL).")
+
+    if engine is None:
+        st.error("Sem conexão com o banco de dados.")
+        return
 
     # -------------------------------
     # 1. WMS
     # -------------------------------
-    st.subheader("1. WMS (Estoque CD)")
-
-    wms_base = os.path.join(base_data_path, "WMS")
-    wms_parquet = wms_base + ".parquet"
-
-    if os.path.exists(wms_parquet):
-        st.caption(f"📅 Última atualização: **{get_file_info(wms_parquet)}**")
-    else:
-        st.caption("⚠️ Arquivo otimizado não encontrado.")
-
-    uploaded_wms = st.file_uploader(
-        "Selecione o WMS (xlsx, xlsm)",
-        type=["xlsx", "xlsm"],
-        key="wms_uploader"
-    )
-
-    process_automatic_upload(uploaded_wms, wms_base, "wms")
+    st.subheader("1. Atualizar WMS (Estoque CD)")
+    uploaded_wms = st.file_uploader("Selecione o WMS (.xlsx)", type=["xlsx", "csv"], key="wms")
+    
+    if uploaded_wms:
+        if st.button("Processar WMS", type="primary"):
+            with st.spinner("Lendo arquivo e salvando no banco..."):
+                df = safe_read_excel(uploaded_wms)
+                if save_to_database(engine, df, "wms"):
+                    st.success("✅ Tabela WMS atualizada no Banco de Dados!")
+                    st.cache_data.clear() # Limpa o cache do Streamlit para ver dados novos
 
     st.markdown("---")
 
     # -------------------------------
-    # 2. Histórico de Solicitações
+    # 2. Histórico
     # -------------------------------
-    st.subheader("2. Histórico de Solicitações")
-
-    hist_base = os.path.join(base_data_path, "historico_solic")
-    hist_parquet = hist_base + ".parquet"
-
-    if os.path.exists(hist_parquet):
-        st.caption(f"📅 Última atualização: **{get_file_info(hist_parquet)}**")
-    else:
-        st.caption("⚠️ Arquivo otimizado não encontrado.")
-
-    uploaded_hist = st.file_uploader(
-        "Selecione o Histórico (xlsx, xlsm)",
-        type=["xlsx", "xlsm"],
-        key="hist_uploader"
-    )
-
-    process_automatic_upload(uploaded_hist, hist_base, "hist")
+    st.subheader("2. Atualizar Histórico")
+    uploaded_hist = st.file_uploader("Selecione o Histórico (.xlsx)", type=["xlsx", "csv"], key="hist")
+    
+    if uploaded_hist:
+        if st.button("Processar Histórico", type="primary"):
+            with st.spinner("Atualizando Histórico..."):
+                df = safe_read_excel(uploaded_hist)
+                if save_to_database(engine, df, "historico"):
+                    st.success("✅ Tabela Historico atualizada no Banco de Dados!")
+                    st.cache_data.clear()
 
     st.markdown("---")
 
     # -------------------------------
-    # 3. Mix Ativo
+    # 3. Mix
     # -------------------------------
-    st.subheader("3. Mix Ativo")
-
-    mix_base = os.path.join(base_data_path, "__MixAtivoSistema")
-    mix_parquet = mix_base + ".parquet"
-
-    if os.path.exists(mix_parquet):
-        st.caption(f"📅 Última atualização: **{get_file_info(mix_parquet)}**")
-    else:
-        st.caption("⚠️ Arquivo otimizado não encontrado.")
-
-    uploaded_mix = st.file_uploader(
-        "Selecione o Mix (xlsx, xlsm)",
-        type=["xlsx", "xlsm"],
-        key="mix_uploader"
-    )
-
-    process_automatic_upload(uploaded_mix, mix_base, "mix")
+    st.subheader("3. Atualizar Mix")
+    uploaded_mix = st.file_uploader("Selecione o Mix (.xlsx)", type=["xlsx", "csv"], key="mix")
+    
+    if uploaded_mix:
+        if st.button("Processar Mix", type="primary"):
+            with st.spinner("Atualizando Mix..."):
+                df = safe_read_excel(uploaded_mix)
+                if save_to_database(engine, df, "mix"):
+                    st.success("✅ Tabela Mix atualizada no Banco de Dados!")
+                    st.cache_data.clear()
