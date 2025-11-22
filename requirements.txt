@@ -44,4 +44,14 @@ watchdog==6.0.0
 psycopg2-binary
 xlsxwriter
 xlrd==2.0.2
+streamlit
+pandas
+sqlalchemy
+psycopg2-binary
+openpyxl
+xlrd
+numpy
+python-dateutil
+pytz
+watchdog
 
