@@ -2,7 +2,7 @@ import streamlit as st
 
 # --- Função Principal da Página ---
 
-def show_home_page(engine, base_data_path):
+def show_home_page(engine=None, base_data_path=None):
     """Cria a interface da página inicial."""
 
     st.title(f"Bem-vindo(a), {st.session_state.get('username', 'Usuário')}!")
@@ -29,6 +29,7 @@ def show_home_page(engine, base_data_path):
             if st.button("🛒 Digitar Pedidos", use_container_width=True, type="primary"):
                 st.session_state['page_key'] = "Digitar Pedidos" # Atualiza o page_key
                 st.rerun()
+
 
 
 
