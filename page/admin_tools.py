@@ -22,7 +22,6 @@ def safe_read_excel(uploaded_file):
             df = pd.read_excel(uploaded_file, engine='openpyxl')
         
         # Normaliza nomes das colunas (remove espaços e deixa minúsculo)
-        # Isso evita erro de "Coluna não encontrada" no banco
         df.columns = [str(c).strip().lower() for c in df.columns]
         
         return df
@@ -32,30 +31,29 @@ def safe_read_excel(uploaded_file):
         return None
 
 # ================================================
-# 💾 SALVAR DIRETO NO BANCO (POSTGRES)
+# 💾 SALVAR DIRETO NO BANCO (CORRIGIDO)
 # ================================================
 def save_to_database(engine, df, table_name):
     """
     Escreve o DataFrame direto no PostgreSQL.
-    Isso impede que os dados sumam quando o Render reinicia.
+    Resolve problemas de colunas duplicadas antes de salvar.
     """
     if df is None or df.empty:
         return False
     
     try:
-        # Mapeamento de colunas para garantir que o Banco entenda
         rename_map = {}
         
-        # Regras de mapeamento para MIX
+        # --- REGRAS DE MAPEAMENTO ---
+        # Tenta padronizar os nomes que vêm do Excel para o que o Banco espera
+        
         if table_name == "mix":
             for c in df.columns:
-                # Tenta adivinhar o nome da coluna no Excel e mapear para o Banco
                 if "codigo" in c: rename_map[c] = "codigoint"
                 elif "descri" in c or "produto" in c: rename_map[c] = "descricao"
                 elif "emb" in c: rename_map[c] = "embseparacao"
                 elif "loja" in c: rename_map[c] = "loja"
         
-        # Regras de mapeamento para WMS
         elif table_name == "wms":
             for c in df.columns:
                 if "codigo" in c: rename_map[c] = "codigo"
@@ -63,34 +61,39 @@ def save_to_database(engine, df, table_name):
                 elif "data" in c: rename_map[c] = "datasalva"
                 elif "ender" in c: rename_map[c] = "endereco"
         
-        # Regras de mapeamento para HISTORICO
         elif table_name == "historico":
             for c in df.columns:
                 if "codigo" in c: rename_map[c] = "codigoint"
                 elif "loja" in c: rename_map[c] = "loja"
                 elif "data" in c or "solic" in c: rename_map[c] = "dtsolicitacao"
-                # Adicione outros mapeamentos se necessário para estcx, pedcx, etc.
+                # Mapeia as colunas de vendas/estoque se existirem no Excel
+                elif "estcx" in c: rename_map[c] = "EstCX"
+                elif "pedcx" in c: rename_map[c] = "PedCX"
 
-        # Aplica a renomeação se encontrou colunas correspondentes
+        # 1. Aplica a renomeação
         if rename_map:
             df = df.rename(columns=rename_map)
 
-        # Salva no banco em pedaços (Chunks) de 1000 linhas
-        # Isso EVITA O CRASH por falta de memória RAM
+        # 2. CRUCIAL: REMOVE COLUNAS DUPLICADAS
+        # Se o Excel tinha "Codigo" e "CodigoInt", ambos viraram "codigoint".
+        # Isso causava o erro. O comando abaixo mantém apenas o primeiro.
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        # 3. Salva no banco (Substitui a tabela antiga)
         with engine.begin() as conn:
             df.to_sql(
                 table_name, 
                 engine, 
-                if_exists='replace',  # Substitui a tabela antiga
+                if_exists='replace',  # Deleta a tabela antiga e cria uma nova limpa
                 index=False, 
-                chunksize=1000,       # O segredo para não travar o Render
+                chunksize=1000,       # Envia em pacotes para não travar a memória
                 method='multi'
             )
             
         return True
 
     except Exception as e:
-        st.error(f"Erro ao salvar no banco de dados: {e}")
+        st.error(f"Erro ao salvar no banco de dados ({table_name}): {e}")
         return False
 
 # ================================================
@@ -98,7 +101,7 @@ def save_to_database(engine, df, table_name):
 # ================================================
 def show_admin_tools(engine=None, base_data_path=None):
     st.title("🔧 Upload de Arquivos (Banco de Dados)")
-    st.info("Envie seus arquivos Excel (.xls, .xlsx, .xlsm). Os dados serão salvos de forma segura no Banco.")
+    st.info("Envie seus arquivos Excel (.xls, .xlsx, .xlsm). Os dados ficarão salvos permanentemente no Banco.")
 
     if engine is None:
         st.error("❌ Sem conexão com o banco de dados.")
@@ -116,7 +119,7 @@ def show_admin_tools(engine=None, base_data_path=None):
                 df = safe_read_excel(uploaded_wms)
                 if save_to_database(engine, df, "wms"):
                     st.success("✅ Tabela WMS atualizada com sucesso!")
-                    st.cache_data.clear() # Força o sistema a ler os dados novos
+                    st.cache_data.clear() 
 
     st.markdown("---")
 
@@ -128,7 +131,7 @@ def show_admin_tools(engine=None, base_data_path=None):
     
     if uploaded_hist:
         if st.button("Processar Histórico", type="primary"):
-            with st.spinner("Processando Histórico (isso pode demorar um pouco)..."):
+            with st.spinner("Processando Histórico..."):
                 df = safe_read_excel(uploaded_hist)
                 if save_to_database(engine, df, "historico"):
                     st.success("✅ Histórico atualizado com sucesso!")
