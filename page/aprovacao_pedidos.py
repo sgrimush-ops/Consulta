@@ -6,7 +6,6 @@ from sqlalchemy import text
 from typing import Optional
 
 # --- Página de Aprovação de Pedidos ---
-# Assinatura padronizada para funcionar com app.py
 def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optional[str] = None):
     st.title("✅ Aprovação de Pedidos")
     st.info("Aqui você revisa e aprova ou rejeita pedidos enviados pelos usuários.")
@@ -22,6 +21,7 @@ def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optiona
             # modo demo: retorna DataFrame vazio
             return pd.DataFrame()
         try:
+            # Usa _engine para evitar erro de hash
             q = text("""
                 SELECT id, codigo, produto, ean, embseparacao, data_pedido, usuario_pedido,
                        status_item, total_cx, status_aprovacao,
@@ -71,10 +71,15 @@ def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optiona
     with c2:
         min_date = st.date_input("Pedidos a partir de", value=None)
     with c3:
-        btn_refresh = st.button("🔄 Atualizar lista")
+        if st.button("🔄 Atualizar lista"):
+            st.cache_data.clear()
+            st.rerun()
 
     # ---------- Carregar pedidos pendentes ----------
-    df_pending = fetch_pending_orders(engine)
+    # Passando engine com underscore se a função esperasse _engine, mas aqui passamos direto
+    # O st.cache_data lida com hash, se der erro de hash aqui também, mude a assinatura de fetch_pending_orders para receber _engine
+    df_pending = fetch_pending_orders(engine) 
+
     if df_pending.empty:
         st.info("Nenhum pedido pendente (ou sem conexão).")
         return
@@ -124,8 +129,8 @@ def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optiona
             ok, msg = update_order_status(engine, selected_ids, "Aprovado", aprover_username=st.session_state.get("username"))
             if ok:
                 st.success(msg)
-                st.experimental_memo.clear()  # limpando caches (se houver)
-                st.experimental_rerun()
+                st.cache_data.clear()  # CORREÇÃO: st.experimental_memo -> st.cache_data
+                st.rerun()             # CORREÇÃO: st.experimental_rerun -> st.rerun
             else:
                 st.error(msg)
     with colb:
@@ -133,8 +138,8 @@ def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optiona
             ok, msg = update_order_status(engine, selected_ids, "Rejeitado", aprover_username=st.session_state.get("username"))
             if ok:
                 st.success(msg)
-                st.experimental_memo.clear()
-                st.experimental_rerun()
+                st.cache_data.clear()  # CORREÇÃO
+                st.rerun()             # CORREÇÃO
             else:
                 st.error(msg)
 
@@ -166,7 +171,8 @@ def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optiona
                     ok, msg = update_order_status(engine, [sel_id_int], "Aprovado", aprover_username=st.session_state.get("username"))
                     if ok:
                         st.success(msg)
-                        st.experimental_rerun()
+                        st.cache_data.clear() # CORREÇÃO
+                        st.rerun()            # CORREÇÃO
                     else:
                         st.error(msg)
             with col2:
@@ -174,7 +180,8 @@ def show_aprovacao_page(engine: Optional[object] = None, base_data_path: Optiona
                     ok, msg = update_order_status(engine, [sel_id_int], "Rejeitado", aprover_username=st.session_state.get("username"))
                     if ok:
                         st.success(msg)
-                        st.experimental_rerun()
+                        st.cache_data.clear() # CORREÇÃO
+                        st.rerun()            # CORREÇÃO
                     else:
                         st.error(msg)
         except Exception as e:
