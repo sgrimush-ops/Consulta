@@ -172,9 +172,8 @@ def get_recent_orders_display(engine, username):
         return df
     except Exception as e:
         return pd.DataFrame()
-
 # =========================================================
-#  💾 SALVAR PEDIDO
+#  💾 SALVAR PEDIDO (CORRIGIDO)
 # =========================================================
 def save_order_to_db(engine, pedido_final):
     if engine is None:
@@ -201,16 +200,18 @@ def save_order_to_db(engine, pedido_final):
 
         params_list = []
         for item in pedido_final:
-            lojas_vals = {f"loja_{l}": item.get(f"loja_{l}", 0) for l in LISTA_LOJAS}
+            # CORREÇÃO: Força conversão de numpy.int64 para int padrão do Python
+            lojas_vals = {f"loja_{l}": int(item.get(f"loja_{l}", 0)) for l in LISTA_LOJAS}
+            
             params_list.append({
-                "codigo": item["Codigo"],
-                "produto": item["Produto"],
-                "ean": item["EAN"],
+                "codigo": str(item["Codigo"]),  # Garante que é string
+                "produto": str(item["Produto"]),
+                "ean": str(item["EAN"]),        # CORREÇÃO: Converte EAN para string (remove o np.int64)
                 "embseparacao": int(item.get("embseparacao", 0)),
                 "data_pedido": data_pedido,
                 "usuario_pedido": usuario,
                 "status_item": item["Status"],
-                "total_cx": item["Total_CX"],
+                "total_cx": int(item["Total_CX"]), # CORREÇÃO: Garante int padrão
                 **lojas_vals
             })
 
@@ -222,8 +223,6 @@ def save_order_to_db(engine, pedido_final):
     except Exception as e:
         st.error(f"Erro ao salvar pedido: {e}")
         return False
-
-
 # =========================================================
 #  🧭 INTERFACE PRINCIPAL
 # =========================================================
@@ -448,3 +447,4 @@ def show_pedidos_page(engine=None, base_data_path=None):
             st.info("Nenhum pedido recente.")
     else:
         st.warning("Histórico indisponível sem conexão com banco.")
+
