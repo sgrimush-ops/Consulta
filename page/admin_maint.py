@@ -124,7 +124,7 @@ def update_user_password(engine, username, new_password):
 
 # --- Lógica de Exibição da Página ---
 
-def show_admin_page(engine, base_data_path):
+def show_admin_page(engine=None, base_data_path=None):
     """Cria a interface do painel de administração."""
     st.title("🛡️ Painel de Administração")
     st.markdown("Gerencie usuários, funções (roles) e acesso às lojas.")
@@ -275,3 +275,4 @@ def show_admin_page(engine, base_data_path):
                         st.rerun()
                     else:
                         st.error("Falha ao excluir usuário.")
+
