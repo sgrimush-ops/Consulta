@@ -7,7 +7,8 @@ import pandas as pd # <--- ESTA LINHA ESTAVA FALTANDO NO SEU DEPLOY
 # FUNÇÕES DE BANCO DE DADOS (Específicas do Contato)
 # =========================================================
 
-def get_user_tickets(engine, username):
+def show_contato_page(engine=None, base_data_path=None):
+
     """Busca os tickets de um usuário específico."""
     query = text("""
         SELECT id, assunto, status, ultimo_update 
