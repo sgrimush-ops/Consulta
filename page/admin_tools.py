@@ -2,10 +2,27 @@ import streamlit as st
 import os
 import pandas as pd
 from datetime import datetime
+import unicodedata
 
 # =========================================================
 # FUNÇÕES AUXILIARES
 # =========================================================
+
+def normalize_column_name(col_name):
+    """
+    Remove acentos, espaços e coloca em minúsculo.
+    Ex: 'Descrição do Produto' -> 'descricaodoproduto'
+    Ex: 'CÓDIGO' -> 'codigo'
+    """
+    if not isinstance(col_name, str):
+        return str(col_name)
+    
+    # Remove acentos
+    nfkd_form = unicodedata.normalize('NFKD', col_name)
+    only_ascii = nfkd_form.encode('ASCII', 'ignore').decode('utf-8')
+    
+    # Remove espaços e caracteres especiais, tudo minúsculo
+    return ''.join(e for e in only_ascii if e.isalnum()).lower()
 
 def get_file_info(file_path):
     """Retorna a data de modificação do arquivo formatada."""
@@ -16,7 +33,7 @@ def get_file_info(file_path):
 
 def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
     """
-    Salva o CSV e converte para Parquet, tratando separador ';' e colunas.
+    Salva o CSV e converte para Parquet com nomes de colunas NORMALIZADOS.
     """
     path_csv = os.path.join(target_path_base, filename_csv)
     path_parquet = os.path.join(target_path_base, f"{os.path.splitext(filename_csv)[0]}.parquet")
@@ -36,9 +53,13 @@ def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
             uploaded_file.seek(0)
             # Tenta Latin-1 (Excel padrão) com ponto e vírgula
             df = pd.read_csv(uploaded_file, sep=';', dtype=str, encoding='latin1')
+        except Exception:
+             # Se falhar, tenta detectar separador automaticamente
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='latin1')
         
-        # 3. Padroniza nomes das colunas (tudo minúsculo e sem espaços)
-        df.columns = df.columns.str.strip().str.lower()
+        # 3. Padroniza nomes das colunas (NORMALIZAÇÃO FORTE)
+        df.columns = [normalize_column_name(c) for c in df.columns]
         
         # Remove colunas estranhas/vazias
         df = df.loc[:, ~df.columns.str.contains('^unnamed')]
@@ -52,7 +73,7 @@ def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
         return False, f"Erro: {e}"
 
 # =========================================================
-# PÁGINA PRINCIPAL (A função que estava faltando)
+# PÁGINA PRINCIPAL
 # =========================================================
 
 def show_admin_tools(engine, base_data_path):
@@ -76,9 +97,9 @@ def show_admin_tools(engine, base_data_path):
             with st.spinner("Processando WMS..."):
                 success, result = process_and_save_csv(uploaded_wms, base_data_path, "WMS.csv")
                 if success:
-                    st.success("WMS Atualizado! Confira as colunas abaixo:")
+                    st.success("WMS Atualizado! Confira as colunas padronizadas abaixo:")
                     st.dataframe(result)
-                    st.cache_data.clear() # Limpa cache para a consulta ver os dados novos
+                    st.cache_data.clear() # Limpa cache
                 else:
                     st.error(f"Erro: {result}")
 
