@@ -16,10 +16,7 @@ def get_file_info(file_path):
 
 def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
     """
-    1. Salva o CSV original.
-    2. Lê o CSV (tentando várias codificações e separadores).
-    3. Padroniza colunas (minúsculas).
-    4. Salva como PARQUET para o sistema ler.
+    Salva o CSV e converte para Parquet, tratando separador ';' e colunas.
     """
     path_csv = os.path.join(target_path_base, filename_csv)
     path_parquet = os.path.join(target_path_base, f"{os.path.splitext(filename_csv)[0]}.parquet")
@@ -30,44 +27,37 @@ def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
         with open(path_csv, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        # 2. Tenta ler o CSV com tratamento de erro de codificação e separador
-        # Tenta detectar separador automaticamente ou forçar ;
+        # 2. Tenta ler o CSV (Forçando separador ';' para seus arquivos)
         uploaded_file.seek(0)
         try:
-            # Tenta ler com o motor Python que detecta separador automaticamente
-            df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='utf-8')
+            # Tenta UTF-8 com ponto e vírgula
+            df = pd.read_csv(uploaded_file, sep=';', dtype=str, encoding='utf-8')
         except UnicodeDecodeError:
             uploaded_file.seek(0)
-            # Tenta latin1 se utf-8 falhar
-            df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='latin1')
-        except Exception:
-             # Se a detecção automática falhar, tenta forçar ponto e vírgula (comum no Brasil)
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=';', engine='python', dtype=str, encoding='latin1')
-
+            # Tenta Latin-1 (Excel padrão) com ponto e vírgula
+            df = pd.read_csv(uploaded_file, sep=';', dtype=str, encoding='latin1')
         
-        # 3. Limpeza Vital: Padroniza nomes das colunas
-        # Remove espaços extras e transforma tudo em minúsculo
+        # 3. Padroniza nomes das colunas (tudo minúsculo e sem espaços)
         df.columns = df.columns.str.strip().str.lower()
         
-        # Remove colunas vazias se houver
+        # Remove colunas estranhas/vazias
         df = df.loc[:, ~df.columns.str.contains('^unnamed')]
 
-        # 4. Salva a versão otimizada
+        # 4. Salva a versão otimizada (.parquet)
         df.to_parquet(path_parquet, index=False)
         
-        return True, df.head() # Retorna as primeiras linhas para preview
+        return True, df.head()
         
     except Exception as e:
         return False, f"Erro: {e}"
 
 # =========================================================
-# PÁGINA PRINCIPAL
+# PÁGINA PRINCIPAL (A função que estava faltando)
 # =========================================================
 
 def show_admin_tools(engine, base_data_path):
     st.title("🔧 Upload de Arquivos (CSV)")
-    st.info("O sistema aceita arquivos .csv (separados por vírgula ou ponto e vírgula).")
+    st.info("O sistema foi ajustado para ler seus arquivos CSV com separador ';'.")
 
     os.makedirs(base_data_path, exist_ok=True)
 
@@ -83,14 +73,14 @@ def show_admin_tools(engine, base_data_path):
     
     if uploaded_wms:
         if st.button("Processar WMS", type="primary"):
-            with st.spinner("Lendo e padronizando dados..."):
+            with st.spinner("Processando WMS..."):
                 success, result = process_and_save_csv(uploaded_wms, base_data_path, "WMS.csv")
                 if success:
-                    st.success("WMS Atualizado! Veja abaixo como o sistema leu os dados:")
-                    st.dataframe(result) # Mostra preview
-                    st.cache_data.clear() # LIMPA A MEMÓRIA ANTIGA
+                    st.success("WMS Atualizado! Confira as colunas abaixo:")
+                    st.dataframe(result)
+                    st.cache_data.clear() # Limpa cache para a consulta ver os dados novos
                 else:
-                    st.error(f"Erro ao processar: {result}")
+                    st.error(f"Erro: {result}")
 
     # --- 2. Upload do Histórico ---
     st.markdown("---")
@@ -104,7 +94,7 @@ def show_admin_tools(engine, base_data_path):
     
     if uploaded_hist:
         if st.button("Processar Histórico", type="primary"):
-            with st.spinner("Processando..."):
+            with st.spinner("Processando Histórico..."):
                 success, result = process_and_save_csv(uploaded_hist, base_data_path, "historico_solic.csv")
                 if success:
                     st.success("Histórico Atualizado! Preview:")
@@ -125,7 +115,7 @@ def show_admin_tools(engine, base_data_path):
     
     if uploaded_mix:
         if st.button("Processar Mix", type="primary"):
-            with st.spinner("Processando..."):
+            with st.spinner("Processando Mix..."):
                 success, result = process_and_save_csv(uploaded_mix, base_data_path, "__MixAtivoSistema.csv")
                 if success:
                     st.success("Mix Atualizado! Preview:")
