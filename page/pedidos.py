@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import os
 from sqlalchemy import text
+import numpy as np  # Importado para tratar tipos numpy
 
 # =========================================================
 #  🧩 CONSTANTES
@@ -15,7 +16,7 @@ LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
 #  📥 CARREGAMENTO DE DADOS (COM CACHE)
 # =========================================================
 
-@st.cache_data(ttl=300) # Cache de 5 min: SALVA A MEMÓRIA DO SERVIDOR
+@st.cache_data(ttl=300)
 def load_database(base_path):
     """Carrega Mix, Histórico e WMS de uma vez só."""
     
@@ -35,7 +36,6 @@ def load_database(base_path):
         cols_map = {'codigoint': 'Codigo', 'descricao': 'Produto', 'embseparacao': 'Emb'}
         df_mix.rename(columns={k: v for k, v in cols_map.items() if k in df_mix.columns}, inplace=True)
         
-        # Tratamento da Embalagem (Respeita o cadastro)
         if 'Emb' in df_mix.columns:
             df_mix['Emb'] = df_mix['Emb'].astype(str).str.replace(',', '.', regex=False)
             df_mix['Emb'] = pd.to_numeric(df_mix['Emb'], errors='coerce')
@@ -74,39 +74,44 @@ def load_database(base_path):
     return df_mix, df_hist, df_wms
 
 # =========================================================
-#  💾 SALVAR (CORRIGIDO PARA USAR NOMES SEGUROS)
+#  💾 SALVAR (COM CORREÇÃO DE NUMPY INT64)
 # =========================================================
 
 def save_order(engine, dados):
     if not dados: return False
     try:
         with engine.begin() as conn:
-            # Nomes de colunas no banco
             cols = ", ".join([f"loja_{l}" for l in LISTA_LOJAS])
-            # Nomes de parâmetros na query (agora seguros: :loja_001 em vez de :001)
-            vals = ", ".join([f":loja_{l}" for l in LISTA_LOJAS])
-            
-            q = text(f"""
-                INSERT INTO pedidos_consolidados 
-                (codigo, produto, embseparacao, data_pedido, usuario_pedido, status_item, total_cx, {cols}) 
-                VALUES (:c, :p, :e, :d, :u, 'Ativo', :t, {vals})
-            """)
+            vals = ", ".join([f":{l}" for l in LISTA_LOJAS])
+            q = text(f"INSERT INTO pedidos_consolidados (codigo, produto, embseparacao, data_pedido, usuario_pedido, status_item, total_cx, {cols}) VALUES (:c, :p, :e, :d, :u, 'Ativo', :t, {vals})")
             
             now = datetime.now()
             user = st.session_state.get("username", "anon")
             
             for item in dados:
+                # CORREÇÃO PRINCIPAL: Converter tudo para tipo nativo Python (int/float)
+                # O int() do Python remove a tipagem numpy que o psycopg2 não aceita
+                
+                emb_val = item["Emb"]
+                if pd.isna(emb_val): emb_val = 0
+                
+                total_val = item["Total"]
+                if pd.isna(total_val): total_val = 0
+
                 p = {
-                    "c": item["Codigo"], 
-                    "p": item["Produto"], 
-                    "e": item["Emb"], 
+                    "c": str(item["Codigo"]), 
+                    "p": str(item["Produto"]), 
+                    "e": int(float(emb_val)), # Garante int nativo
                     "d": now, 
                     "u": user, 
-                    "t": item["Total"]
+                    "t": int(float(total_val)) # Garante int nativo
                 }
-                # Mapeia o valor da loja para o parâmetro seguro
+                
                 for l in LISTA_LOJAS: 
-                    p[f"loja_{l}"] = int(item.get(l, 0))
+                    # Pega valor, converte pra float (pra garantir), depois int nativo
+                    val_loja = item.get(l, 0)
+                    if pd.isna(val_loja): val_loja = 0
+                    p[l] = int(float(val_loja))
                 
                 conn.execute(q, p)
         return True
@@ -153,7 +158,7 @@ def show_pedidos_page(engine, base_data_path):
         codigo = prod['Codigo']
         nome = prod['Produto']
         
-        # Validação da Embalagem (Respeitando cadastro)
+        # Validação da Embalagem
         emb_val = prod.get('Emb')
         if pd.isna(emb_val) or emb_val <= 0:
             st.error(f"⛔ Erro de Cadastro: Embalagem inválida ({emb_val}). Verifique o arquivo de Mix.")
@@ -170,7 +175,7 @@ def show_pedidos_page(engine, base_data_path):
             if not w.empty: qtd_cd = w['Qtd_CD'].iloc[0]
         
         cx_cd = int(qtd_cd / emb)
-        st.info(f"CD: {int(qtd_cd)} un | **{cx_cd} cx**")
+        st.info(f"CD: {int(qtd_cd)} un | **{int(qtd_cd/emb)} cx**")
 
         # Tabela de Lojas
         lojas_ok = st.session_state.get('lojas_acesso', [])
