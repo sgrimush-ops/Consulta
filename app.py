@@ -82,7 +82,6 @@ def update_user_status(username, status):
         pass
 
 def create_db_tables():
-    """Cria tabelas essenciais se não existirem."""
     try:
         with engine.begin() as conn: 
             conn.execute(text("""
@@ -147,7 +146,7 @@ def create_db_tables():
                 )
             """))
     except Exception as e:
-        pass # Ignora erros de init se tabelas já existem
+        pass 
 
 # =========================================================
 # NAVEGAÇÃO E LOGIN
@@ -176,7 +175,6 @@ def main():
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # Verifica se é primeiro acesso (sem usuários)
     try:
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM users")).scalar()
@@ -197,8 +195,15 @@ def main():
         st.session_state.clear()
         st.rerun()
 
-    # Menu
-    # CORREÇÃO: Usar lambda para garantir que os argumentos sejam passados
+    # Notificações
+    username = st.session_state.get("username", "")
+    role = st.session_state.get("role", "user")
+    unread_count = get_unread_message_count(engine, username, role)
+    contato_menu_label = "Contato"
+    if unread_count > 0:
+        contato_menu_label = f"Contato ({unread_count}) 🔴"
+
+    # Menu - Usando LAMBDA para garantir os argumentos
     paginas = {
         "Home": lambda: show_home_page(engine, BASE_DATA_PATH),
         "Consulta de Estoque CD": lambda: show_consulta_page(engine, BASE_DATA_PATH),
@@ -207,7 +212,6 @@ def main():
         "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH), 
     }
 
-    # CORREÇÃO: Usar lambda para a página de pedidos também
     if st.session_state.get("lojas_acesso"):
         paginas["Digitar Pedidos"] = lambda: show_pedidos_page(engine, BASE_DATA_PATH)
 
@@ -225,11 +229,9 @@ def main():
     if "page_key" not in st.session_state or st.session_state.page_key not in page_labels:
         st.session_state.page_key = "Home"
 
-    # Função para atualizar o estado quando o radio mudar
     def update_page():
         st.session_state.page_key = st.session_state.nav_radio
 
-    # Busca o índice atual, com proteção
     try:
         current_index = page_labels.index(st.session_state.page_key)
     except ValueError:
@@ -245,12 +247,31 @@ def main():
     )
     
     # --- EXECUÇÃO ---
-    # Agora a função no dicionário já é uma lambda que inclui os argumentos
     try:
+        # Chama a lambda selecionada, que já tem os argumentos
         func = paginas[st.session_state.page_key]
-        func()  # Chamada simplificada pois os argumentos estão embutidos
+        func()
     except Exception as e:
         st.error(f"Erro ao carregar página: {e}")
+
+@st.cache_data(ttl=60)
+def get_unread_message_count(_engine, username, role):
+    query_str = ""
+    params = {}
+    if role == "admin":
+        query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Aguardando Retorno'"
+    else:
+        query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Respondido' AND usuario_username = :username"
+        params = {"username": username}
+
+    if not query_str: return 0
+
+    try:
+        with _engine.connect() as conn:
+            result = conn.execute(text(query_str), params)
+            return result.scalar_one_or_none() or 0
+    except Exception:
+        return 0
 
 if __name__ == "__main__":
     main()
