@@ -1,15 +1,12 @@
-import os
-import time
-import pytz
-import json
-import hashlib
 import streamlit as st
-from datetime import datetime
+import pandas as pd
+import hashlib
+from datetime import datetime, date
+import json
+import os
 from sqlalchemy import create_engine, text
 
-# --------------------------
-# IMPORT DAS PÁGINAS
-# --------------------------
+# --- Importa as páginas ---
 from page.home import show_home_page
 from page.consulta_estoq_cd import show_consulta_page
 from page.pedidos import show_pedidos_page
@@ -22,225 +19,339 @@ from page.contato import show_contato_page
 from page.upload_ofertas import show_upload_ofertas_page
 from page.ver_ofertas import show_ver_ofertas_page
 
+# =========================================================
+# CONFIGURAÇÕES INICIAIS
+# =========================================================
+st.set_page_config(page_title="Gestão de Produtos", layout="wide")
 
-# ==================================
-# CONFIGURAÇÃO GERAL
-# ==================================
-st.set_page_config(
-    page_title="Projeto BAK",
-    page_icon="📦",
-    layout="wide"
-)
+BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
+os.makedirs(BASE_DATA_PATH, exist_ok=True) 
 
-# Caminho base de dados (Fallback)
-BASE_DATA_PATH = os.getenv("RENDER_DISK_PATH", os.getenv("BASE_DATA_PATH", "data"))
-
-
-# ==================================
-# CONEXÃO COM BANCO
-# ==================================
-def get_engine():
-    conn_string = os.getenv("DATABASE_URL", None)
-    if not conn_string:
-        st.error("❌ DATABASE_URL não configurada.")
-        return None
-    return create_engine(conn_string)
+LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
+               "007", "008", "011", "012", "013", "014", "017", "018"]
+COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
 
 
-# ==================================
-# UTILITÁRIOS DE SENHA (HASH)
-# ==================================
+# =========================================================
+# FUNÇÕES DE SEGURANÇA
+# =========================================================
 def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text:
-        return True
-    return False
+    return make_hashes(password) == hashed_text
 
 
-# ==================================
-# LOGIN REAL (COM BANCO DE DADOS)
-# ==================================
-def check_password():
-    """Gerencia o login, verificação no banco e estado da sessão."""
+# =========================================================
+# CONEXÃO DE BANCO (APENAS POSTGRES)
+# =========================================================
+@st.cache_resource
+def get_engine():
+    db_url = os.getenv("DATABASE_URL")
     
-    # Se já estiver autenticado, retorna True direto (não mostra formulário)
-    if st.session_state.get("authenticated"):
-        return True
-
-    # Exibe o formulário de login centralizado
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title("🔐 Acesso ao Sistema")
-        with st.form("login_form"):
-            username_input = st.text_input("Usuário")
-            password_input = st.text_input("Senha", type="password")
-            submitted = st.form_submit_button("Entrar", type="primary")
-
-        if submitted:
-            if not username_input or not password_input:
-                st.warning("Por favor, preencha usuário e senha.")
-                return False
-            
-            engine = get_engine()
-            if not engine:
-                return False
-
-            try:
-                # Busca o usuário no banco (Case insensitive para username)
-                with engine.connect() as conn:
-                    query = text("SELECT username, password, role, lojas_acesso FROM users WHERE LOWER(username) = :user")
-                    result = conn.execute(query, {"user": username_input.lower()}).fetchone()
-
-                if result:
-                    db_user, db_pass, db_role, db_lojas = result
-                    
-                    # Verifica a senha (HASH)
-                    if check_hashes(password_input, db_pass):
-                        # --- LOGIN SUCESSO ---
-                        st.session_state.authenticated = True
-                        st.session_state.username = db_user
-                        st.session_state.role = db_role
-                        
-                        # Carrega as lojas (JSON -> Lista)
-                        try:
-                            if db_lojas:
-                                st.session_state.lojas_acesso = json.loads(db_lojas)
-                            else:
-                                st.session_state.lojas_acesso = []
-                        except:
-                            st.session_state.lojas_acesso = []
-
-                        # Atualiza status para LOGADO no banco
-                        with engine.begin() as conn:
-                            conn.execute(
-                                text("UPDATE users SET status_logado = 'LOGADO', ultimo_acesso = NOW() WHERE username = :u"),
-                                {"u": db_user}
-                            )
-                        
-                        st.success(f"Bem-vindo, {db_user}!")
-                        time.sleep(0.5)
-                        st.rerun() # <--- ISSO CORRIGE O BUG DA TELA DUPLA
-                        return True
-                    else:
-                        st.error("Senha incorreta.")
-                else:
-                    st.error("Usuário não encontrado.")
-            
-            except Exception as e:
-                st.error(f"Erro ao conectar ao banco: {e}")
-
-    return False
-
-
-# ==================================
-# LOGOUT
-# ==================================
-def do_logout():
-    # Atualiza status no banco (opcional, mas recomendado)
-    if st.session_state.get("username"):
-        try:
-            engine = get_engine()
-            with engine.begin() as conn:
-                conn.execute(
-                    text("UPDATE users SET status_logado = 'DESLOGADO' WHERE username = :u"),
-                    {"u": st.session_state.username}
-                )
-        except:
-            pass
-            
-    st.session_state.authenticated = False
-    st.session_state.username = None
-    st.session_state.role = None
-    st.session_state.page_key = "Home"
-    st.rerun()
-
-
-# ==================================
-# NAVEGAÇÃO ENTRE PÁGINAS
-# ==================================
-def app_navigation(engine):
-    # Sidebar com informações do usuário
-    with st.sidebar:
-        st.title("Navegação")
-        st.markdown(f"👤 **{st.session_state.get('username', 'Visitante')}**")
-        st.markdown(f"🔑 *{st.session_state.get('role', 'user')}*")
+    if not db_url:
+        # Fallback para desenvolvimento local (SQLite) se não houver DATABASE_URL
+        # Mas o ideal é ter a URL configurada.
+        # st.warning("DATABASE_URL não encontrada. Usando SQLite local (apenas para teste).")
+        # return create_engine("sqlite:///local_dev.db") 
+        st.error("Erro fatal: A variável de ambiente DATABASE_URL não foi encontrada.")
+        st.stop()
         
-        if st.button("Sair / Logout", type="secondary"):
-            do_logout()
-            
-        st.markdown("---")
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+        
+    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
 
-    # Definição das páginas e permissões
-    # Dicionário: "Nome": (Função, Lista de Roles Permitidos)
-    # Se Lista for None, todos acessam.
+engine = get_engine()
+
+
+# =========================================================
+# CRIAÇÃO / MIGRAÇÃO DE TABELAS
+# =========================================================
+def create_db_tables():
+    """
+    Cria todas as tabelas necessárias e executa a limpeza de dados antigos.
+    """
+    try:
+        with engine.begin() as conn: 
+            # --- tabela de usuários ---
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password TEXT NOT NULL,
+                    ultimo_acesso TIMESTAMP,
+                    status_logado TEXT,
+                    role TEXT DEFAULT 'user',
+                    lojas_acesso TEXT
+                )
+            """))
+
+            # --- tabela de pedidos ---
+            lojas_sql_cols = ", ".join([f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS pedidos_consolidados (
+                    id SERIAL PRIMARY KEY, 
+                    codigo TEXT NOT NULL,
+                    produto TEXT,
+                    ean TEXT,
+                    embseparacao INTEGER,
+                    data_pedido TIMESTAMP,
+                    data_aprovacao TIMESTAMP,
+                    usuario_pedido TEXT,
+                    status_item TEXT,
+                    status_aprovacao TEXT DEFAULT 'Pendente',
+                    total_cx INTEGER,
+                    {lojas_sql_cols}
+                )
+            """))
+
+            # --- tabelas de "Contato" ---
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS contato_chamados (
+                    id SERIAL PRIMARY KEY,
+                    usuario_username TEXT REFERENCES users(username),
+                    assunto TEXT,
+                    data_criacao TIMESTAMP,
+                    ultimo_update TIMESTAMP,
+                    status TEXT DEFAULT 'Aguardando Retorno' 
+                )
+            """)) 
+            
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS contato_mensagens (
+                    id SERIAL PRIMARY KEY,
+                    chamado_id INTEGER REFERENCES contato_chamados(id) ON DELETE CASCADE,
+                    remetente_username TEXT,
+                    mensagem TEXT,
+                    data_envio TIMESTAMP
+                )
+            """))
+            
+            # --- tabela de OFERTAS ---
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ofertas (
+                    id SERIAL PRIMARY KEY,
+                    codigo INTEGER NOT NULL,
+                    produto TEXT,
+                    oferta NUMERIC(10, 2),
+                    data_inicio DATE NOT NULL,
+                    data_final DATE NOT NULL,
+                    UNIQUE(codigo, data_inicio, data_final)
+                )
+            """))
+            
+            # --- Lógica de Auto-Deleção (Limpeza de 7 dias Contato) ---
+            seven_days_ago = (datetime.now() - pd.Timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            conn.execute(text("""
+                DELETE FROM contato_chamados 
+                WHERE ultimo_update < :seven_days_ago
+            """), {"seven_days_ago": seven_days_ago})
+            
+    except Exception as e:
+        if "foreign key constraint" not in str(e) and "does not exist" not in str(e):
+             st.error(f"Erro ao inicializar o banco de dados: {e}")
+
+# =========================================================
+# LOGIN E PERFIL DE USUÁRIO
+# =========================================================
+def check_login_and_get_roles(username, password):
+    with engine.connect() as conn:
+        query = text("SELECT password, role, lojas_acesso FROM users WHERE username = :username")
+        result = conn.execute(query, {"username": username.lower()})
+        data = result.fetchone()
+
+    if data:
+        hashed_password, role, lojas_acesso_json = data
+        if check_hashes(password, hashed_password):
+            lojas = []
+            if lojas_acesso_json:
+                try:
+                    lojas = json.loads(lojas_acesso_json)
+                except json.JSONDecodeError:
+                    lojas = []
+            return True, (role or "user"), lojas
+    return False, "user", []
+
+
+def update_user_status(username, status):
+    current_time = datetime.now()
+    query = text("""
+        UPDATE users 
+        SET ultimo_acesso = :time, status_logado = :status 
+        WHERE username = :username
+    """)
     
-    all_pages = {
-        "Home": (show_home_page, None),
-        "Consulta CD": (show_consulta_page, None),
-        "Pedidos": (show_pedidos_page, ["user", "admin", "mkt"]),
-        "Aprovação de Pedidos": (show_aprovacao_page, ["admin"]),
-        "Status Usuários": (show_status_page, ["admin"]),
-        "Manutenção Admin": (show_admin_page, ["admin"]),
-        "Ferramentas Admin": (show_admin_tools, ["admin"]),
-        "Mudar Senha": (show_mudar_senha_page, None),
-        "Contato": (show_contato_page, None),
-        "Upload Ofertas": (show_upload_ofertas_page, ["admin", "mkt"]),
-        "Ver Ofertas": (show_ver_ofertas_page, None),
+    with engine.begin() as conn:
+        conn.execute(query, {
+            "time": current_time, 
+            "status": status, 
+            "username": username.lower()
+        })
+
+# =========================================================
+# TELA DE LOGIN
+# =========================================================
+def login_page():
+    st.title("🔐 Login do Sistema")
+    username = st.text_input("Usuário:").lower()
+    senha = st.text_input("Senha:", type="password")
+
+    if st.button("Entrar", type="primary"):
+        logged_in, role, lojas = check_login_and_get_roles(username, senha)
+        if logged_in:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = username
+            st.session_state["role"] = role
+            st.session_state["lojas_acesso"] = lojas
+            update_user_status(username, "LOGADO")
+            st.rerun()
+        else:
+            st.error("Usuário ou senha inválidos.")
+    st.stop()
+
+# =========================================================
+# FUNÇÃO DE PRIMEIRO ACESSO (BOOTSTRAP)
+# =========================================================
+def check_if_first_run(engine):
+    """Verifica se existe algum usuário no banco."""
+    try:
+        with engine.connect() as conn:
+            query = text("SELECT COUNT(username) FROM users")
+            result = conn.execute(query)
+            count = result.scalar_one_or_none() or 0
+        return count == 0
+    except Exception as e:
+        if "does not exist" in str(e): # Se a tabela 'users' ainda não foi criada
+            return True
+        st.error(f"Erro ao verificar contagem de usuários: {e}")
+        return False
+
+# =========================================================
+# FUNÇÃO DE CONTAGEM DE MENSAGENS
+# =========================================================
+@st.cache_data(ttl=60) # Cache de 1 minuto
+def get_unread_message_count(_engine, username, role):
+    """Pega a contagem de mensagens não lidas para o usuário/admin."""
+    query_str = ""
+    params = {}
+    
+    if role == "admin":
+        # Admin vê tickets 'Aguardando Retorno'
+        query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Aguardando Retorno'"
+    else:
+        # Usuário vê tickets 'Respondidos'
+        query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Respondido' AND usuario_username = :username"
+        params = {"username": username}
+
+    if not query_str:
+        return 0
+
+    try:
+        with _engine.connect() as conn:
+            result = conn.execute(text(query_str), params)
+            count = result.scalar_one_or_none() or 0
+        return count
+    except Exception as e:
+        # Se as tabelas ainda não existem, não falha
+        if "does not exist" not in str(e):
+            print(f"Erro ao buscar contagem de mensagens: {e}") 
+        return 0
+
+# =========================================================
+# MAIN APP
+# =========================================================
+def main():
+    create_db_tables()
+    
+    is_first_run = check_if_first_run(engine)
+
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+
+    if is_first_run:
+        st.warning("🚀 Bem-vindo! Detectamos que este é o primeiro acesso.")
+        st.info("Por favor, crie o primeiro usuário administrador do sistema.")
+        show_admin_page(engine=engine, base_data_path=BASE_DATA_PATH)
+        st.stop() 
+
+    if not st.session_state["logged_in"]:
+        login_page() 
+
+    # --- O RESTO DA PÁGINA (SÓ RODA SE LOGADO) ---
+    st.sidebar.success(f"Logado como: {st.session_state['username']}")
+
+    if st.sidebar.button("Logout"):
+        update_user_status(st.session_state["username"], "DESLOGADO")
+        st.session_state.clear()
+        st.session_state["logged_in"] = False
+        st.rerun()
+
+    # --- Lógica de Notificação de Contato ---
+    username = st.session_state.get("username", "")
+    role = st.session_state.get("role", "user")
+    
+    unread_count = get_unread_message_count(engine, username, role)
+    
+    contato_menu_label = "Contato"
+    if unread_count > 0:
+        contato_menu_label = f"Contato ({unread_count}) 🔴"
+
+    # --- MENU LATERAL ---
+    paginas_disponiveis_labels = {
+        "Home": show_home_page,
+        "Consulta de Estoque CD": show_consulta_page,
+        "Ofertas Atuais": show_ver_ofertas_page,
+        "Alterar Senha": show_mudar_senha_page,
+        contato_menu_label: show_contato_page, 
     }
 
-    # Filtra páginas baseado no Role do usuário
-    user_role = st.session_state.get("role", "user")
+    if st.session_state.get("lojas_acesso"):
+        paginas_disponiveis_labels["Digitar Pedidos"] = show_pedidos_page
+
+    if st.session_state.get("role") == "mkt":
+        paginas_disponiveis_labels["Upload Ofertas"] = show_upload_ofertas_page
     
-    paginas_disponiveis = {}
-    for nome, (func, roles) in all_pages.items():
-        if roles is None or user_role in roles:
-            paginas_disponiveis[nome] = func
+    if st.session_state.get("role") == "admin":
+        paginas_disponiveis_labels["Aprovação de Pedidos"] = show_aprovacao_page
+        paginas_disponiveis_labels["Status do Usuário"] = show_status_page
+        paginas_disponiveis_labels["Administração"] = show_admin_page
+        paginas_disponiveis_labels["Atualização de Dependências"] = show_admin_tools
+        if "Upload Ofertas" not in paginas_disponiveis_labels:
+            paginas_disponiveis_labels["Upload Ofertas"] = show_upload_ofertas_page
 
-    page_list_labels = list(paginas_disponiveis.keys())
+    
+    # --- Lógica de Navegação Atualizada ---
+    page_list_labels = list(paginas_disponiveis_labels.keys())
 
-    # Controle da seleção
     if "page_key" not in st.session_state:
         st.session_state.page_key = "Home"
     
-    # Se a página salva na sessão não for permitida, volta pra Home
     if st.session_state.page_key not in page_list_labels:
-        st.session_state.page_key = "Home"
+        if "Contato" in st.session_state.page_key:
+            st.session_state.page_key = contato_menu_label 
+        else:
+            st.session_state.page_key = "Home" 
 
-    # Sidebar Radio
-    selected_page = st.sidebar.radio(
-        "Ir para:",
-        page_list_labels,
-        index=page_list_labels.index(st.session_state.page_key),
-        key="sidebar_page_selector"
+    def update_sidebar_selection():
+        st.session_state.page_key = st.session_state["sidebar_radio_key"]
+
+    current_page_index = page_list_labels.index(st.session_state.page_key)
+
+    st.sidebar.radio(
+        "Selecione a Página:", 
+        page_list_labels, 
+        index=current_page_index,
+        on_change=update_sidebar_selection,
+        key="sidebar_radio_key"
     )
-
-    st.session_state.page_key = selected_page
-    selected_page_func = paginas_disponiveis[selected_page]
-
-    # Renderiza a página selecionada
-    try:
-        selected_page_func(engine=engine, base_data_path=BASE_DATA_PATH)
-    except TypeError:
-        selected_page_func()
-    except Exception as e:
-        st.error(f"Erro crítico na página: {e}")
+    
+    selected_page_func = paginas_disponiveis_labels[st.session_state.page_key]
+    
+    # --- CHAMADA DA PÁGINA COM OS ARGUMENTOS CORRETOS ---
+    # Todas as páginas agora recebem engine e base_data_path por padrão
+    selected_page_func(engine=engine, base_data_path=BASE_DATA_PATH)
 
 
-# ==================================
-# MAIN
-# ==================================
-def main():
-    # 1. Verifica Login (Se falhar, o script para aqui)
-    if not check_password():
-        return
-
-    # 2. Se passou, cria conexão e carrega o app
-    engine = get_engine()
-    app_navigation(engine)
-
-
-# Executa app
 if __name__ == "__main__":
     main()
