@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime
 import os
 from sqlalchemy import text
 import numpy as np
@@ -21,6 +21,17 @@ def normalize_col(col):
     if not isinstance(col, str): return str(col)
     n = unicodedata.normalize('NFKD', col).encode('ASCII', 'ignore').decode('utf-8')
     return ''.join(e for e in n if e.isalnum()).lower()
+
+def format_br(val):
+    """Formata número para padrão BR: 1.234,5"""
+    try:
+        v = float(val)
+        # Formata com 1 casa decimal e separador de milhar (padrão US: 1,234.5)
+        s = f"{v:,.1f}"
+        # Inverte pontuação para BR: 1.234,5
+        return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+    except:
+        return "0,0"
 
 @st.cache_data(ttl=300)
 def load_database(base_path, _engine):
@@ -56,11 +67,12 @@ def load_database(base_path, _engine):
         for c in df_hist.columns:
             if 'codigoint' in c: rename[c] = 'Codigo'
             elif 'loja' in c: rename[c] = 'Loja'
-            elif 'est' in c: rename[c] = 'Estoque'
-            elif 'ped' in c: rename[c] = 'Pendente'
-            elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem' 
-            elif 'vd' in c and '2' in c: rename[c] = 'Venda2Sem' 
-            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d' 
+            # Mapeamento direto das colunas que JÁ SÃO CAIXAS
+            elif 'est' in c: rename[c] = 'Estoque_CX'
+            elif 'ped' in c: rename[c] = 'Pendente_CX'
+            elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem_CX' 
+            elif 'vd' in c and '2' in c: rename[c] = 'Venda2Sem_CX' 
+            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX' 
         df_hist.rename(columns=rename, inplace=True)
         
         if 'Codigo' in df_hist.columns:
@@ -69,7 +81,7 @@ def load_database(base_path, _engine):
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
             
         # Agregação
-        cols_to_sum = ['Estoque', 'Pendente', 'Venda1Sem', 'Venda2Sem', 'Venda30d']
+        cols_to_sum = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
         existing_cols = [c for c in cols_to_sum if c in df_hist.columns]
         
         if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns and existing_cols:
@@ -86,37 +98,43 @@ def load_database(base_path, _engine):
                 df_wms['Codigo'] = pd.to_numeric(df_wms['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
                 df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
 
-    # --- OFERTAS (Carrega do Banco) ---
+    # --- OFERTAS ---
     df_ofertas = pd.DataFrame()
     try:
         with _engine.connect() as conn:
-            # Pega ofertas futuras ou atuais
             q = text("SELECT codigo, oferta, data_inicio, data_final FROM ofertas WHERE data_final >= CURRENT_DATE")
             df_ofertas = pd.read_sql(q, conn)
-            
             if not df_ofertas.empty:
                 df_ofertas['codigo'] = pd.to_numeric(df_ofertas['codigo'], errors='coerce').fillna(0).astype(int).astype(str)
                 df_ofertas['data_inicio'] = pd.to_datetime(df_ofertas['data_inicio']).dt.date
                 df_ofertas['data_final'] = pd.to_datetime(df_ofertas['data_final']).dt.date
-    except Exception:
-        pass # Se tabela não existir, segue sem ofertas
+    except: pass
 
     return df_mix, df_hist, df_wms, df_ofertas
 
-def calculate_smart_suggestion(v1, v2, v30, est, pend, emb, dias_cobertura=7):
+def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=7):
     """
-    Calcula sugestão de compra (em UNIDADES) baseada em média ponderada.
+    Calcula sugestão. Entradas são CAIXAS.
+    Converte para Unidades para precisão e retorna CAIXAS.
     """
     if emb <= 0: return 0
     
+    # Converte tudo para Unidades para o cálculo
+    v1_un = v1_cx * emb
+    v2_un = v2_cx * emb
+    v30_un = v30_cx * emb
+    est_un = est_cx * emb
+    pend_un = pend_cx * emb
+    
     # Média ponderada (Unidades)
-    venda_semanal_proj = (v1 * 0.5) + (v2 * 0.3) + ((v30 / 4.0) * 0.2)
+    venda_semanal_proj = (v1_un * 0.5) + (v2_un * 0.3) + ((v30_un / 4.0) * 0.2)
     venda_diaria = venda_semanal_proj / 7.0
     
     necessidade = venda_diaria * dias_cobertura
-    sugestao_un = max(0, necessidade - (est + pend))
+    sugestao_un = max(0, necessidade - (est_un + pend_un))
     
-    return sugestao_un
+    # Retorna em caixas
+    return int(np.ceil(sugestao_un / emb))
 
 def save_order(engine, dados):
     if not dados: return False
@@ -154,11 +172,11 @@ def show_pedidos_page(engine, base_data_path):
     if "pedido_atual" not in st.session_state:
         st.session_state.pedido_atual = []
 
-    with st.spinner("Carregando bases de dados..."):
+    with st.spinner("Carregando dados..."):
         df_mix, df_hist, df_wms, df_ofertas = load_database(base_data_path, engine)
 
     if df_mix.empty:
-        st.error("⚠️ Base de Mix não encontrada. Faça o upload em 'Ferramentas Admin'.")
+        st.error("⚠️ Base de Mix não encontrada.")
         return
 
     # 2. Filtros
@@ -196,7 +214,7 @@ def show_pedidos_page(engine, base_data_path):
         except: emb = 0
 
         if emb <= 0:
-            st.error(f"⛔ Embalagem inválida ({emb_raw}). Verifique o Mix.")
+            st.error(f"⛔ Embalagem inválida ({emb_raw}).")
             return
 
         st.divider()
@@ -206,16 +224,13 @@ def show_pedidos_page(engine, base_data_path):
         if not df_ofertas.empty:
             promo = df_ofertas[df_ofertas['codigo'] == codigo]
             if not promo.empty:
-                # Pega a oferta mais recente ou relevante
                 promo = promo.sort_values('data_inicio').iloc[-1]
                 inicio = promo['data_inicio'].strftime('%d/%m')
                 fim = promo['data_final'].strftime('%d/%m')
                 valor = float(promo['oferta'])
-                
-                st.info(f"🔥 **PRODUTO EM OFERTA!** De **{inicio}** até **{fim}** por **R$ {valor:.2f}**")
-                st.caption("Considere aumentar o pedido para cobrir o período da promoção.")
+                st.info(f"🔥 **EM OFERTA!** De {inicio} até {fim} por **R$ {valor:.2f}**")
         
-        # WMS (Estoque CD)
+        # WMS (Estoque CD - Unidades)
         qtd_cd = 0.0
         if not df_wms.empty:
             w = df_wms[df_wms['Codigo'] == codigo]
@@ -223,7 +238,8 @@ def show_pedidos_page(engine, base_data_path):
                 qtd_cd = w['Qtd_CD'].iloc[0]
         
         cx_cd = int(qtd_cd / emb) if emb > 0 else 0
-        st.info(f"CD: {int(qtd_cd):,} un | **{cx_cd:,} cx**")
+        # Formatação BR com separador de milhar
+        st.info(f"CD: {int(qtd_cd):,} un | **{format_br(cx_cd).split(',')[0]} cx**")
 
         # Grade Lojas
         lojas_acesso = st.session_state.get('lojas_acesso', [])
@@ -236,68 +252,62 @@ def show_pedidos_page(engine, base_data_path):
         for l in LISTA_LOJAS:
             if l not in lojas_acesso: continue
             
-            est_un = pend_un = v1_un = v2_un = v30_un = 0.0
+            est_cx = pend_cx = v1_cx = v2_cx = v30_cx = 0.0
             
             if l in sub.index:
                 r = sub.loc[l]
                 if isinstance(r, pd.DataFrame): r = r.iloc[0]
                 
-                try: est_un = float(r.get('Estoque', 0) or 0)
-                except: est_un = 0.0
-                try: pend_un = float(r.get('Pendente', 0) or 0)
-                except: pend_un = 0.0
-                try: v1_un = float(r.get('Venda1Sem', 0) or 0)
-                except: v1_un = 0.0
-                try: v2_un = float(r.get('Venda2Sem', 0) or 0)
-                except: v2_un = 0.0
-                try: v30_un = float(r.get('Venda30d', 0) or 0)
-                except: v30_un = 0.0
+                # Dados já estão em caixas no histórico
+                try: est_cx = float(r.get('Estoque_CX', 0) or 0)
+                except: est_cx = 0.0
+                try: pend_cx = float(r.get('Pendente_CX', 0) or 0)
+                except: pend_cx = 0.0
+                try: v1_cx = float(r.get('Venda1Sem_CX', 0) or 0)
+                except: v1_cx = 0.0
+                try: v2_cx = float(r.get('Venda2Sem_CX', 0) or 0)
+                except: v2_cx = 0.0
+                try: v30_cx = float(r.get('Venda30d_CX', 0) or 0)
+                except: v30_cx = 0.0
             
-            # Calcula sugestão em UNIDADES (sem boost automático)
-            sug_un = calculate_smart_suggestion(v1_un, v2_un, v30_un, est_un, pend_un, emb, dias_cobertura)
+            sug_cx = calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura)
             
-            # CONVERTE TUDO PARA CAIXAS
-            est_cx = est_un / emb
-            pend_cx = pend_un / emb
-            v1_cx = v1_un / emb
-            v2_cx = v2_un / emb
-            sug_cx = int(np.ceil(sug_un / emb))
-
+            # Aplica formatação BR (String) para colunas informativas
             grade.append({
                 "Loja": l, 
-                "Est": est_cx, 
-                "Pend": pend_cx, 
-                "Venda 1Sem": v1_cx, 
-                "Venda 2Sem": v2_cx, 
-                "Sugestão": sug_cx, 
+                "Est": format_br(est_cx), 
+                "Pend": format_br(pend_cx), 
+                "Vd 1Sm": format_br(v1_cx), 
+                "Vd 2Sm": format_br(v2_cx), 
+                "Sugest": sug_cx, # Mantém int para facilitar leitura
                 "PEDIDO": 0
             })
 
         if grade:
             dfg = pd.DataFrame(grade)
             
+            # Tabela com colunas de Texto (formatadas) e Pedido Numérico
             ed = st.data_editor(
                 dfg, 
                 hide_index=True, use_container_width=True, key=f"g_{codigo}",
                 column_config={
                     "Loja": st.column_config.TextColumn(disabled=True),
-                    "Est": st.column_config.NumberColumn("Est (Cx)", format="%.1f", disabled=True),
-                    "Pend": st.column_config.NumberColumn("Pend (Cx)", format="%.1f", disabled=True),
-                    "Venda 1Sem": st.column_config.NumberColumn("Vd 1Sem (Cx)", format="%.1f", disabled=True),
-                    "Venda 2Sem": st.column_config.NumberColumn("Vd 2Sem (Cx)", format="%.1f", disabled=True),
-                    "Sugestão": st.column_config.NumberColumn("Sugestão (Cx)", format="%d", disabled=True), 
-                    "PEDIDO": st.column_config.NumberColumn("PEDIDO (CX)", min_value=0, step=1)
+                    "Est": st.column_config.TextColumn("Est (Cx)", disabled=True),
+                    "Pend": st.column_config.TextColumn("Pend (Cx)", disabled=True),
+                    "Vd 1Sm": st.column_config.TextColumn("Vd 1Sem", disabled=True),
+                    "Vd 2Sm": st.column_config.TextColumn("Vd 2Sem", disabled=True),
+                    "Sugest": st.column_config.NumberColumn("Sugestão", format="%d", disabled=True),
+                    "PEDIDO": st.column_config.NumberColumn("PEDIDO", min_value=0, step=1)
                 }
             )
             
             tot = ed["PEDIDO"].sum()
-            tot_sug = dfg["Sugestão"].sum()
+            tot_sug = dfg["Sugest"].sum()
             
-            c_info, c_btn = st.columns([3, 1])
-            # Formata total com separador de milhar
-            c_info.info(f"Total Pedido: **{tot:,.0f}** cx (Sugestão: {tot_sug:,.0f} cx)")
+            col_info, col_btn = st.columns([3, 1])
+            col_info.info(f"Total Pedido: **{tot:,.0f}** cx (Sugestão: {tot_sug:,.0f} cx)")
             
-            if c_btn.button(f"Adicionar", type="primary", use_container_width=True):
+            if col_btn.button(f"Adicionar", type="primary", use_container_width=True):
                 if tot > 0:
                     it = {"Codigo": codigo, "Produto": nome, "Emb": emb, "Total": tot}
                     for _, r in ed.iterrows(): it[r['Loja']] = int(r['PEDIDO'])
