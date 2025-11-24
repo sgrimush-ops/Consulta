@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 import os
 from sqlalchemy import text
-import numpy as np  # Importado para tratar tipos numpy
+import numpy as np
 
 # =========================================================
 #  🧩 CONSTANTES
@@ -37,8 +37,8 @@ def load_database(base_path):
         df_mix.rename(columns={k: v for k, v in cols_map.items() if k in df_mix.columns}, inplace=True)
         
         if 'Emb' in df_mix.columns:
-            df_mix['Emb'] = df_mix['Emb'].astype(str).str.replace(',', '.', regex=False)
-            df_mix['Emb'] = pd.to_numeric(df_mix['Emb'], errors='coerce')
+            # Converte para numérico seguro
+            df_mix['Emb'] = pd.to_numeric(df_mix['Emb'].astype(str).str.replace(',', '.', regex=False), errors='coerce')
         
         if 'Codigo' in df_mix.columns:
             df_mix['Codigo'] = pd.to_numeric(df_mix['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
@@ -62,10 +62,8 @@ def load_database(base_path):
         
         if col_qtd in df_wms.columns:
             df_wms.rename(columns={col_qtd: 'Qtd_CD', 'codigo': 'Codigo'}, inplace=True)
-            
-            if df_wms['Qtd_CD'].dtype == object:
-                df_wms['Qtd_CD'] = df_wms['Qtd_CD'].str.replace(',', '.', regex=False)
-            df_wms['Qtd_CD'] = pd.to_numeric(df_wms['Qtd_CD'], errors='coerce').fillna(0)
+            # Limpeza numérica
+            df_wms['Qtd_CD'] = pd.to_numeric(df_wms['Qtd_CD'].astype(str).str.replace(',', '.', regex=False), errors='coerce').fillna(0)
             
             if 'Codigo' in df_wms.columns:
                 df_wms['Codigo'] = pd.to_numeric(df_wms['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
@@ -74,7 +72,7 @@ def load_database(base_path):
     return df_mix, df_hist, df_wms
 
 # =========================================================
-#  💾 SALVAR (COM CORREÇÃO DE NUMPY INT64)
+#  💾 SALVAR (COM PROTEÇÃO CONTRA NUMPY)
 # =========================================================
 
 def save_order(engine, dados):
@@ -89,27 +87,25 @@ def save_order(engine, dados):
             user = st.session_state.get("username", "anon")
             
             for item in dados:
-                # CORREÇÃO PRINCIPAL: Converter tudo para tipo nativo Python (int/float)
+                # CONVERSÃO CRÍTICA: Garante que nada seja numpy.int64 ou numpy.float64
+                # Tudo vira int nativo do Python
                 
-                emb_val = item["Emb"]
-                if pd.isna(emb_val): emb_val = 0
+                emb_safe = int(float(item.get("Emb", 0) or 0))
+                total_safe = int(float(item.get("Total", 0) or 0))
                 
-                total_val = item["Total"]
-                if pd.isna(total_val): total_val = 0
-
                 p = {
                     "c": str(item["Codigo"]), 
                     "p": str(item["Produto"]), 
-                    "e": int(float(emb_val)), # Garante int nativo
+                    "e": emb_safe,
                     "d": now, 
                     "u": user, 
-                    "t": int(float(total_val)) # Garante int nativo
+                    "t": total_safe
                 }
                 
                 for l in LISTA_LOJAS: 
-                    val_loja = item.get(l, 0)
-                    if pd.isna(val_loja): val_loja = 0
-                    p[l] = int(float(val_loja))
+                    val = item.get(l, 0)
+                    # Converte valor da loja para int nativo
+                    p[l] = int(float(val or 0))
                 
                 conn.execute(q, p)
         return True
@@ -127,7 +123,7 @@ def show_pedidos_page(engine, base_data_path):
     if "pedido_atual" not in st.session_state:
         st.session_state.pedido_atual = []
 
-    # Carrega dados (com cache)
+    # Carrega dados
     df_mix, df_hist, df_wms = load_database(base_data_path)
 
     if df_mix.empty:
@@ -156,10 +152,11 @@ def show_pedidos_page(engine, base_data_path):
         codigo = prod['Codigo']
         nome = prod['Produto']
         
-        # Validação da Embalagem
+        # Embalagem Segura
         emb_val = prod.get('Emb')
+        # Se for NaN, Vazio ou 0 -> Erro
         if pd.isna(emb_val) or emb_val <= 0:
-            st.error(f"⛔ Erro de Cadastro: Embalagem inválida ({emb_val}). Verifique o arquivo de Mix.")
+            st.error(f"⛔ Erro: Embalagem inválida ({emb_val}) no cadastro.")
             return
         
         emb = int(emb_val)
@@ -167,112 +164,14 @@ def show_pedidos_page(engine, base_data_path):
         st.divider()
         st.markdown(f"**{codigo} - {nome}** (Emb: {emb})")
         
+        # Estoque CD
         qtd_cd = 0
         if not df_wms.empty:
             w = df_wms[df_wms['Codigo'] == codigo]
             if not w.empty: qtd_cd = w['Qtd_CD'].iloc[0]
         
         cx_cd = int(qtd_cd / emb)
-        st.info(f"CD: {int(qtd_cd)} un | **{int(qtd_cd/emb)} cx**")
+        st.info(f"CD: {int(qtd_cd)} un | **{cx_cd} cx**")
 
         # Tabela de Lojas
-        lojas_ok = st.session_state.get('lojas_acesso', [])
-        grade = []
-        
-        sub_hist = pd.DataFrame()
-        if not df_hist.empty:
-            sub_hist = df_hist[df_hist['Codigo'] == codigo].set_index('Loja')
-
-        for l in LISTA_LOJAS:
-            if l not in lojas_ok: continue
-            est = pend = venda = 0
-            if l in sub_hist.index:
-                r = sub_hist.loc[l]
-                # Usa get com default 0 para evitar NaN
-                est = r.get('Estoque', 0)
-                pend = r.get('Pendente', 0)
-                venda = r.get('Venda30d', 0)
-            
-            # Garante que não vai NaN para a tela
-            if pd.isna(est): est = 0
-            if pd.isna(pend): pend = 0
-            if pd.isna(venda): venda = 0
-
-            grade.append({
-                "Loja": l, 
-                "Est": float(est), 
-                "Pend": float(pend), 
-                "Venda": float(venda), 
-                "PEDIDO": 0 # Inteiro inicial
-            })
-
-        if grade:
-            df_g = pd.DataFrame(grade)
-            
-            # Tabela Editável
-            edited = st.data_editor(
-                df_g, 
-                column_config={
-                    "Loja": st.column_config.TextColumn(disabled=True),
-                    "Est": st.column_config.NumberColumn("Estoque (Cx)", disabled=True, format="%.1f"),
-                    "Pend": st.column_config.NumberColumn("Pend (Cx)", disabled=True, format="%.1f"),
-                    "Venda": st.column_config.NumberColumn("Venda 30d (Cx)", disabled=True, format="%.1f"),
-                    "PEDIDO": st.column_config.NumberColumn("PEDIDO (CX)", min_value=0, step=1, required=True)
-                },
-                hide_index=True, 
-                use_container_width=True, 
-                key=f"grid_{codigo}" # Chave única evita conflito de estado
-            )
-            
-            # Soma total
-            total = edited["PEDIDO"].sum()
-            
-            col_add1, col_add2 = st.columns([3, 1])
-            with col_add2:
-                # Botão Adicionar
-                st.write(f"**Total: {total} cx**")
-                if st.button("➕ Adicionar", type="primary", use_container_width=True):
-                    if total > 0:
-                        item = {
-                            "Codigo": codigo, 
-                            "Produto": nome, 
-                            "Emb": emb, 
-                            "Total": total
-                        }
-                        # Adiciona quantidades de cada loja
-                        for _, r in edited.iterrows(): 
-                            item[r['Loja']] = r['PEDIDO']
-                        
-                        st.session_state.pedido_atual.append(item)
-                        st.success(f"{nome} Adicionado!")
-                        # Opcional: st.rerun() para limpar a seleção
-                    else:
-                        st.warning("Digite uma quantidade maior que zero.")
-
-    # 3. Carrinho
-    if st.session_state.pedido_atual:
-        st.divider()
-        st.subheader(f"Carrinho ({len(st.session_state.pedido_atual)} itens)")
-        
-        cart = pd.DataFrame(st.session_state.pedido_atual)
-        st.dataframe(
-            cart[["Codigo", "Produto", "Total"]], 
-            hide_index=True, 
-            use_container_width=True,
-            column_config={
-                "Total": st.column_config.NumberColumn("Total (Cx)", format="%d")
-            }
-        )
-        
-        c1, c2 = st.columns(2)
-        if c1.button("✅ Finalizar Pedido", type="primary", use_container_width=True):
-            with st.spinner("Salvando..."):
-                if save_order(engine, st.session_state.pedido_atual):
-                    st.balloons()
-                    st.success("Pedido salvo com sucesso!")
-                    st.session_state.pedido_atual = []
-                    st.rerun()
-        
-        if c2.button("🗑️ Limpar Carrinho", use_container_width=True):
-            st.session_state.pedido_atual = []
-            st.rerun()
+        lojas_ok = st.session_state.get('lojas_acesso
