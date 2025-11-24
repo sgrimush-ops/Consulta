@@ -10,7 +10,8 @@ LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
                "007", "008", "011", "012", "013", "014", "017", "018"]
 
 def normalize_col(col):
-    n = unicodedata.normalize('NFKD', str(col)).encode('ASCII', 'ignore').decode('utf-8')
+    if not isinstance(col, str): return str(col)
+    n = unicodedata.normalize('NFKD', col).encode('ASCII', 'ignore').decode('utf-8')
     return ''.join(e for e in n if e.isalnum()).lower()
 
 @st.cache_data(ttl=300)
@@ -60,7 +61,8 @@ def load_database(base_path):
             
         # Remove duplicates to fix "Ambiguous Truth Value" error
         if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
-            df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'])
+            # Agrupa por Codigo e Loja, somando os valores para consolidar duplicatas
+            df_hist = df_hist.groupby(['Codigo', 'Loja'], as_index=False).sum(numeric_only=True)
 
     # WMS
     if not df_wms.empty:
@@ -158,7 +160,8 @@ def show_pedidos_page(engine, base_data_path):
         
         sub = pd.DataFrame()
         if not df_hist.empty: 
-            sub = df_hist[df_hist['Codigo'] == codigo].drop_duplicates(subset=['Loja']).set_index('Loja')
+            # Garante que não há duplicatas antes de fazer o set_index
+            sub = df_hist[df_hist['Codigo'] == codigo].set_index('Loja')
 
         for l in LISTA_LOJAS:
             if l not in lojas: continue
@@ -167,6 +170,11 @@ def show_pedidos_page(engine, base_data_path):
             
             if l in sub.index:
                 r = sub.loc[l]
+                # Verifica se r é Series (uma linha) ou DataFrame (duplicatas não tratadas)
+                if isinstance(r, pd.DataFrame):
+                     # Se for DataFrame, pega a primeira linha ou soma
+                     r = r.iloc[0]
+                
                 try: est = float(r.get('Estoque', 0))
                 except: est = 0.0
                 try: pend = float(r.get('Pendente', 0))
