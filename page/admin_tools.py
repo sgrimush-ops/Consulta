@@ -16,105 +16,114 @@ def get_file_info(file_path):
 
 def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
     """
-    1. Salva o CSV original no disco.
-    2. Lê esse CSV e converte para PARQUET (para o sistema ler rápido).
+    1. Salva o CSV original.
+    2. Lê o CSV (tentando várias codificações).
+    3. Padroniza colunas (minúsculas).
+    4. Salva como PARQUET para o sistema ler.
     """
-    # Caminhos completos
     path_csv = os.path.join(target_path_base, filename_csv)
     path_parquet = os.path.join(target_path_base, f"{os.path.splitext(filename_csv)[0]}.parquet")
     
     try:
-        # 1. Salvar o arquivo CSV original
+        # 1. Salva o arquivo original
         uploaded_file.seek(0)
         with open(path_csv, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        # 2. Converter para Parquet (Vital para o funcionamento do Pedidos.py)
-        # Tenta ler o CSV detectando automaticamente o separador (; ou ,)
-        # dtype=str garante que códigos como '00123' não virem '123'
-        uploaded_file.seek(0) # Volta para o início do arquivo na memória
-        df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str)
+        # 2. Tenta ler o CSV com tratamento de erro de codificação
+        # Tenta UTF-8 primeiro (padrão web), depois Latin-1 (padrão Excel Brasil)
+        uploaded_file.seek(0)
+        try:
+            df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='utf-8')
+        except UnicodeDecodeError:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='latin1')
         
-        # Limpeza básica de espaços nos nomes das colunas
-        df.columns = df.columns.str.strip()
+        # 3. Limpeza Vital: Padroniza nomes das colunas
+        # Remove espaços extras e transforma tudo em minúsculo (ex: "Data Salva " -> "datasalva")
+        df.columns = df.columns.str.strip().str.lower()
         
-        # Salva a versão otimizada
+        # Remove colunas vazias se houver
+        df = df.loc[:, ~df.columns.str.contains('^unnamed')]
+
+        # 4. Salva a versão otimizada
         df.to_parquet(path_parquet, index=False)
         
-        return True, f"Sucesso! CSV salvo e base de dados otimizada atualizada."
+        return True, df.head() # Retorna as primeiras linhas para preview
         
     except Exception as e:
-        return False, f"Erro ao processar o arquivo: {e}"
+        return False, f"Erro: {e}"
 
 # =========================================================
 # PÁGINA PRINCIPAL
 # =========================================================
 
 def show_admin_tools(engine, base_data_path):
-    st.title("🔧 Ferramentas de Admin: Upload de Arquivos (CSV)")
-    st.info(f"Os arquivos são salvos e convertidos automaticamente em: {base_data_path}")
+    st.title("🔧 Upload de Arquivos (CSV)")
+    st.info("O sistema aceita arquivos .csv (separados por vírgula ou ponto e vírgula).")
 
-    # Garante que a pasta existe
     os.makedirs(base_data_path, exist_ok=True)
 
     # --- 1. Upload do WMS ---
     st.markdown("---")
-    st.subheader("1. Upload do WMS (Estoque CD)")
+    st.subheader("1. Estoque CD (WMS)")
     
-    # Mostra data da última atualização
     path_wms_parquet = os.path.join(base_data_path, "WMS.parquet")
     if os.path.exists(path_wms_parquet):
-        st.caption(f"📅 Última atualização do sistema: **{get_file_info(path_wms_parquet)}**")
+        st.caption(f"📅 Atualizado em: **{get_file_info(path_wms_parquet)}**")
     
-    uploaded_wms = st.file_uploader("Selecione o WMS (.csv)", type=["csv"], key="wms_uploader")
+    uploaded_wms = st.file_uploader("Selecione WMS.csv", type=["csv"], key="wms_uploader")
     
     if uploaded_wms:
         if st.button("Processar WMS", type="primary"):
-            with st.spinner("Salvando e convertendo..."):
-                # Usamos apenas a pasta base para o join interno da função
-                success, msg = process_and_save_csv(uploaded_wms, base_data_path, "WMS.csv")
+            with st.spinner("Lendo e padronizando dados..."):
+                success, result = process_and_save_csv(uploaded_wms, base_data_path, "WMS.csv")
                 if success:
-                    st.success(msg)
-                    st.rerun()
+                    st.success("WMS Atualizado! Veja abaixo como o sistema leu os dados:")
+                    st.dataframe(result) # Mostra preview
+                    st.cache_data.clear() # LIMPA A MEMÓRIA ANTIGA
                 else:
-                    st.error(msg)
+                    st.error(f"Erro ao processar: {result}")
 
     # --- 2. Upload do Histórico ---
     st.markdown("---")
-    st.subheader("2. Upload do Histórico de Solicitações")
+    st.subheader("2. Histórico de Solicitações")
     
     path_hist_parquet = os.path.join(base_data_path, "historico_solic.parquet")
     if os.path.exists(path_hist_parquet):
-        st.caption(f"📅 Última atualização do sistema: **{get_file_info(path_hist_parquet)}**")
+        st.caption(f"📅 Atualizado em: **{get_file_info(path_hist_parquet)}**")
 
-    uploaded_hist = st.file_uploader("Selecione o Histórico (.csv)", type=["csv"], key="hist_uploader")
+    uploaded_hist = st.file_uploader("Selecione Histórico.csv", type=["csv"], key="hist_uploader")
     
     if uploaded_hist:
         if st.button("Processar Histórico", type="primary"):
-            with st.spinner("Salvando e convertendo..."):
-                success, msg = process_and_save_csv(uploaded_hist, base_data_path, "historico_solic.csv")
+            with st.spinner("Processando..."):
+                success, result = process_and_save_csv(uploaded_hist, base_data_path, "historico_solic.csv")
                 if success:
-                    st.success(msg)
-                    st.rerun()
+                    st.success("Histórico Atualizado! Preview:")
+                    st.dataframe(result)
+                    st.cache_data.clear()
                 else:
-                    st.error(msg)
+                    st.error(f"Erro: {result}")
 
     # --- 3. Upload do Mix ---
     st.markdown("---")
-    st.subheader("3. Upload do Mix Ativo")
+    st.subheader("3. Mix Ativo")
     
     path_mix_parquet = os.path.join(base_data_path, "__MixAtivoSistema.parquet")
     if os.path.exists(path_mix_parquet):
-        st.caption(f"📅 Última atualização do sistema: **{get_file_info(path_mix_parquet)}**")
+        st.caption(f"📅 Atualizado em: **{get_file_info(path_mix_parquet)}**")
 
-    uploaded_mix = st.file_uploader("Selecione o Mix (.csv)", type=["csv"], key="mix_uploader")
+    uploaded_mix = st.file_uploader("Selecione Mix.csv", type=["csv"], key="mix_uploader")
     
     if uploaded_mix:
         if st.button("Processar Mix", type="primary"):
-            with st.spinner("Salvando e convertendo..."):
-                success, msg = process_and_save_csv(uploaded_mix, base_data_path, "__MixAtivoSistema.csv")
+            with st.spinner("Processando..."):
+                success, result = process_and_save_csv(uploaded_mix, base_data_path, "__MixAtivoSistema.csv")
                 if success:
-                    st.success(msg)
-                    st.rerun()
+                    st.success("Mix Atualizado! Preview:")
+                    st.dataframe(result)
+                    st.cache_data.clear()
                 else:
-                    st.error(msg)
+                    st.error(f"Erro: {result}")
+
