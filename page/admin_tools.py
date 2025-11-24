@@ -17,7 +17,7 @@ def get_file_info(file_path):
 def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
     """
     1. Salva o CSV original.
-    2. Lê o CSV (tentando várias codificações).
+    2. Lê o CSV (tentando várias codificações e separadores).
     3. Padroniza colunas (minúsculas).
     4. Salva como PARQUET para o sistema ler.
     """
@@ -30,17 +30,24 @@ def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
         with open(path_csv, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        # 2. Tenta ler o CSV com tratamento de erro de codificação
-        # Tenta UTF-8 primeiro (padrão web), depois Latin-1 (padrão Excel Brasil)
+        # 2. Tenta ler o CSV com tratamento de erro de codificação e separador
+        # Tenta detectar separador automaticamente ou forçar ;
         uploaded_file.seek(0)
         try:
+            # Tenta ler com o motor Python que detecta separador automaticamente
             df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='utf-8')
         except UnicodeDecodeError:
             uploaded_file.seek(0)
+            # Tenta latin1 se utf-8 falhar
             df = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str, encoding='latin1')
+        except Exception:
+             # Se a detecção automática falhar, tenta forçar ponto e vírgula (comum no Brasil)
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, sep=';', engine='python', dtype=str, encoding='latin1')
+
         
         # 3. Limpeza Vital: Padroniza nomes das colunas
-        # Remove espaços extras e transforma tudo em minúsculo (ex: "Data Salva " -> "datasalva")
+        # Remove espaços extras e transforma tudo em minúsculo
         df.columns = df.columns.str.strip().str.lower()
         
         # Remove colunas vazias se houver
