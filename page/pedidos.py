@@ -26,9 +26,7 @@ def format_br(val):
     """Formata número para padrão BR: 1.234,5"""
     try:
         v = float(val)
-        # Formata com 1 casa decimal e separador de milhar (padrão US: 1,234.5)
         s = f"{v:,.1f}"
-        # Inverte pontuação para BR: 1.234,5
         return s.replace(',', 'X').replace('.', ',').replace('X', '.')
     except:
         return "0,0"
@@ -67,7 +65,7 @@ def load_database(base_path, _engine):
         for c in df_hist.columns:
             if 'codigoint' in c: rename[c] = 'Codigo'
             elif 'loja' in c: rename[c] = 'Loja'
-            # Mapeamento direto das colunas que JÁ SÃO CAIXAS
+            # Mapeamento direto das colunas que JÁ SÃO CAIXAS (conforme sua info)
             elif 'est' in c: rename[c] = 'Estoque_CX'
             elif 'ped' in c: rename[c] = 'Pendente_CX'
             elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem_CX' 
@@ -78,9 +76,10 @@ def load_database(base_path, _engine):
         if 'Codigo' in df_hist.columns:
             df_hist['Codigo'] = pd.to_numeric(df_hist['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
         if 'Loja' in df_hist.columns:
+            # Padroniza loja para "001", "012"
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
             
-        # Agregação
+        # Agregação para eliminar duplicatas
         cols_to_sum = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
         existing_cols = [c for c in cols_to_sum if c in df_hist.columns]
         
@@ -112,7 +111,7 @@ def load_database(base_path, _engine):
 
     return df_mix, df_hist, df_wms, df_ofertas
 
-def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=7):
+def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=4):
     """
     Calcula sugestão. Entradas são CAIXAS.
     Converte para Unidades para precisão e retorna CAIXAS.
@@ -126,14 +125,16 @@ def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_
     est_un = est_cx * emb
     pend_un = pend_cx * emb
     
-    # Média ponderada (Unidades)
+    # Média ponderada (Unidades) - Peso maior para venda recente
+    # 50% última semana, 30% penúltima, 20% média mensal
+    # (v30 é mensal, divide por 4 para ter base semanal)
     venda_semanal_proj = (v1_un * 0.5) + (v2_un * 0.3) + ((v30_un / 4.0) * 0.2)
     venda_diaria = venda_semanal_proj / 7.0
     
     necessidade = venda_diaria * dias_cobertura
     sugestao_un = max(0, necessidade - (est_un + pend_un))
     
-    # Retorna em caixas
+    # Retorna em caixas inteiras
     return int(np.ceil(sugestao_un / emb))
 
 def save_order(engine, dados):
@@ -176,16 +177,14 @@ def show_pedidos_page(engine, base_data_path):
         df_mix, df_hist, df_wms, df_ofertas = load_database(base_data_path, engine)
 
     if df_mix.empty:
-        st.error("⚠️ Base de Mix não encontrada.")
+        st.error("⚠️ Base de Mix não encontrada. Faça o upload em 'Ferramentas Admin'.")
         return
 
     # 2. Filtros
     st.subheader("1. Selecionar Produto")
-    c1, c2, c3 = st.columns([1, 2, 1])
+    c1, c2 = st.columns([1, 3]) # Removido input de dias (fixo em 4) e promo (automático)
     cod_input = c1.text_input("Código:")
     desc_input = c2.text_input("Descrição:")
-    
-    dias_cob = c3.number_input("Dias Cobertura:", min_value=1, value=7)
 
     prod = None
     if cod_input:
@@ -214,21 +213,26 @@ def show_pedidos_page(engine, base_data_path):
         except: emb = 0
 
         if emb <= 0:
-            st.error(f"⛔ Embalagem inválida ({emb_raw}).")
+            st.error(f"⛔ Embalagem inválida ({emb_raw}). Verifique o Mix.")
             return
 
         st.divider()
         st.markdown(f"**{codigo} - {nome}** (Emb: {emb})")
 
         # --- INFO DE PROMOÇÃO ---
+        is_promo_active = False
         if not df_ofertas.empty:
             promo = df_ofertas[df_ofertas['codigo'] == codigo]
             if not promo.empty:
-                promo = promo.sort_values('data_inicio').iloc[-1]
-                inicio = promo['data_inicio'].strftime('%d/%m')
-                fim = promo['data_final'].strftime('%d/%m')
-                valor = float(promo['oferta'])
-                st.info(f"🔥 **EM OFERTA!** De {inicio} até {fim} por **R$ {valor:.2f}**")
+                # Verifica se tem alguma promo válida hoje ou futuro
+                promo = promo[promo['data_final'] >= datetime.now().date()]
+                if not promo.empty:
+                    is_promo_active = True
+                    promo_item = promo.sort_values('data_inicio').iloc[0]
+                    inicio = promo_item['data_inicio'].strftime('%d/%m')
+                    fim = promo_item['data_final'].strftime('%d/%m')
+                    valor = float(promo_item['oferta'])
+                    st.info(f"🔥 **EM OFERTA!** De {inicio} até {fim} por **R$ {valor:.2f}**")
         
         # WMS (Estoque CD - Unidades)
         qtd_cd = 0.0
@@ -270,7 +274,8 @@ def show_pedidos_page(engine, base_data_path):
                 try: v30_cx = float(r.get('Venda30d_CX', 0) or 0)
                 except: v30_cx = 0.0
             
-            sug_cx = calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura)
+            # Se tiver promoção, aplicamos boost na sugestão (ex: +20% na venda projetada)
+            sug_cx = calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=4, is_promo=is_promo_active)
             
             # Aplica formatação BR (String) para colunas informativas
             grade.append({
@@ -279,7 +284,7 @@ def show_pedidos_page(engine, base_data_path):
                 "Pend": format_br(pend_cx), 
                 "Vd 1Sm": format_br(v1_cx), 
                 "Vd 2Sm": format_br(v2_cx), 
-                "Sugest": sug_cx, # Mantém int para facilitar leitura
+                "Sugest": sug_cx, 
                 "PEDIDO": 0
             })
 
@@ -305,7 +310,8 @@ def show_pedidos_page(engine, base_data_path):
             tot_sug = dfg["Sugest"].sum()
             
             col_info, col_btn = st.columns([3, 1])
-            col_info.info(f"Total Pedido: **{tot:,.0f}** cx (Sugestão: {tot_sug:,.0f} cx)")
+            # Formata total com separador de milhar
+            c_info.info(f"Total Pedido: **{tot:,.0f}** cx (Sugestão: {tot_sug:,.0f} cx)")
             
             if col_btn.button(f"Adicionar", type="primary", use_container_width=True):
                 if tot > 0:
