@@ -84,9 +84,9 @@ def prepare_data(base_data_path):
     # 4. Padronizar e Renomear WMS
     if not df_wms.empty:
         df_wms.columns = df_wms.columns.str.strip().str.lower()
-        # Renomeia 'qtd' para 'Qtd_CD'
+        # Renomeia 'qtd' para 'Qtd_CD' se necessário (fallback manual)
         if 'qtd' not in df_wms.columns and 'Qtd' in df_wms.columns:
-             df_wms.rename(columns={'Qtd': 'qtd'}, inplace=True) # Fallback manual se o lower falhar
+             df_wms.rename(columns={'Qtd': 'qtd'}, inplace=True) 
              
         df_wms.rename(columns=COLS_WMS_MAP, inplace=True)
         
