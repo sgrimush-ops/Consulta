@@ -37,10 +37,8 @@ def load_database(base_path):
         
         # Tratamento da Embalagem (Respeita o cadastro)
         if 'Emb' in df_mix.columns:
-            # Converte vírgula para ponto, mas mantém o valor real
             df_mix['Emb'] = df_mix['Emb'].astype(str).str.replace(',', '.', regex=False)
             df_mix['Emb'] = pd.to_numeric(df_mix['Emb'], errors='coerce')
-            # NÃO PREENCHE COM 1 AQUI. Deixa NaN se tiver erro, para tratar na tela.
         
         if 'Codigo' in df_mix.columns:
             df_mix['Codigo'] = pd.to_numeric(df_mix['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
@@ -76,27 +74,44 @@ def load_database(base_path):
     return df_mix, df_hist, df_wms
 
 # =========================================================
-#  💾 SALVAR
+#  💾 SALVAR (CORRIGIDO PARA USAR NOMES SEGUROS)
 # =========================================================
 
 def save_order(engine, dados):
     if not dados: return False
     try:
         with engine.begin() as conn:
+            # Nomes de colunas no banco
             cols = ", ".join([f"loja_{l}" for l in LISTA_LOJAS])
-            vals = ", ".join([f":{l}" for l in LISTA_LOJAS])
-            q = text(f"INSERT INTO pedidos_consolidados (codigo, produto, embseparacao, data_pedido, usuario_pedido, status_item, total_cx, {cols}) VALUES (:c, :p, :e, :d, :u, 'Ativo', :t, {vals})")
+            # Nomes de parâmetros na query (agora seguros: :loja_001 em vez de :001)
+            vals = ", ".join([f":loja_{l}" for l in LISTA_LOJAS])
+            
+            q = text(f"""
+                INSERT INTO pedidos_consolidados 
+                (codigo, produto, embseparacao, data_pedido, usuario_pedido, status_item, total_cx, {cols}) 
+                VALUES (:c, :p, :e, :d, :u, 'Ativo', :t, {vals})
+            """)
             
             now = datetime.now()
             user = st.session_state.get("username", "anon")
             
             for item in dados:
-                p = {"c": item["Codigo"], "p": item["Produto"], "e": item["Emb"], "d": now, "u": user, "t": item["Total"]}
-                for l in LISTA_LOJAS: p[l] = int(item.get(l, 0))
+                p = {
+                    "c": item["Codigo"], 
+                    "p": item["Produto"], 
+                    "e": item["Emb"], 
+                    "d": now, 
+                    "u": user, 
+                    "t": item["Total"]
+                }
+                # Mapeia o valor da loja para o parâmetro seguro
+                for l in LISTA_LOJAS: 
+                    p[f"loja_{l}"] = int(item.get(l, 0))
+                
                 conn.execute(q, p)
         return True
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro ao salvar no banco: {e}")
         return False
 
 # =========================================================
@@ -142,12 +157,11 @@ def show_pedidos_page(engine, base_data_path):
         emb_val = prod.get('Emb')
         if pd.isna(emb_val) or emb_val <= 0:
             st.error(f"⛔ Erro de Cadastro: Embalagem inválida ({emb_val}). Verifique o arquivo de Mix.")
-            # Não permite continuar se a embalagem estiver errada, para não gerar dados sujos
             return
         
-        emb = int(emb_val) # Converte para int apenas para exibição/cálculo seguro
+        emb = int(emb_val)
 
-        st.markdown("---")
+        st.divider()
         st.markdown(f"**{codigo} - {nome}** (Emb: {emb})")
         
         qtd_cd = 0
@@ -155,7 +169,8 @@ def show_pedidos_page(engine, base_data_path):
             w = df_wms[df_wms['Codigo'] == codigo]
             if not w.empty: qtd_cd = w['Qtd_CD'].iloc[0]
         
-        st.info(f"CD: {int(qtd_cd)} un | **{int(qtd_cd/emb)} cx**")
+        cx_cd = int(qtd_cd / emb)
+        st.info(f"CD: {int(qtd_cd)} un | **{cx_cd} cx**")
 
         # Tabela de Lojas
         lojas_ok = st.session_state.get('lojas_acesso', [])
