@@ -18,18 +18,18 @@ LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
                "007", "008", "011", "012", "013", "014", "017", "018"]
 
 COLS_MIX_MAP = {
-    'CODIGOINT': 'Codigo', 'CODIGOEAN': 'EAN', 'DESCRICAO': 'Produto',
-    'LOJA': 'Loja', 'EmbSeparacao': 'embseparacao'
+    'codigoint': 'Codigo', 'codigoean': 'EAN', 'descricao': 'Produto',
+    'loja': 'Loja', 'embseparacao': 'embseparacao'
 }
 
 COLS_HIST_MAP = {
-    'CODIGOINT': 'Codigo', 'LOJA': 'Loja', 'DtSolicitacao': 'Data',
-    'EstCX': 'Estoque_G', 'PedCX': 'Pedido_H', 'Vd1sem-CX': 'Venda_I',
-    'Vd2sem-CX': 'Venda_J', 'VM30dCX': 'Venda_K',
+    'codigoint': 'Codigo', 'loja': 'Loja', 'dtsolicitacao': 'data',
+    'estcx': 'estoque_G', 'pedcx': 'Pedido_H', 'vd1sem-cx': 'Venda_I',
+    'vd2sem-cx': 'Venda_J', 'vm30dcx': 'Venda_K',
 }
 
 COLS_WMS_MAP = {
-    'codigo': 'Codigo', 'Qtd': 'Qtd_CD', 'datasalva': 'Data'
+    'codigo': 'Codigo', 'qtd': 'Qtd_CD', 'datasalva': 'Data'
 }
 
 # =========================================================
@@ -421,3 +421,4 @@ def show_pedidos_page(engine, base_data_path):
         st.dataframe(df_rec, hide_index=True, use_container_width=True)
     else:
         st.info("Sem pedidos recentes.")
+
