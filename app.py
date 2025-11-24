@@ -7,6 +7,7 @@ import os
 from sqlalchemy import create_engine, text
 
 # --- Importa as páginas ---
+# (Certifique-se que todas essas páginas existem e não têm erros de sintaxe)
 from page.home import show_home_page
 from page.consulta_estoq_cd import show_consulta_page
 from page.pedidos import show_pedidos_page
@@ -24,16 +25,15 @@ from page.ver_ofertas import show_ver_ofertas_page
 # =========================================================
 st.set_page_config(page_title="Gestão de Produtos", layout="wide")
 
+# Define o caminho base para dados persistentes (Render Disk)
 BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
 os.makedirs(BASE_DATA_PATH, exist_ok=True) 
 
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
                "007", "008", "011", "012", "013", "014", "017", "018"]
-COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
-
 
 # =========================================================
-# FUNÇÕES DE SEGURANÇA
+# FUNÇÕES DE SEGURANÇA E BANCO
 # =========================================================
 def make_hashes(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -41,19 +41,12 @@ def make_hashes(password):
 def check_hashes(password, hashed_text):
     return make_hashes(password) == hashed_text
 
-
-# =========================================================
-# CONEXÃO DE BANCO (APENAS POSTGRES)
-# =========================================================
 @st.cache_resource
 def get_engine():
     db_url = os.getenv("DATABASE_URL")
-    
     if not db_url:
-        # Fallback para desenvolvimento local (SQLite) se não houver DATABASE_URL
-        # Mas o ideal é ter a URL configurada.
-        # st.warning("DATABASE_URL não encontrada. Usando SQLite local (apenas para teste).")
-        # return create_engine("sqlite:///local_dev.db") 
+        # Em ambiente local de desenvolvimento, avisa e para.
+        # Para produção, isso é crítico.
         st.error("Erro fatal: A variável de ambiente DATABASE_URL não foi encontrada.")
         st.stop()
         
@@ -64,17 +57,11 @@ def get_engine():
 
 engine = get_engine()
 
-
-# =========================================================
-# CRIAÇÃO / MIGRAÇÃO DE TABELAS
-# =========================================================
 def create_db_tables():
-    """
-    Cria todas as tabelas necessárias e executa a limpeza de dados antigos.
-    """
+    """Cria tabelas se não existirem."""
     try:
         with engine.begin() as conn: 
-            # --- tabela de usuários ---
+            # Tabela de Usuários
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
                     username TEXT PRIMARY KEY,
@@ -85,8 +72,8 @@ def create_db_tables():
                     lojas_acesso TEXT
                 )
             """))
-
-            # --- tabela de pedidos ---
+            
+            # Tabela de Pedidos
             lojas_sql_cols = ", ".join([f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
             conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS pedidos_consolidados (
@@ -105,7 +92,7 @@ def create_db_tables():
                 )
             """))
 
-            # --- tabelas de "Contato" ---
+            # Tabelas de Contato/Chamados
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS contato_chamados (
                     id SERIAL PRIMARY KEY,
@@ -127,7 +114,7 @@ def create_db_tables():
                 )
             """))
             
-            # --- tabela de OFERTAS ---
+            # Tabela de Ofertas
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS ofertas (
                     id SERIAL PRIMARY KEY,
@@ -140,21 +127,15 @@ def create_db_tables():
                 )
             """))
             
-            # --- Lógica de Auto-Deleção (Limpeza de 7 dias Contato) ---
+            # Limpeza automática de chamados antigos (7 dias)
             seven_days_ago = (datetime.now() - pd.Timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
-            
-            conn.execute(text("""
-                DELETE FROM contato_chamados 
-                WHERE ultimo_update < :seven_days_ago
-            """), {"seven_days_ago": seven_days_ago})
+            conn.execute(text("DELETE FROM contato_chamados WHERE ultimo_update < :seven_days_ago"), {"seven_days_ago": seven_days_ago})
             
     except Exception as e:
+        # Ignora erros comuns de "não existe" se for a primeira vez
         if "foreign key constraint" not in str(e) and "does not exist" not in str(e):
              st.error(f"Erro ao inicializar o banco de dados: {e}")
 
-# =========================================================
-# LOGIN E PERFIL DE USUÁRIO
-# =========================================================
 def check_login_and_get_roles(username, password):
     with engine.connect() as conn:
         query = text("SELECT password, role, lojas_acesso FROM users WHERE username = :username")
@@ -173,25 +154,15 @@ def check_login_and_get_roles(username, password):
             return True, (role or "user"), lojas
     return False, "user", []
 
-
 def update_user_status(username, status):
-    current_time = datetime.now()
-    query = text("""
-        UPDATE users 
-        SET ultimo_acesso = :time, status_logado = :status 
-        WHERE username = :username
-    """)
-    
-    with engine.begin() as conn:
-        conn.execute(query, {
-            "time": current_time, 
-            "status": status, 
-            "username": username.lower()
-        })
+    try:
+        current_time = datetime.now()
+        query = text("UPDATE users SET ultimo_acesso = :time, status_logado = :status WHERE username = :username")
+        with engine.begin() as conn:
+            conn.execute(query, {"time": current_time, "status": status, "username": username.lower()})
+    except Exception:
+        pass
 
-# =========================================================
-# TELA DE LOGIN
-# =========================================================
 def login_page():
     st.title("🔐 Login do Sistema")
     username = st.text_input("Usuário:").lower()
@@ -210,37 +181,25 @@ def login_page():
             st.error("Usuário ou senha inválidos.")
     st.stop()
 
-# =========================================================
-# FUNÇÃO DE PRIMEIRO ACESSO (BOOTSTRAP)
-# =========================================================
 def check_if_first_run(engine):
-    """Verifica se existe algum usuário no banco."""
+    """Verifica se é a primeira execução (sem usuários)."""
     try:
         with engine.connect() as conn:
             query = text("SELECT COUNT(username) FROM users")
             result = conn.execute(query)
             count = result.scalar_one_or_none() or 0
         return count == 0
-    except Exception as e:
-        if "does not exist" in str(e): # Se a tabela 'users' ainda não foi criada
-            return True
-        st.error(f"Erro ao verificar contagem de usuários: {e}")
-        return False
+    except Exception:
+        return True 
 
-# =========================================================
-# FUNÇÃO DE CONTAGEM DE MENSAGENS
-# =========================================================
-@st.cache_data(ttl=60) # Cache de 1 minuto
+@st.cache_data(ttl=60)
 def get_unread_message_count(_engine, username, role):
-    """Pega a contagem de mensagens não lidas para o usuário/admin."""
     query_str = ""
     params = {}
     
     if role == "admin":
-        # Admin vê tickets 'Aguardando Retorno'
         query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Aguardando Retorno'"
     else:
-        # Usuário vê tickets 'Respondidos'
         query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Respondido' AND usuario_username = :username"
         params = {"username": username}
 
@@ -252,10 +211,7 @@ def get_unread_message_count(_engine, username, role):
             result = conn.execute(text(query_str), params)
             count = result.scalar_one_or_none() or 0
         return count
-    except Exception as e:
-        # Se as tabelas ainda não existem, não falha
-        if "does not exist" not in str(e):
-            print(f"Erro ao buscar contagem de mensagens: {e}") 
+    except Exception:
         return 0
 
 # =========================================================
@@ -272,6 +228,7 @@ def main():
     if is_first_run:
         st.warning("🚀 Bem-vindo! Detectamos que este é o primeiro acesso.")
         st.info("Por favor, crie o primeiro usuário administrador do sistema.")
+        # Passa os argumentos explicitamente
         show_admin_page(engine=engine, base_data_path=BASE_DATA_PATH)
         st.stop() 
 
@@ -287,7 +244,7 @@ def main():
         st.session_state["logged_in"] = False
         st.rerun()
 
-    # --- Lógica de Notificação de Contato ---
+    # --- Notificações ---
     username = st.session_state.get("username", "")
     role = st.session_state.get("role", "user")
     
@@ -297,7 +254,8 @@ def main():
     if unread_count > 0:
         contato_menu_label = f"Contato ({unread_count}) 🔴"
 
-    # --- MENU LATERAL ---
+    # --- MENU LATERAL (Definição das Páginas) ---
+    # Dicionário: "Nome no Menu" -> Função da Página
     paginas_disponiveis_labels = {
         "Home": show_home_page,
         "Consulta de Estoque CD": show_consulta_page,
@@ -321,22 +279,30 @@ def main():
             paginas_disponiveis_labels["Upload Ofertas"] = show_upload_ofertas_page
 
     
-    # --- Lógica de Navegação Atualizada ---
+    # --- Lógica de Navegação ---
     page_list_labels = list(paginas_disponiveis_labels.keys())
 
     if "page_key" not in st.session_state:
         st.session_state.page_key = "Home"
     
-    if st.session_state.page_key not in page_list_labels:
-        if "Contato" in st.session_state.page_key:
-            st.session_state.page_key = contato_menu_label 
-        else:
-            st.session_state.page_key = "Home" 
+    # Validação extra para evitar erro se o menu mudar (ex: nova notificação)
+    current_key_base = st.session_state.page_key
+    if "Contato" in current_key_base: # Se for qualquer variação de "Contato"
+        # Encontra a chave real atual no menu
+        real_contact_key = next((k for k in page_list_labels if "Contato" in k), "Home")
+        if st.session_state.page_key != real_contact_key:
+             st.session_state.page_key = real_contact_key
+    elif st.session_state.page_key not in page_list_labels:
+        st.session_state.page_key = "Home" 
 
     def update_sidebar_selection():
         st.session_state.page_key = st.session_state["sidebar_radio_key"]
 
-    current_page_index = page_list_labels.index(st.session_state.page_key)
+    # Encontra o índice para o widget radio
+    try:
+        current_page_index = page_list_labels.index(st.session_state.page_key)
+    except ValueError:
+        current_page_index = 0
 
     st.sidebar.radio(
         "Selecione a Página:", 
@@ -346,12 +312,19 @@ def main():
         key="sidebar_radio_key"
     )
     
+    # --- EXECUÇÃO DA PÁGINA SELECIONADA ---
     selected_page_func = paginas_disponiveis_labels[st.session_state.page_key]
     
-    # --- CHAMADA DA PÁGINA COM OS ARGUMENTOS CORRETOS ---
-    # Todas as páginas agora recebem engine e base_data_path por padrão
-    selected_page_func(engine=engine, base_data_path=BASE_DATA_PATH)
-
+    # Executa a função passando os argumentos.
+    # O try/except protege caso alguma função antiga ainda não aceite argumentos.
+    try:
+        selected_page_func(engine=engine, base_data_path=BASE_DATA_PATH)
+    except TypeError as e:
+        # Se der erro de argumento, tenta chamar sem argumentos (compatibilidade)
+        try:
+            selected_page_func()
+        except Exception as e2:
+            st.error(f"Erro crítico ao carregar a página: {e}\n{e2}")
 
 if __name__ == "__main__":
     main()
