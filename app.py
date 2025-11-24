@@ -7,7 +7,7 @@ import os
 from sqlalchemy import create_engine, text
 
 # --- Importa as páginas ---
-# (Certifique-se que todas essas páginas existem e não têm erros de sintaxe)
+# (Certifique-se que os arquivos existem na pasta 'page')
 from page.home import show_home_page
 from page.consulta_estoq_cd import show_consulta_page
 from page.pedidos import show_pedidos_page
@@ -25,7 +25,7 @@ from page.ver_ofertas import show_ver_ofertas_page
 # =========================================================
 st.set_page_config(page_title="Gestão de Produtos", layout="wide")
 
-# Define o caminho base para dados persistentes (Render Disk)
+# Define o caminho base para dados persistentes
 BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
 os.makedirs(BASE_DATA_PATH, exist_ok=True) 
 
@@ -45,8 +45,6 @@ def check_hashes(password, hashed_text):
 def get_engine():
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        # Em ambiente local de desenvolvimento, avisa e para.
-        # Para produção, isso é crítico.
         st.error("Erro fatal: A variável de ambiente DATABASE_URL não foi encontrada.")
         st.stop()
         
@@ -132,7 +130,6 @@ def create_db_tables():
             conn.execute(text("DELETE FROM contato_chamados WHERE ultimo_update < :seven_days_ago"), {"seven_days_ago": seven_days_ago})
             
     except Exception as e:
-        # Ignora erros comuns de "não existe" se for a primeira vez
         if "foreign key constraint" not in str(e) and "does not exist" not in str(e):
              st.error(f"Erro ao inicializar o banco de dados: {e}")
 
@@ -182,7 +179,6 @@ def login_page():
     st.stop()
 
 def check_if_first_run(engine):
-    """Verifica se é a primeira execução (sem usuários)."""
     try:
         with engine.connect() as conn:
             query = text("SELECT COUNT(username) FROM users")
@@ -190,7 +186,7 @@ def check_if_first_run(engine):
             count = result.scalar_one_or_none() or 0
         return count == 0
     except Exception:
-        return True 
+        return True
 
 @st.cache_data(ttl=60)
 def get_unread_message_count(_engine, username, role):
@@ -228,7 +224,6 @@ def main():
     if is_first_run:
         st.warning("🚀 Bem-vindo! Detectamos que este é o primeiro acesso.")
         st.info("Por favor, crie o primeiro usuário administrador do sistema.")
-        # Passa os argumentos explicitamente aqui também
         show_admin_page(engine=engine, base_data_path=BASE_DATA_PATH)
         st.stop() 
 
@@ -287,8 +282,7 @@ def main():
     
     # Validação extra para evitar erro se o menu mudar (ex: nova notificação)
     current_key_base = st.session_state.page_key
-    if "Contato" in current_key_base: # Se for qualquer variação de "Contato"
-        # Encontra a chave real atual no menu
+    if "Contato" in current_key_base:
         real_contact_key = next((k for k in page_list_labels if "Contato" in k), "Home")
         if st.session_state.page_key != real_contact_key:
              st.session_state.page_key = real_contact_key
@@ -298,7 +292,6 @@ def main():
     def update_sidebar_selection():
         st.session_state.page_key = st.session_state["sidebar_radio_key"]
 
-    # Encontra o índice para o widget radio
     try:
         current_page_index = page_list_labels.index(st.session_state.page_key)
     except ValueError:
@@ -315,16 +308,17 @@ def main():
     # --- EXECUÇÃO DA PÁGINA SELECIONADA ---
     selected_page_func = paginas_disponiveis_labels[st.session_state.page_key]
     
-    # Executa a função passando os argumentos.
-    # O try/except protege caso alguma função antiga ainda não aceite argumentos.
+    # AQUI ESTÁ A CORREÇÃO PRINCIPAL:
+    # Chamamos a função passando os argumentos engine e base_data_path
     try:
         selected_page_func(engine=engine, base_data_path=BASE_DATA_PATH)
     except TypeError as e:
-        # Se der erro de argumento, tenta chamar sem argumentos (compatibilidade)
+        st.error(f"Erro de configuração na página: {e}")
+        # Fallback de emergência para páginas antigas que não aceitam argumentos
         try:
             selected_page_func()
-        except Exception as e2:
-            st.error(f"Erro crítico ao carregar a página: {e}\n{e2}")
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()
