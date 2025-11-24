@@ -1,261 +1,314 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import hashlib
+from datetime import datetime, date
+import json
 import os
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+
+# --- Importa as páginas ---
+from page.home import show_home_page
+from page.consulta_estoq_cd import show_consulta_page
+from page.pedidos import show_pedidos_page
+from page.aprovacao_pedidos import show_aprovacao_page
+from page.status_usuarios import show_status_page
+from page.admin_maint import show_admin_page
+from page.admin_tools import show_admin_tools
+from page.mudar_senha import show_mudar_senha_page
+from page.contato import show_contato_page
+from page.upload_ofertas import show_upload_ofertas_page
+from page.ver_ofertas import show_ver_ofertas_page
 
 # =========================================================
-#  🧩 CONSTANTES
+# CONFIGURAÇÕES INICIAIS
 # =========================================================
+st.set_page_config(page_title="Gestão de Produtos", layout="wide")
+
+BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
+os.makedirs(BASE_DATA_PATH, exist_ok=True) 
 
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
                "007", "008", "011", "012", "013", "014", "017", "018"]
 
 # =========================================================
-#  📥 CARREGAMENTO DE DADOS (COM CACHE ANTI-CRASH)
+# FUNÇÕES DE SEGURANÇA E BANCO
 # =========================================================
+def make_hashes(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-@st.cache_data(ttl=300) # Cache de 5 minutos para evitar recarregar disco e travar
-def load_database(base_path):
-    """
-    Carrega Mix, Histórico e WMS de uma vez só e deixa na memória.
-    Isso evita o erro 502 (Bad Gateway) por estouro de memória.
-    """
-    
-    # 1. Função interna de leitura segura
-    def read_parquet_safe(filename):
-        p = os.path.join(base_path, f"{filename}.parquet")
-        if os.path.exists(p):
-            return pd.read_parquet(p)
-        return pd.DataFrame()
+def check_hashes(password, hashed_text):
+    return make_hashes(password) == hashed_text
 
-    df_mix = read_parquet_safe("__MixAtivoSistema")
-    df_hist = read_parquet_safe("historico_solic")
-    df_wms = read_parquet_safe("WMS")
+@st.cache_resource
+def get_engine():
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        st.error("Erro fatal: DATABASE_URL não encontrada.")
+        st.stop()
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
 
-    # 2. Padronização do MIX (Rápida)
-    if not df_mix.empty:
-        df_mix.columns = df_mix.columns.str.strip().str.lower()
-        # Mapeia colunas essenciais
-        cols_map = {'codigoint': 'Codigo', 'descricao': 'Produto', 'embseparacao': 'Emb'}
-        df_mix.rename(columns={k: v for k, v in cols_map.items() if k in df_mix.columns}, inplace=True)
-        
-        # Tratamento da Embalagem (Vital para não dar erro de cálculo)
-        if 'Emb' in df_mix.columns:
-            # Força conversão para numérico, substituindo vírgula se houver
-            df_mix['Emb'] = df_mix['Emb'].astype(str).str.replace(',', '.', regex=False)
-            df_mix['Emb'] = pd.to_numeric(df_mix['Emb'], errors='coerce').fillna(1)
-        
-        if 'Codigo' in df_mix.columns:
-            df_mix['Codigo'] = pd.to_numeric(df_mix['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
+engine = get_engine()
 
-    # 3. Padronização do Histórico
-    if not df_hist.empty:
-        df_hist.columns = df_hist.columns.str.strip().str.lower()
-        cols_map = {'codigoint': 'Codigo', 'loja': 'Loja', 'estcx': 'Estoque', 
-                    'pedcx': 'Pendente', 'vm30dcx': 'Venda30d'}
-        df_hist.rename(columns={k: v for k, v in cols_map.items() if k in df_hist.columns}, inplace=True)
-        
-        if 'Codigo' in df_hist.columns:
-            df_hist['Codigo'] = pd.to_numeric(df_hist['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
-        if 'Loja' in df_hist.columns:
-            df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
-
-    # 4. Padronização do WMS
-    if not df_wms.empty:
-        df_wms.columns = df_wms.columns.str.strip().str.lower()
-        # Garante que pegamos a quantidade certa
-        col_qtd = 'qtd' if 'qtd' in df_wms.columns else 'Qtd'
-        
-        if col_qtd in df_wms.columns:
-            df_wms.rename(columns={col_qtd: 'Qtd_CD', 'codigo': 'Codigo'}, inplace=True)
-            
-            # Limpeza numérica
-            if df_wms['Qtd_CD'].dtype == object:
-                df_wms['Qtd_CD'] = df_wms['Qtd_CD'].str.replace(',', '.', regex=False)
-            df_wms['Qtd_CD'] = pd.to_numeric(df_wms['Qtd_CD'], errors='coerce').fillna(0)
-            
-            if 'Codigo' in df_wms.columns:
-                df_wms['Codigo'] = pd.to_numeric(df_wms['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
-                # Agrupa estoque para não duplicar
-                df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
-
-    return df_mix, df_hist, df_wms
-
-# =========================================================
-#  💾 SALVAR NO BANCO
-# =========================================================
-
-def save_order_to_db(engine, pedido_dados):
-    if not pedido_dados: return False
-    
-    username = st.session_state.get("username", "anon")
-    now = datetime.now()
-    
-    # Monta a query dinâmica
-    cols_lojas = ", ".join([f"loja_{l}" for l in LISTA_LOJAS])
-    vals_lojas = ", ".join([f":loja_{l}" for l in LISTA_LOJAS])
-    
-    query = text(f"""
-        INSERT INTO pedidos_consolidados (
-            codigo, produto, embseparacao, data_pedido, 
-            usuario_pedido, status_item, total_cx, {cols_lojas}
-        ) VALUES (
-            :c, :p, :e, :d, :u, 'Ativo', :t, {vals_lojas}
-        )
-    """)
-    
+def create_db_tables():
     try:
-        with engine.begin() as conn:
-            for item in pedido_dados:
-                params = {
-                    "c": item["Codigo"], "p": item["Produto"], "e": int(item["Emb"]),
-                    "d": now, "u": username, "t": int(item["Total"])
-                }
-                for l in LISTA_LOJAS:
-                    params[f"loja_{l}"] = int(item.get(l, 0))
-                conn.execute(query, params)
-        return True
+        with engine.begin() as conn: 
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password TEXT NOT NULL,
+                    ultimo_acesso TIMESTAMP,
+                    status_logado TEXT,
+                    role TEXT DEFAULT 'user',
+                    lojas_acesso TEXT
+                )
+            """))
+            
+            lojas_sql_cols = ", ".join([f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS pedidos_consolidados (
+                    id SERIAL PRIMARY KEY, 
+                    codigo TEXT NOT NULL,
+                    produto TEXT,
+                    ean TEXT,
+                    embseparacao INTEGER,
+                    data_pedido TIMESTAMP,
+                    data_aprovacao TIMESTAMP,
+                    usuario_pedido TEXT,
+                    status_item TEXT,
+                    status_aprovacao TEXT DEFAULT 'Pendente',
+                    total_cx INTEGER,
+                    {lojas_sql_cols}
+                )
+            """))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS contato_chamados (
+                    id SERIAL PRIMARY KEY,
+                    usuario_username TEXT REFERENCES users(username),
+                    assunto TEXT,
+                    data_criacao TIMESTAMP,
+                    ultimo_update TIMESTAMP,
+                    status TEXT DEFAULT 'Aguardando Retorno' 
+                )
+            """)) 
+            
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS contato_mensagens (
+                    id SERIAL PRIMARY KEY,
+                    chamado_id INTEGER REFERENCES contato_chamados(id) ON DELETE CASCADE,
+                    remetente_username TEXT,
+                    mensagem TEXT,
+                    data_envio TIMESTAMP
+                )
+            """))
+            
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ofertas (
+                    id SERIAL PRIMARY KEY,
+                    codigo INTEGER NOT NULL,
+                    produto TEXT,
+                    oferta NUMERIC(10, 2),
+                    data_inicio DATE NOT NULL,
+                    data_final DATE NOT NULL,
+                    UNIQUE(codigo, data_inicio, data_final)
+                )
+            """))
+            
+            seven_days_ago = (datetime.now() - pd.Timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute(text("DELETE FROM contato_chamados WHERE ultimo_update < :seven_days_ago"), {"seven_days_ago": seven_days_ago})
+            
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
-        return False
+        if "foreign key constraint" not in str(e) and "does not exist" not in str(e):
+             st.error(f"Erro ao inicializar BD: {e}")
 
-# =========================================================
-#  🖥️ PÁGINA PRINCIPAL
-# =========================================================
+def check_login_and_get_roles(username, password):
+    with engine.connect() as conn:
+        query = text("SELECT password, role, lojas_acesso FROM users WHERE username = :username")
+        result = conn.execute(query, {"username": username.lower()})
+        data = result.fetchone()
 
-def show_pedidos_page(engine, base_data_path):
-    st.title("🛒 Digitação de Pedidos")
+    if data:
+        hashed_password, role, lojas_acesso_json = data
+        if check_hashes(password, hashed_password):
+            lojas = []
+            if lojas_acesso_json:
+                try:
+                    lojas = json.loads(lojas_acesso_json)
+                except json.JSONDecodeError:
+                    lojas = []
+            return True, (role or "user"), lojas
+    return False, "user", []
 
-    if "pedido_atual" not in st.session_state:
-        st.session_state.pedido_atual = []
+def update_user_status(username, status):
+    try:
+        current_time = datetime.now()
+        query = text("UPDATE users SET ultimo_acesso = :time, status_logado = :status WHERE username = :username")
+        with engine.begin() as conn:
+            conn.execute(query, {"time": current_time, "status": status, "username": username.lower()})
+    except Exception:
+        pass
 
-    # Carrega dados com cache (RÁPIDO E ESTÁVEL)
-    df_mix, df_hist, df_wms = load_database(base_data_path)
+def login_page():
+    st.title("🔐 Login do Sistema")
+    username = st.text_input("Usuário:").lower()
+    senha = st.text_input("Senha:", type="password")
 
-    if df_mix.empty:
-        st.warning("⚠️ Base de Mix não carregada.")
-        return
-
-    # --- 1. Busca ---
-    c1, c2 = st.columns([1, 3])
-    cod_input = c1.text_input("Código:")
-    desc_input = c2.text_input("Descrição:")
-
-    prod = None
-    
-    if cod_input:
-        # Busca exata
-        r = df_mix[df_mix['Codigo'] == str(cod_input)]
-        if not r.empty: prod = r.iloc[0]
-    elif desc_input:
-        # Busca parcial
-        mask = df_mix['Produto'].astype(str).str.lower().str.contains(desc_input.lower(), na=False)
-        r = df_mix[mask].head(50)
-        if not r.empty:
-            opts = {f"{row['Codigo']} - {row['Produto']}": row['Codigo'] for _, row in r.iterrows()}
-            sel = st.selectbox("Selecione:", [""] + list(opts.keys()))
-            if sel:
-                prod = df_mix[df_mix['Codigo'] == opts[sel]].iloc[0]
-
-    # --- 2. Detalhes e Grade ---
-    if prod is not None:
-        codigo = prod['Codigo']
-        nome = prod['Produto']
-        emb = int(prod['Emb']) if prod['Emb'] > 0 else 1
-        
-        st.divider()
-        # Layout Clássico: Info do Produto
-        st.markdown(f"**Produto:** {codigo} - {nome} | **Emb:** {emb}")
-        
-        # Info CD
-        qtd_cd = 0
-        if not df_wms.empty:
-            w_item = df_wms[df_wms['Codigo'] == codigo]
-            if not w_item.empty: qtd_cd = w_item['Qtd_CD'].iloc[0]
-        
-        cx_cd = int(qtd_cd / emb)
-        st.info(f"Estoque CD: {int(qtd_cd)} un | **{cx_cd} cx**")
-
-        # Grade de Lojas
-        lojas_permitidas = st.session_state.get('lojas_acesso', [])
-        dados_grade = []
-        
-        # Prepara dados rápido
-        subset_hist = pd.DataFrame()
-        if not df_hist.empty:
-            subset_hist = df_hist[df_hist['Codigo'] == codigo].set_index('Loja')
-
-        for loja in LISTA_LOJAS:
-            if loja not in lojas_permitidas: continue
-            
-            est = pend = venda = 0
-            if loja in subset_hist.index:
-                row = subset_hist.loc[loja]
-                est = row.get('Estoque', 0)
-                pend = row.get('Pendente', 0)
-                venda = row.get('Venda30d', 0)
-            
-            dados_grade.append({
-                "Loja": loja,
-                "Est.": round(est, 1),
-                "Pend.": round(pend, 1),
-                "Venda": round(venda, 1),
-                "PEDIDO": 0
-            })
-
-        if dados_grade:
-            df_grade = pd.DataFrame(dados_grade)
-            
-            # Tabela editável simples
-            editado = st.data_editor(
-                df_grade,
-                column_config={
-                    "Loja": st.column_config.TextColumn(disabled=True),
-                    "Est.": st.column_config.NumberColumn(disabled=True),
-                    "Pend.": st.column_config.NumberColumn(disabled=True),
-                    "Venda": st.column_config.NumberColumn(disabled=True),
-                    "PEDIDO": st.column_config.NumberColumn(min_value=0, step=1, required=True)
-                },
-                hide_index=True,
-                use_container_width=True,
-                key=f"grid_{codigo}"
-            )
-            
-            total = editado["PEDIDO"].sum()
-            
-            col_add1, col_add2 = st.columns([3, 1])
-            with col_add2:
-                st.write(f"**Total: {total} cx**")
-                if st.button("Adicionar", type="primary", use_container_width=True):
-                    if total > 0:
-                        item = {
-                            "Codigo": codigo, "Produto": nome, "Emb": emb, "Total": total
-                        }
-                        # Pega valores das lojas
-                        for _, row in editado.iterrows():
-                            item[row['Loja']] = row['PEDIDO']
-                        
-                        st.session_state.pedido_atual.append(item)
-                        st.success("Adicionado!")
-                    else:
-                        st.warning("Qtd zerada.")
-
-    # --- 3. Carrinho ---
-    st.divider()
-    if st.session_state.pedido_atual:
-        st.write("### Carrinho")
-        df_cart = pd.DataFrame(st.session_state.pedido_atual)
-        cols_show = ["Codigo", "Produto", "Total"]
-        st.dataframe(df_cart[cols_show], hide_index=True, use_container_width=True)
-        
-        cb1, cb2 = st.columns(2)
-        if cb1.button("✅ Finalizar", type="primary", use_container_width=True):
-            if save_order_to_db(engine, st.session_state.pedido_atual):
-                st.success("Pedido Enviado!")
-                st.session_state.pedido_atual = []
-                st.rerun()
-        
-        if cb2.button("🗑️ Limpar", use_container_width=True):
-            st.session_state.pedido_atual = []
+    if st.button("Entrar", type="primary"):
+        logged_in, role, lojas = check_login_and_get_roles(username, senha)
+        if logged_in:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = username
+            st.session_state["role"] = role
+            st.session_state["lojas_acesso"] = lojas
+            update_user_status(username, "LOGADO")
             st.rerun()
+        else:
+            st.error("Usuário ou senha inválidos.")
+    st.stop()
+
+def check_if_first_run(engine):
+    try:
+        with engine.connect() as conn:
+            query = text("SELECT COUNT(username) FROM users")
+            result = conn.execute(query)
+            count = result.scalar_one_or_none() or 0
+        return count == 0
+    except Exception:
+        return True # Assume first run if table doesn't exist or error
+
+@st.cache_data(ttl=60)
+def get_unread_message_count(_engine, username, role):
+    query_str = ""
+    params = {}
+    if role == "admin":
+        query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Aguardando Retorno'"
+    else:
+        query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Respondido' AND usuario_username = :username"
+        params = {"username": username}
+
+    if not query_str: return 0
+
+    try:
+        with _engine.connect() as conn:
+            result = conn.execute(text(query_str), params)
+            return result.scalar_one_or_none() or 0
+    except Exception:
+        return 0
+
+# =========================================================
+# MAIN APP
+# =========================================================
+def main():
+    create_db_tables()
+    
+    is_first_run = check_if_first_run(engine)
+
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+
+    if is_first_run:
+        st.warning("🚀 Bem-vindo! Primeiro acesso detectado.")
+        st.info("Crie o primeiro usuário administrador.")
+        # Passa os argumentos explicitamente aqui também
+        show_admin_page(engine=engine, base_data_path=BASE_DATA_PATH)
+        st.stop() 
+
+    if not st.session_state["logged_in"]:
+        login_page() 
+
+    # --- LOGADO ---
+    st.sidebar.success(f"Logado: {st.session_state['username']}")
+
+    if st.sidebar.button("Logout"):
+        update_user_status(st.session_state["username"], "DESLOGADO")
+        st.session_state.clear()
+        st.session_state["logged_in"] = False
+        st.rerun()
+
+    # Notificações
+    username = st.session_state.get("username", "")
+    role = st.session_state.get("role", "user")
+    unread_count = get_unread_message_count(engine, username, role)
+    contato_menu_label = "Contato"
+    if unread_count > 0:
+        contato_menu_label = f"Contato ({unread_count}) 🔴"
+
+    # Menu
+    # Dicionário mapeia Nome -> Função
+    paginas = {
+        "Home": show_home_page,
+        "Consulta de Estoque CD": show_consulta_page,
+        "Ofertas Atuais": show_ver_ofertas_page,
+        "Alterar Senha": show_mudar_senha_page,
+        contato_menu_label: show_contato_page, 
+    }
+
+    if st.session_state.get("lojas_acesso"):
+        paginas["Digitar Pedidos"] = show_pedidos_page
+
+    if st.session_state.get("role") == "mkt":
+        paginas["Upload Ofertas"] = show_upload_ofertas_page
+    
+    if st.session_state.get("role") == "admin":
+        paginas["Aprovação de Pedidos"] = show_aprovacao_page
+        paginas["Status do Usuário"] = show_status_page
+        paginas["Administração"] = show_admin_page
+        paginas["Atualização de Dependências"] = show_admin_tools
+        if "Upload Ofertas" not in paginas:
+            paginas["Upload Ofertas"] = show_upload_ofertas_page
+
+    # Navegação
+    page_labels = list(paginas.keys())
+
+    if "page_key" not in st.session_state:
+        st.session_state.page_key = "Home"
+    
+    # Valida se a página salva ainda é acessível
+    # Se for "Contato" com ou sem notificação, ajusta
+    current_key = st.session_state.page_key
+    if "Contato" in current_key:
+        # Tenta encontrar a label atual de contato na lista
+        found_contact = next((k for k in page_labels if "Contato" in k), "Home")
+        if current_key != found_contact:
+            st.session_state.page_key = found_contact
+    elif current_key not in page_labels:
+        st.session_state.page_key = "Home"
+
+    # Callback para sincronizar radio button com estado
+    def update_sidebar():
+        st.session_state.page_key = st.session_state["sidebar_selection"]
+
+    # Encontra o índice para o radio button
+    try:
+        idx = page_labels.index(st.session_state.page_key)
+    except ValueError:
+        idx = 0
+
+    st.sidebar.radio(
+        "Navegação:", 
+        page_labels, 
+        index=idx,
+        on_change=update_sidebar,
+        key="sidebar_selection"
+    )
+    
+    # --- EXECUÇÃO DA PÁGINA ---
+    # Pega a função correspondente
+    page_func = paginas[st.session_state.page_key]
+    
+    # Executa passando SEMPRE os argumentos padrão
+    try:
+        page_func(engine=engine, base_data_path=BASE_DATA_PATH)
+    except TypeError as e:
+        # Fallback se alguma página antiga não aceitar argumentos
+        # (Isso evita o erro que você viu, mas o ideal é atualizar todas as páginas)
+        st.error(f"Erro ao carregar página: {e}")
+        try:
+            page_func()
+        except Exception as e2:
+            st.error(f"Erro crítico na página: {e2}")
+
+if __name__ == "__main__":
+    main()
