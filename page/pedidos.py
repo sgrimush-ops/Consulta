@@ -276,7 +276,7 @@ def show_pedidos_page(engine, base_data_path):
                 except: v30_cx = 0.0
             
             # Calcula sugestão (já retorna em caixas)
-            sug_cx = calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=4)
+            sug_cx = calculate_smart_suggestion_cx(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, dias_cobertura=4, emb=emb)
             
             # Formatação Visual para Grade (String BR)
             grade.append({
