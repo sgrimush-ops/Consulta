@@ -38,10 +38,10 @@ def load_database(base_path):
         if 'Codigo' in df_mix.columns:
             df_mix['Codigo'] = pd.to_numeric(df_mix['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
         
-        # Remove duplicatas de código no mix
+        # Remove duplicates in mix
         df_mix = df_mix.drop_duplicates(subset=['Codigo'])
 
-    # HISTÓRICO - AQUI ESTAVA O ERRO
+    # HISTORY
     if not df_hist.empty:
         df_hist.columns = [normalize_col(c) for c in df_hist.columns]
         rename = {}
@@ -58,7 +58,7 @@ def load_database(base_path):
         if 'Loja' in df_hist.columns:
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
             
-        # CORREÇÃO VITAL: Remove duplicatas de Loja+Produto para evitar erro de "Ambiguous Truth Value"
+        # Remove duplicates to fix "Ambiguous Truth Value" error
         if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
             df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'])
 
@@ -134,7 +134,6 @@ def show_pedidos_page(engine, base_data_path):
         nome = prod['Produto']
         emb_val = prod.get('Emb')
         
-        # Correção na conversão da embalagem para evitar erro
         try:
             if pd.isna(emb_val): emb = 0
             else: emb = int(float(str(emb_val).replace(',', '.')))
@@ -159,13 +158,11 @@ def show_pedidos_page(engine, base_data_path):
         
         sub = pd.DataFrame()
         if not df_hist.empty: 
-            # Garante que não há duplicatas antes de fazer o set_index
             sub = df_hist[df_hist['Codigo'] == codigo].drop_duplicates(subset=['Loja']).set_index('Loja')
 
         for l in LISTA_LOJAS:
             if l not in lojas: continue
             
-            # Valores seguros
             est = pend = venda = 0.0
             
             if l in sub.index:
