@@ -203,7 +203,7 @@ def main():
     if unread_count > 0:
         contato_menu_label = f"Contato ({unread_count}) 🔴"
 
-    # Menu - Usando LAMBDA para garantir os argumentos
+    # Menu
     paginas = {
         "Home": lambda: show_home_page(engine, BASE_DATA_PATH),
         "Consulta de Estoque CD": lambda: show_consulta_page(engine, BASE_DATA_PATH),
@@ -229,6 +229,15 @@ def main():
     if "page_key" not in st.session_state or st.session_state.page_key not in page_labels:
         st.session_state.page_key = "Home"
 
+    # Validação e ajuste da página atual
+    current_key = st.session_state.page_key
+    if "Contato" in current_key:
+        found_contact = next((k for k in page_labels if "Contato" in k), "Home")
+        if st.session_state.page_key != found_contact:
+             st.session_state.page_key = found_contact
+    elif st.session_state.page_key not in page_labels:
+        st.session_state.page_key = "Home"
+
     def update_page():
         st.session_state.page_key = st.session_state.nav_radio
 
@@ -248,7 +257,6 @@ def main():
     
     # --- EXECUÇÃO ---
     try:
-        # Chama a lambda selecionada, que já tem os argumentos
         func = paginas[st.session_state.page_key]
         func()
     except Exception as e:
