@@ -228,7 +228,7 @@ def main():
     if is_first_run:
         st.warning("🚀 Bem-vindo! Detectamos que este é o primeiro acesso.")
         st.info("Por favor, crie o primeiro usuário administrador do sistema.")
-        # Passa os argumentos explicitamente
+        # Passa os argumentos explicitamente aqui também
         show_admin_page(engine=engine, base_data_path=BASE_DATA_PATH)
         st.stop() 
 
