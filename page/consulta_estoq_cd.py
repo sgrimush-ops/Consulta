@@ -5,8 +5,8 @@ from typing import Optional, Tuple
 import os
 
 # --- Configurações e Path ---
-COLUNA_DESCRICAO = 'Produto' 
-COLUNA_ENDERECO = 'Endereço'
+COLUNA_DESCRICAO = 'produto' 
+COLUNA_ENDERECO = 'endereço'
 
 # --- Funções de Cache e Helpers ---
 
@@ -245,3 +245,4 @@ def show_consulta_page(engine, base_data_path):
             
         cols_view = [c for c in df_prev.columns if c not in ['datasalva', 'datasalva_formatada', 'Descrição_Lower', 'embalagem']]
         st.dataframe(df_prev[cols_view], hide_index=True)
+
