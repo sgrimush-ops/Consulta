@@ -236,8 +236,7 @@ def main():
     )
     
     # --- EXECUÇÃO ---
-    # Aqui está a correção: Passamos engine e base_data_path para TODAS as páginas
-    # Usamos **kwargs para evitar erro se alguma página antiga não aceitar argumentos
+    # CORREÇÃO AQUI: Passa engine e base_data_path para TODAS as páginas
     try:
         func = paginas[st.session_state.page_key]
         # Tenta chamar com argumentos
