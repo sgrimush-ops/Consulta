@@ -90,7 +90,6 @@ def save_order(engine, dados):
             
             for item in dados:
                 # CORREÇÃO PRINCIPAL: Converter tudo para tipo nativo Python (int/float)
-                # O int() do Python remove a tipagem numpy que o psycopg2 não aceita
                 
                 emb_val = item["Emb"]
                 if pd.isna(emb_val): emb_val = 0
@@ -108,7 +107,6 @@ def save_order(engine, dados):
                 }
                 
                 for l in LISTA_LOJAS: 
-                    # Pega valor, converte pra float (pra garantir), depois int nativo
                     val_loja = item.get(l, 0)
                     if pd.isna(val_loja): val_loja = 0
                     p[l] = int(float(val_loja))
@@ -190,48 +188,91 @@ def show_pedidos_page(engine, base_data_path):
             est = pend = venda = 0
             if l in sub_hist.index:
                 r = sub_hist.loc[l]
+                # Usa get com default 0 para evitar NaN
                 est = r.get('Estoque', 0)
                 pend = r.get('Pendente', 0)
                 venda = r.get('Venda30d', 0)
-            grade.append({"Loja": l, "Est": est, "Pend": pend, "Venda": venda, "PEDIDO": 0})
+            
+            # Garante que não vai NaN para a tela
+            if pd.isna(est): est = 0
+            if pd.isna(pend): pend = 0
+            if pd.isna(venda): venda = 0
+
+            grade.append({
+                "Loja": l, 
+                "Est": float(est), 
+                "Pend": float(pend), 
+                "Venda": float(venda), 
+                "PEDIDO": 0 # Inteiro inicial
+            })
 
         if grade:
             df_g = pd.DataFrame(grade)
+            
+            # Tabela Editável
             edited = st.data_editor(
                 df_g, 
                 column_config={
                     "Loja": st.column_config.TextColumn(disabled=True),
-                    "Est": st.column_config.NumberColumn(disabled=True, format="%.1f"),
-                    "Pend": st.column_config.NumberColumn(disabled=True, format="%.1f"),
-                    "Venda": st.column_config.NumberColumn(disabled=True, format="%.1f"),
-                    "PEDIDO": st.column_config.NumberColumn(min_value=0, step=1)
+                    "Est": st.column_config.NumberColumn("Estoque (Cx)", disabled=True, format="%.1f"),
+                    "Pend": st.column_config.NumberColumn("Pend (Cx)", disabled=True, format="%.1f"),
+                    "Venda": st.column_config.NumberColumn("Venda 30d (Cx)", disabled=True, format="%.1f"),
+                    "PEDIDO": st.column_config.NumberColumn("PEDIDO (CX)", min_value=0, step=1, required=True)
                 },
-                hide_index=True, use_container_width=True, key=f"grid_{codigo}"
+                hide_index=True, 
+                use_container_width=True, 
+                key=f"grid_{codigo}" # Chave única evita conflito de estado
             )
             
+            # Soma total
             total = edited["PEDIDO"].sum()
-            if st.button(f"Adicionar ({total} cx)", type="primary", use_container_width=True):
-                if total > 0:
-                    item = {"Codigo": codigo, "Produto": nome, "Emb": emb, "Total": total}
-                    for _, r in edited.iterrows(): item[r['Loja']] = r['PEDIDO']
-                    st.session_state.pedido_atual.append(item)
-                    st.success("Adicionado!")
-                else:
-                    st.warning("Qtd zero.")
+            
+            col_add1, col_add2 = st.columns([3, 1])
+            with col_add2:
+                # Botão Adicionar
+                st.write(f"**Total: {total} cx**")
+                if st.button("➕ Adicionar", type="primary", use_container_width=True):
+                    if total > 0:
+                        item = {
+                            "Codigo": codigo, 
+                            "Produto": nome, 
+                            "Emb": emb, 
+                            "Total": total
+                        }
+                        # Adiciona quantidades de cada loja
+                        for _, r in edited.iterrows(): 
+                            item[r['Loja']] = r['PEDIDO']
+                        
+                        st.session_state.pedido_atual.append(item)
+                        st.success(f"{nome} Adicionado!")
+                        # Opcional: st.rerun() para limpar a seleção
+                    else:
+                        st.warning("Digite uma quantidade maior que zero.")
 
     # 3. Carrinho
     if st.session_state.pedido_atual:
-        st.markdown("---")
-        st.write("### Carrinho")
+        st.divider()
+        st.subheader(f"Carrinho ({len(st.session_state.pedido_atual)} itens)")
+        
         cart = pd.DataFrame(st.session_state.pedido_atual)
-        st.dataframe(cart[["Codigo", "Produto", "Total"]], hide_index=True, use_container_width=True)
+        st.dataframe(
+            cart[["Codigo", "Produto", "Total"]], 
+            hide_index=True, 
+            use_container_width=True,
+            column_config={
+                "Total": st.column_config.NumberColumn("Total (Cx)", format="%d")
+            }
+        )
         
         c1, c2 = st.columns(2)
-        if c1.button("✅ Finalizar Pedido"):
-            if save_order(engine, st.session_state.pedido_atual):
-                st.balloons()
-                st.session_state.pedido_atual = []
-                st.rerun()
-        if c2.button("🗑️ Limpar"):
+        if c1.button("✅ Finalizar Pedido", type="primary", use_container_width=True):
+            with st.spinner("Salvando..."):
+                if save_order(engine, st.session_state.pedido_atual):
+                    st.balloons()
+                    st.success("Pedido salvo com sucesso!")
+                    st.session_state.pedido_atual = []
+                    st.rerun()
+        
+        if c2.button("🗑️ Limpar Carrinho", use_container_width=True):
             st.session_state.pedido_atual = []
             st.rerun()
