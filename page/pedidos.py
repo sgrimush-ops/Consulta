@@ -33,11 +33,12 @@ def format_br(val):
         return "0,0"
 
 def clean_float(val):
-    """Converte string/float para float seguro."""
+    """Converte string com ponto ou vírgula para float."""
     if pd.isna(val) or val == '': return 0.0
     if isinstance(val, (int, float)): return float(val)
+    # Remove espaços
     val = str(val).strip()
-    # Se tiver vírgula, assume decimal BR
+    # Se tiver vírgula, assume que é decimal BR (troca por ponto)
     if ',' in val:
         val = val.replace('.', '').replace(',', '.')
     return float(val)
@@ -69,7 +70,7 @@ def load_database(base_path, _engine):
         
         df_mix = df_mix.drop_duplicates(subset=['Codigo'])
 
-    # --- HISTÓRICO (LÓGICA DE DATA MAIS RECENTE) ---
+    # --- HISTÓRICO ---
     if not df_hist.empty:
         df_hist.columns = [normalize_col(c) for c in df_hist.columns]
         rename = {}
@@ -89,19 +90,19 @@ def load_database(base_path, _engine):
         if 'Loja' in df_hist.columns:
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
         
-        # Garante limpeza numérica
+        # Limpeza numérica segura
         cols_num = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
         for col in cols_num:
             if col in df_hist.columns:
                 df_hist[col] = df_hist[col].apply(clean_float)
 
-        # LÓGICA CRUCIAL: MANTER APENAS O REGISTRO MAIS RECENTE POR LOJA/PRODUTO
+        # FILTRAGEM PELA DATA MAIS RECENTE
         if 'Data_Solic' in df_hist.columns:
             df_hist['Data_Solic'] = pd.to_datetime(df_hist['Data_Solic'], dayfirst=True, errors='coerce')
-            # Ordena: Código, Loja, Data (do mais novo para o mais antigo)
+            # Ordena por data decrescente (mais novo primeiro)
             df_hist = df_hist.sort_values(by=['Codigo', 'Loja', 'Data_Solic'], ascending=[True, True, False])
             
-        # Remove duplicatas mantendo a primeira (mais recente)
+        # Remove duplicatas de (Codigo, Loja), mantendo a primeira (que é a mais recente)
         if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
             df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'], keep='first')
 
@@ -255,7 +256,6 @@ def show_pedidos_page(engine, base_data_path):
                 r = sub.loc[l]
                 if isinstance(r, pd.DataFrame): r = r.iloc[0]
                 
-                # Pega o valor direto, sem somar, pois já filtramos o mais recente
                 try: est_cx = float(r.get('Estoque_CX', 0) or 0)
                 except: est_cx = 0.0
                 try: pend_cx = float(r.get('Pendente_CX', 0) or 0)
