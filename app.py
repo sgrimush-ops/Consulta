@@ -281,5 +281,5 @@ def get_unread_message_count(_engine, username, role):
     except Exception:
         return 0
 
-# DESCOMENTE AS LINHAS ABAIXO PARA O APP RODAR:
 if __name__ == "__main__":
+    main()
