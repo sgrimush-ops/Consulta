@@ -205,107 +205,46 @@ if cod_input:
         st.warning("Código não encontrado.")
 elif desc_input:
     mask = df_mix['Produto'].astype(str).str.contains(desc_input, case=False, na=False)
-    r = df_mix[mask].head(50)
+    r = df_mix[mask]
     if not r.empty:
-        opts = {f"{row['Codigo']} - {row['Produto']}": row['Codigo'] for _, row in r.iterrows()}
-        sel = st.selectbox("Selecione:", [""] + list(opts.keys()))
-        if sel:
-            cod = opts[sel]
-            prod = df_mix[df_mix['Codigo'] == cod].iloc[0]
+        prod = r.iloc[0]
+    else:
+        st.warning("Descrição não encontrada.")
 
-if prod is not None:
-    codigo = prod['Codigo']
-    nome = prod['Produto']
-    try:
-        emb = int(float(prod.get('Emb', 0)))
-    except:
-        emb = 0
+if prod is None:
+    st.info("Digite o código ou descrição para buscar o produto.")
+    return
 
-    if emb <= 0:
-        st.error(f"⛔ Embalagem inválida ({prod.get('Emb', 0)}). Verifique o Mix.")
-        return
+st.write(f"Produto selecionado: **{prod['Produto']}**")
+emb = int(prod.get('Emb', 1))
 
-    st.divider()
-    st.markdown(f"**{codigo} - {nome}** (Emb: {emb})")
+# Busca histórico e WMS
+df_h = df_hist[df_hist['Codigo'] == prod['Codigo']]
+df_w = df_wms[df_wms['Codigo'] == prod['Codigo']] if not df_wms.empty else pd.DataFrame()
+est_cx = df_h['Estoque_CX'].sum() if 'Estoque_CX' in df_h.columns else 0
+pend_cx = df_h['Pendente_CX'].sum() if 'Pendente_CX' in df_h.columns else 0
+venda1 = df_h['Venda1Sem_CX'].sum() if 'Venda1Sem_CX' in df_h.columns else 0
+venda2 = df_h['Venda2Sem_CX'].sum() if 'Venda2Sem_CX' in df_h.columns else 0
+venda30 = df_h['Venda30d_CX'].sum() if 'Venda30d_CX' in df_h.columns else 0
+qtd_cd = df_w['Qtd_CD'].sum() if not df_w.empty and 'Qtd_CD' in df_w.columns else 0
 
-    qtd_cd_un = 0.0
-    if not df_wms.empty:
-        w = df_wms[df_wms['Codigo'] == str(codigo)]
-        if not w.empty:
-            qtd_cd_un = w['Qtd_CD'].iloc[0]
+sugestao = calculate_smart_suggestion(venda1, venda2, venda30, est_cx, pend_cx, emb)
 
-    cx_cd = int(qtd_cd_un / emb) if emb > 0 else 0
-    st.info(f"CD: {int(qtd_cd_un):,} un | **{format_br(cx_cd).split(',')[0]} cx**")
+st.subheader("2. Sugestão de Pedido")
+st.write(f"Estoque atual (lojas + CD): {est_cx + qtd_cd} cx")
+st.write(f"Pendente: {pend_cx} cx")
+st.write(f"Sugestão de pedido: {sugestao} cx")
 
-    lojas_acesso = st.session_state.get('lojas_acesso', [])
-    grade = []
-    sub = pd.DataFrame()
-    if not df_hist.empty:
-        sub = df_hist[df_hist['Codigo'] == str(codigo)].set_index('Loja')
-
-    for l in LISTA_LOJAS:
-        if l not in lojas_acesso:
-            continue
-
-        est_cx = pend_cx = v1_cx = v2_cx = v30_cx = 0.0
-        if l in sub.index:
-            r = sub.loc[l]
-            if isinstance(r, pd.DataFrame):
-                r = r.iloc[0]
-            est_cx = float(r.get('Estoque_CX', 0) or 0)
-            pend_cx = float(r.get('Pendente_CX', 0) or 0)
-            v1_cx = float(r.get('Venda1Sem_CX', 0) or 0)
-            v2_cx = float(r.get('Venda2Sem_CX', 0) or 0)
-            v30_cx = float(r.get('Venda30d_CX', 0) or 0)
-
-        sug_cx = calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb)
-        grade.append({"Loja": l, "Est": format_br(est_cx), "Pend": format_br(pend_cx),
-                      "Vd 1Sm": format_br(v1_cx), "Vd 2Sm": format_br(v2_cx),
-                      "Sugest": sug_cx, "PEDIDO": 0})
-
-    if grade:
-        dfg = pd.DataFrame(grade)
-        ed = st.data_editor(dfg, hide_index=True, use_container_width=True, key=f"g_{codigo}",
-                            column_config={
-                                "Loja": st.column_config.TextColumn(disabled=True),
-                                "Est": st.column_config.TextColumn("Est (Cx)", disabled=True),
-                                "Pend": st.column_config.TextColumn("Pend (Cx)", disabled=True),
-                                "Vd 1Sm": st.column_config.TextColumn("Vd 1Sem (Cx)", disabled=True),
-                                "Vd 2Sm": st.column_config.TextColumn("Vd 2Sem (Cx)", disabled=True),
-                                "Sugest": st.column_config.NumberColumn("Sugestão (Cx)", format="%d", disabled=True),
-                                "PEDIDO": st.column_config.NumberColumn("PEDIDO (CX)", min_value=0, step=1)
-                            })
-
-        tot = ed["PEDIDO"].sum()
-        tot_sug = dfg["Sugest"].sum()
-
-        col_info, col_btn = st.columns([3, 1])
-        col_info.info(f"Total Pedido: **{tot:,.0f}** cx (Sugestão: {tot_sug:,.0f} cx)")
-
-        if col_btn.button(f"Adicionar", type="primary", use_container_width=True):
-            if tot > 0:
-                it = {"Codigo": codigo, "Produto": nome, "Emb": emb, "Total": tot}
-                for _, r in ed.iterrows():
-                    it[r['Loja']] = int(r['PEDIDO'])
-                st.session_state.pedido_atual.append(it)
-                st.success("Adicionado!")
-            else:
-                st.warning("Qtd zero.")
-
-if st.session_state.pedido_atual:
-    st.divider()
-    st.write("### Carrinho")
-    cart = pd.DataFrame(st.session_state.pedido_atual)
-    st.dataframe(cart[["Codigo", "Produto", "Total"]], hide_index=True,
-                 column_config={"Total": st.column_config.NumberColumn("Total (Cx)", format="%d")})
-
-    c1, c2 = st.columns(2)
-    if c1.button("✅ Finalizar"):
-        if save_order(engine, st.session_state.pedido_atual):
-            st.balloons()
-            st.session_state.pedido_atual = []
-            st.rerun()
-    if c2.button("🗑️ Limpar"):
-        st.session_state.pedido_atual = []
-        st.rerun()
+# Botão de salvar pedido
+if st.button("✅ Salvar Pedido"):
+    dados = [{
+        "Codigo": prod['Codigo'],
+        "Produto": prod['Produto'],
+        "Emb": emb,
+        "Total": sugestao,
+    }]
+    if save_order(engine, dados):
+        st.success("Pedido salvo com sucesso!")
+    else:
+        st.error("Erro ao salvar pedido.")
 ```
