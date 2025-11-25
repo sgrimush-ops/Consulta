@@ -46,7 +46,7 @@ def get_user_status_df(engine):
     # Inativo Recente (Preto)
     recente_mask = (df_users['Tempo_Segundos'] < limite_recente_seg)
     df_users.loc[recente_mask, 'Sort_Key'] = 2
-    df_users.loc[recente_mask, 'Cor'] = "black"
+    df_users.loc[recente_mask, 'Cor'] = "orange"
     df_users.loc[recente_mask, 'Status_Desc'] = "Inativo (< 24h)"
 
     # Ativo (Verde)
