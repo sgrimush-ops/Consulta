@@ -59,35 +59,41 @@ def load_database(base_path, _engine):
         
         df_mix = df_mix.drop_duplicates(subset=['Codigo'])
 
-    # --- HISTÓRICO (Correção Crítica de Mapeamento) ---
+    # --- HISTÓRICO (LÓGICA DE DATA MAIS RECENTE) ---
     if not df_hist.empty:
         df_hist.columns = [normalize_col(c) for c in df_hist.columns]
         rename = {}
         for c in df_hist.columns:
             if 'codigoint' in c: rename[c] = 'Codigo'
             elif 'loja' in c: rename[c] = 'Loja'
-            # Mapeamento exato para as colunas do seu CSV
-            elif 'estcx' in c: rename[c] = 'Estoque_CX'
-            elif 'pedcx' in c: rename[c] = 'Pendente_CX'
-            elif 'vd1sem' in c: rename[c] = 'Venda1Sem_CX' 
-            elif 'vd2sem' in c: rename[c] = 'Venda2Sem_CX' 
-            elif 'vm30d' in c: rename[c] = 'Venda30d_CX' 
+            elif 'est' in c: rename[c] = 'Estoque_CX'
+            elif 'ped' in c: rename[c] = 'Pendente_CX'
+            elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem_CX' 
+            elif 'vd' in c and '2' in c: rename[c] = 'Venda2Sem_CX' 
+            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX'
+            # Importante: Mapear a data para podermos ordenar
+            elif 'data' in c or 'dt' in c: rename[c] = 'Data_Solic'
         df_hist.rename(columns=rename, inplace=True)
         
-        # Tipagem Rigorosa para o Match
         if 'Codigo' in df_hist.columns:
             df_hist['Codigo'] = pd.to_numeric(df_hist['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
-        
         if 'Loja' in df_hist.columns:
-            # Converte loja numérica (1, 2) para string padronizada ("001", "002")
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
-            
-        # Agregação (Soma)
-        cols_to_sum = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
-        existing_cols = [c for c in cols_to_sum if c in df_hist.columns]
         
-        if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns and existing_cols:
-            df_hist = df_hist.groupby(['Codigo', 'Loja'], as_index=False)[existing_cols].sum(numeric_only=True)
+        # Tratamento da Data para Ordenação
+        if 'Data_Solic' in df_hist.columns:
+            # Tenta converter datas. dayfirst=True para formato BR (24/11/2025)
+            df_hist['Data_Solic'] = pd.to_datetime(df_hist['Data_Solic'], dayfirst=True, errors='coerce')
+        else:
+            # Se não tiver data, cria uma fictícia para não quebrar, mas o ideal é ter
+            df_hist['Data_Solic'] = pd.NaT
+
+        # --- FILTRO: MANTER APENAS A DATA MAIS RECENTE POR LOJA/PRODUTO ---
+        if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
+            # Ordena por data decrescente (mais recente primeiro)
+            df_hist = df_hist.sort_values(by=['Codigo', 'Loja', 'Data_Solic'], ascending=[True, True, False])
+            # Remove duplicatas mantendo a primeira (a mais recente)
+            df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'], keep='first')
 
     # --- WMS ---
     if not df_wms.empty:
@@ -98,6 +104,7 @@ def load_database(base_path, _engine):
             df_wms.rename(columns={col_qtd: 'Qtd_CD', 'codigo': 'Codigo'}, inplace=True)
             if 'Codigo' in df_wms.columns:
                 df_wms['Codigo'] = pd.to_numeric(df_wms['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
+                # Soma estoque total do CD (aqui soma faz sentido se tiver vários endereços)
                 df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
 
     # --- OFERTAS ---
@@ -117,6 +124,7 @@ def load_database(base_path, _engine):
 def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=4):
     """
     Calcula sugestão de compra em CAIXAS.
+    Entradas (vendas, estoque) já estão em CAIXAS.
     """
     if emb <= 0: return 0
     
@@ -128,6 +136,7 @@ def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_
     pend_un = pend_cx * emb
     
     # Venda Média Diária Ponderada (Unidades)
+    # (v30 é mensal, divide por 4 para ter base semanal)
     venda_semanal_pond_un = (v1_un * 0.5) + (v2_un * 0.3) + ((v30_un / 4.0) * 0.2)
     venda_diaria_un = venda_semanal_pond_un / 7.0
     
@@ -250,7 +259,6 @@ def show_pedidos_page(engine, base_data_path):
         
         sub = pd.DataFrame()
         if not df_hist.empty: 
-            # Garante que estamos buscando pelo código como string
             sub = df_hist[df_hist['Codigo'] == str(codigo)].set_index('Loja')
 
         for l in LISTA_LOJAS:
@@ -258,7 +266,6 @@ def show_pedidos_page(engine, base_data_path):
             
             est_cx = pend_cx = v1_cx = v2_cx = v30_cx = 0.0
             
-            # A busca agora é segura e tipada
             if l in sub.index:
                 r = sub.loc[l]
                 if isinstance(r, pd.DataFrame): r = r.iloc[0]
