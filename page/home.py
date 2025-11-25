@@ -1,32 +1,10 @@
 import streamlit as st
-from datetime import datetime
-import pytz
-import time
 
 def show_home_page(engine, base_data_path):
     """Cria a interface da página inicial como um Dashboard de atalhos."""
 
     # --- Cabeçalho ---
     st.title(f"Bem-vindo(a), {st.session_state.get('username', 'Usuário')}!")
-
-    # Adiciona um espaço reservado para o relógio
-    clock_placeholder = st.empty()
-
-    # --- Laço para atualizar o relógio ---
-    while True:
-        # Define o fuso horário de Brasília
-        tz = pytz.timezone('America/Sao_Paulo')
-        now = datetime.now(tz)
-        
-        # Formata a data e a hora
-        formatted_time = now.strftime("%d de %B de %Y, %H:%M:%S")
-        
-        # Atualiza o texto do relógio
-        clock_placeholder.metric("Horário Oficial de Brasília", formatted_time)
-        
-        # Espera um segundo antes de atualizar novamente
-        time.sleep(1)
-
     st.markdown("### Painel de Controle (WMS)")
     st.markdown("---") 
 
