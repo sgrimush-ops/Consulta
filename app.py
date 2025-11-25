@@ -283,7 +283,3 @@ def get_unread_message_count(_engine, username, role):
 
 # DESCOMENTE AS LINHAS ABAIXO PARA O APP RODAR:
 if __name__ == "__main__":
-    # Cria uma pasta 'data' para salvar os arquivos
-    base_path = "data_folder"
-    if not os.path.exists(base_path):
-        os.makedirs(base_path)
