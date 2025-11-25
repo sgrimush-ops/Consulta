@@ -38,10 +38,9 @@ def clean_float(val):
     if isinstance(val, (int, float)): return float(val)
     # Remove espaços
     val = str(val).strip()
-    # Se tiver vírgula e não tiver ponto, assume decimal BR e troca
-    # Se tiver ponto, assume decimal US
-    if ',' in val and '.' not in val:
-        val = val.replace(',', '.')
+    # Se tiver vírgula, assume que é decimal BR (troca por ponto)
+    if ',' in val:
+        val = val.replace('.', '').replace(',', '.')
     return float(val)
 
 @st.cache_data(ttl=300)
@@ -83,32 +82,28 @@ def load_database(base_path, _engine):
             elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem_CX' 
             elif 'vd' in c and '2' in c: rename[c] = 'Venda2Sem_CX' 
             elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX'
-            # Mapeia a data da solicitação para podermos ordenar
+            # Mapeia a data da solicitação para filtrar o mais recente
             elif 'data' in c or 'solic' in c: rename[c] = 'Data_Solic'
         df_hist.rename(columns=rename, inplace=True)
         
-        # Normalização de Tipos Chave
         if 'Codigo' in df_hist.columns:
             df_hist['Codigo'] = pd.to_numeric(df_hist['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
         if 'Loja' in df_hist.columns:
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
         
-        # Limpeza numérica das colunas de dados (garante float)
+        # Limpeza numérica segura
         cols_num = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
         for col in cols_num:
             if col in df_hist.columns:
                 df_hist[col] = df_hist[col].apply(clean_float)
 
-        # --- FILTRO: MANTER APENAS O REGISTRO MAIS RECENTE ---
+        # FILTRAGEM PELA DATA MAIS RECENTE
         if 'Data_Solic' in df_hist.columns:
-            # Tenta converter data. dayfirst=True ajuda com datas BR (DD/MM/AAAA)
             df_hist['Data_Solic'] = pd.to_datetime(df_hist['Data_Solic'], dayfirst=True, errors='coerce')
-            
-            # Ordena: Código ASC, Loja ASC, Data DESC (mais recente primeiro)
+            # Ordena por data decrescente (mais novo primeiro)
             df_hist = df_hist.sort_values(by=['Codigo', 'Loja', 'Data_Solic'], ascending=[True, True, False])
             
         # Remove duplicatas de (Codigo, Loja), mantendo a PRIMEIRA (que é a mais recente devido à ordenação)
-        # Se não tiver coluna de data, assume que a ordem do arquivo traz os mais recentes por último/primeiro
         if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
             df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'], keep='first')
 
@@ -125,7 +120,6 @@ def load_database(base_path, _engine):
             if 'Qtd_CD' in df_wms.columns:
                  df_wms['Qtd_CD'] = df_wms['Qtd_CD'].apply(clean_float)
 
-            # Soma estoque total do CD (vários endereços)
             df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
 
     # --- OFERTAS ---
