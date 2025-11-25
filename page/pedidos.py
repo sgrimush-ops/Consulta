@@ -32,6 +32,16 @@ def format_br(val):
     except:
         return "0,0"
 
+def clean_float(val):
+    """Converte string/float para float seguro."""
+    if pd.isna(val) or val == '': return 0.0
+    if isinstance(val, (int, float)): return float(val)
+    val = str(val).strip()
+    # Se tiver vírgula, assume decimal BR
+    if ',' in val:
+        val = val.replace('.', '').replace(',', '.')
+    return float(val)
+
 @st.cache_data(ttl=300)
 def load_database(base_path, _engine):
     def read_safe(filename):
@@ -59,7 +69,7 @@ def load_database(base_path, _engine):
         
         df_mix = df_mix.drop_duplicates(subset=['Codigo'])
 
-    # --- HISTÓRICO ---
+    # --- HISTÓRICO (LÓGICA DE DATA MAIS RECENTE) ---
     if not df_hist.empty:
         df_hist.columns = [normalize_col(c) for c in df_hist.columns]
         rename = {}
@@ -70,20 +80,30 @@ def load_database(base_path, _engine):
             elif 'ped' in c: rename[c] = 'Pendente_CX'
             elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem_CX' 
             elif 'vd' in c and '2' in c: rename[c] = 'Venda2Sem_CX' 
-            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX' 
+            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX'
+            elif 'data' in c or 'solic' in c: rename[c] = 'Data_Solic'
         df_hist.rename(columns=rename, inplace=True)
         
         if 'Codigo' in df_hist.columns:
             df_hist['Codigo'] = pd.to_numeric(df_hist['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
         if 'Loja' in df_hist.columns:
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
-            
-        # Agregação SOMANDO valores para consolidar duplicatas
-        cols_to_sum = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
-        existing_cols = [c for c in cols_to_sum if c in df_hist.columns]
         
-        if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns and existing_cols:
-            df_hist = df_hist.groupby(['Codigo', 'Loja'], as_index=False)[existing_cols].sum(numeric_only=True)
+        # Garante limpeza numérica
+        cols_num = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
+        for col in cols_num:
+            if col in df_hist.columns:
+                df_hist[col] = df_hist[col].apply(clean_float)
+
+        # LÓGICA CRUCIAL: MANTER APENAS O REGISTRO MAIS RECENTE POR LOJA/PRODUTO
+        if 'Data_Solic' in df_hist.columns:
+            df_hist['Data_Solic'] = pd.to_datetime(df_hist['Data_Solic'], dayfirst=True, errors='coerce')
+            # Ordena: Código, Loja, Data (do mais novo para o mais antigo)
+            df_hist = df_hist.sort_values(by=['Codigo', 'Loja', 'Data_Solic'], ascending=[True, True, False])
+            
+        # Remove duplicatas mantendo a primeira (mais recente)
+        if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
+            df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'], keep='first')
 
     # --- WMS ---
     if not df_wms.empty:
@@ -94,7 +114,11 @@ def load_database(base_path, _engine):
             df_wms.rename(columns={col_qtd: 'Qtd_CD', 'codigo': 'Codigo'}, inplace=True)
             if 'Codigo' in df_wms.columns:
                 df_wms['Codigo'] = pd.to_numeric(df_wms['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
-                df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
+            
+            if 'Qtd_CD' in df_wms.columns:
+                 df_wms['Qtd_CD'] = df_wms['Qtd_CD'].apply(clean_float)
+
+            df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
 
     # --- OFERTAS ---
     df_ofertas = pd.DataFrame()
@@ -231,6 +255,7 @@ def show_pedidos_page(engine, base_data_path):
                 r = sub.loc[l]
                 if isinstance(r, pd.DataFrame): r = r.iloc[0]
                 
+                # Pega o valor direto, sem somar, pois já filtramos o mais recente
                 try: est_cx = float(r.get('Estoque_CX', 0) or 0)
                 except: est_cx = 0.0
                 try: pend_cx = float(r.get('Pendente_CX', 0) or 0)
