@@ -287,6 +287,3 @@ if __name__ == "__main__":
     base_path = "data_folder"
     if not os.path.exists(base_path):
         os.makedirs(base_path)
-    
-    # Chama a função principal
-    show_admin_tools(None, base_path)
