@@ -59,7 +59,7 @@ def load_database(base_path, _engine):
         
         df_mix = df_mix.drop_duplicates(subset=['Codigo'])
 
-    # --- HISTÓRICO (LÓGICA DE DATA MAIS RECENTE) ---
+    # --- HISTÓRICO ---
     if not df_hist.empty:
         df_hist.columns = [normalize_col(c) for c in df_hist.columns]
         rename = {}
@@ -70,30 +70,20 @@ def load_database(base_path, _engine):
             elif 'ped' in c: rename[c] = 'Pendente_CX'
             elif 'vd' in c and '1' in c: rename[c] = 'Venda1Sem_CX' 
             elif 'vd' in c and '2' in c: rename[c] = 'Venda2Sem_CX' 
-            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX'
-            # Importante: Mapear a data para podermos ordenar
-            elif 'data' in c or 'dt' in c: rename[c] = 'Data_Solic'
+            elif 'vm' in c and '30' in c: rename[c] = 'Venda30d_CX' 
         df_hist.rename(columns=rename, inplace=True)
         
         if 'Codigo' in df_hist.columns:
             df_hist['Codigo'] = pd.to_numeric(df_hist['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
         if 'Loja' in df_hist.columns:
             df_hist['Loja'] = pd.to_numeric(df_hist['Loja'], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(3)
+            
+        # Agregação SOMANDO valores para consolidar duplicatas
+        cols_to_sum = ['Estoque_CX', 'Pendente_CX', 'Venda1Sem_CX', 'Venda2Sem_CX', 'Venda30d_CX']
+        existing_cols = [c for c in cols_to_sum if c in df_hist.columns]
         
-        # Tratamento da Data para Ordenação
-        if 'Data_Solic' in df_hist.columns:
-            # Tenta converter datas. dayfirst=True para formato BR (24/11/2025)
-            df_hist['Data_Solic'] = pd.to_datetime(df_hist['Data_Solic'], dayfirst=True, errors='coerce')
-        else:
-            # Se não tiver data, cria uma fictícia para não quebrar, mas o ideal é ter
-            df_hist['Data_Solic'] = pd.NaT
-
-        # --- FILTRO: MANTER APENAS A DATA MAIS RECENTE POR LOJA/PRODUTO ---
-        if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns:
-            # Ordena por data decrescente (mais recente primeiro)
-            df_hist = df_hist.sort_values(by=['Codigo', 'Loja', 'Data_Solic'], ascending=[True, True, False])
-            # Remove duplicatas mantendo a primeira (a mais recente)
-            df_hist = df_hist.drop_duplicates(subset=['Codigo', 'Loja'], keep='first')
+        if 'Codigo' in df_hist.columns and 'Loja' in df_hist.columns and existing_cols:
+            df_hist = df_hist.groupby(['Codigo', 'Loja'], as_index=False)[existing_cols].sum(numeric_only=True)
 
     # --- WMS ---
     if not df_wms.empty:
@@ -104,7 +94,6 @@ def load_database(base_path, _engine):
             df_wms.rename(columns={col_qtd: 'Qtd_CD', 'codigo': 'Codigo'}, inplace=True)
             if 'Codigo' in df_wms.columns:
                 df_wms['Codigo'] = pd.to_numeric(df_wms['Codigo'], errors='coerce').fillna(0).astype(int).astype(str)
-                # Soma estoque total do CD (aqui soma faz sentido se tiver vários endereços)
                 df_wms = df_wms.groupby('Codigo', as_index=False)['Qtd_CD'].sum()
 
     # --- OFERTAS ---
@@ -120,32 +109,6 @@ def load_database(base_path, _engine):
     except: pass
 
     return df_mix, df_hist, df_wms, df_ofertas
-
-def calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=4):
-    """
-    Calcula sugestão de compra em CAIXAS.
-    Entradas (vendas, estoque) já estão em CAIXAS.
-    """
-    if emb <= 0: return 0
-    
-    # Converte para Unidades para o cálculo
-    v1_un = v1_cx * emb
-    v2_un = v2_cx * emb
-    v30_un = v30_cx * emb
-    est_un = est_cx * emb
-    pend_un = pend_cx * emb
-    
-    # Venda Média Diária Ponderada (Unidades)
-    # (v30 é mensal, divide por 4 para ter base semanal)
-    venda_semanal_pond_un = (v1_un * 0.5) + (v2_un * 0.3) + ((v30_un / 4.0) * 0.2)
-    venda_diaria_un = venda_semanal_pond_un / 7.0
-    
-    # Necessidade
-    necessidade_un = venda_diaria_un * dias_cobertura
-    sugestao_un = max(0, necessidade_un - (est_un + pend_un))
-    
-    # Retorna Caixas
-    return int(np.ceil(sugestao_un / emb))
 
 def save_order(engine, dados):
     if not dados: return False
@@ -192,11 +155,9 @@ def show_pedidos_page(engine, base_data_path):
 
     # 2. Filtros
     st.subheader("1. Selecionar Produto")
-    c1, c2, c3 = st.columns([1, 2, 1])
+    c1, c2 = st.columns([1, 3])
     cod_input = c1.text_input("Código:")
     desc_input = c2.text_input("Descrição:")
-    
-    c3.info(f"🎯 Meta: **4 dias** de estoque")
 
     prod = None
     if cod_input:
@@ -281,15 +242,13 @@ def show_pedidos_page(engine, base_data_path):
                 try: v30_cx = float(r.get('Venda30d_CX', 0) or 0)
                 except: v30_cx = 0.0
             
-            sug_cx = calculate_smart_suggestion(v1_cx, v2_cx, v30_cx, est_cx, pend_cx, emb, dias_cobertura=4)
-            
             grade.append({
                 "Loja": l, 
                 "Est": format_br(est_cx), 
                 "Pend": format_br(pend_cx), 
                 "Vd 1Sm": format_br(v1_cx), 
                 "Vd 2Sm": format_br(v2_cx), 
-                "Sugest": sug_cx, 
+                "Vd 30d": format_br(v30_cx),
                 "PEDIDO": 0
             })
 
@@ -305,16 +264,15 @@ def show_pedidos_page(engine, base_data_path):
                     "Pend": st.column_config.TextColumn("Pend (Cx)", disabled=True),
                     "Vd 1Sm": st.column_config.TextColumn("Vd 1Sem (Cx)", disabled=True),
                     "Vd 2Sm": st.column_config.TextColumn("Vd 2Sem (Cx)", disabled=True),
-                    "Sugest": st.column_config.NumberColumn("Sugestão (Cx)", format="%d", disabled=True),
+                    "Vd 30d": st.column_config.TextColumn("Vd 30d (Cx)", disabled=True),
                     "PEDIDO": st.column_config.NumberColumn("PEDIDO (CX)", min_value=0, step=1)
                 }
             )
             
             tot = ed["PEDIDO"].sum()
-            tot_sug = dfg["Sugest"].sum()
             
             col_info, col_btn = st.columns([3, 1])
-            col_info.info(f"Total Pedido: **{tot:,.0f}** cx (Sugestão: {tot_sug:,.0f} cx)")
+            col_info.info(f"Total Pedido: **{tot:,.0f}** cx")
             
             if col_btn.button(f"Adicionar", type="primary", use_container_width=True):
                 if tot > 0:

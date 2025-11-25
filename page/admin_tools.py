@@ -12,7 +12,6 @@ def normalize_column_name(col_name):
     """Remove acentos, espaços e converte para minúsculo."""
     if not isinstance(col_name, str): return str(col_name)
     n = unicodedata.normalize('NFKD', col_name)
-    only_ascii = n.encode('ASCII', 'ignore').decode('utf-8')
     return ''.join(e for e in n if e.isalnum()).lower()
 
 def get_file_info(file_path):
@@ -24,6 +23,7 @@ def get_file_info(file_path):
 def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
     """
     Salva o CSV original e cria uma versão Parquet otimizada e limpa.
+    Realiza limpeza inteligente de números (detecta formato BR vs INTL).
     """
     # Garante que o diretório existe
     os.makedirs(target_path_base, exist_ok=True)
@@ -57,21 +57,34 @@ def process_and_save_csv(uploaded_file, target_path_base, filename_csv):
         # Remove colunas "Unnamed"
         df = df.loc[:, ~df.columns.str.contains('^unnamed')]
 
-        # 4. LIMPEZA DE DADOS NUMÉRICOS
-        # Lista de colunas que sabemos que são números
+        # 4. LIMPEZA DE DADOS NUMÉRICOS (Lógica Corrigida)
+        # Lista de palavras-chave para identificar colunas numéricas
         cols_numericas = ['codigo', 'codigoint', 'loja', 'qtd', 'quantidade', 'total_cx', 
                           'est', 'estoque', 'ped', 'pendente', 'venda', 'vd', 'vm', 'embseparacao', 'emb']
         
-        for col in df.columns:
-            if any(x in col for x in cols_numericas):
-                try:
-                    # Remove ponto de milhar e troca vírgula decimal por ponto
-                    # Ex: "1.000,50" -> "1000.50"
+        # Filtra as colunas que contêm os termos acima
+        colunas_para_limpar = [c for c in df.columns if any(x in c for x in cols_numericas)]
+        
+        for col in colunas_para_limpar:
+            try:
+                # Garante que é string para manipulação
+                df[col] = df[col].astype(str)
+
+                # LÓGICA INTELIGENTE:
+                # Verifica se existe vírgula na coluna.
+                # Se EXISTE vírgula, assumimos padrão BR (1.000,50): Remove ponto milhar, troca vírgula por ponto.
+                if df[col].str.contains(',', regex=False).any():
                     df[col] = df[col].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-                    # Converte para numérico, erros viram NaN -> 0
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                except:
-                    pass
+                
+                # Se NÃO EXISTE vírgula, assumimos padrão Int'l (1000.50): Mantém o ponto como decimal.
+                # Nenhuma ação de replace é necessária nesse caso.
+
+                # Converte para numérico, erros viram NaN -> 0
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            except Exception as e:
+                # Em caso de erro na conversão, apenas passa para a próxima
+                print(f"Aviso na coluna {col}: {e}")
+                pass
 
         # 5. Salva Parquet (MUITO mais rápido e leve)
         df.to_parquet(path_parquet, index=False)
