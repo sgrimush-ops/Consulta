@@ -140,29 +140,13 @@ def show_consulta_page(engine, base_data_path):
     st.divider()
     
     # Busca
-    c1, c2 = st.columns(2)
-    cod = c1.text_input("Código (Numérico):")
-    termo = c2.text_input("Descrição (Nome):")
+    cod = st.text_input("Código (Numérico):")
     
     sel_code = None
     col_desc = next((c for c in df_filt.columns if c == 'produto'), None)
     
     if cod and cod.isdigit():
         sel_code = int(cod)
-    elif termo and col_desc:
-        mask = df_filt[col_desc].astype(str).str.lower().str.contains(termo.lower(), na=False)
-        res = df_filt[mask].sort_values(by=col_desc)
-        
-        opcoes = res.drop_duplicates(subset=['codigo'])
-        lista = opcoes.apply(lambda x: f"{x[col_desc]} (Cód: {x['codigo']})", axis=1).tolist()
-        
-        if lista:
-            escolha = st.selectbox("Selecione:", [""] + lista)
-            if escolha:
-                try: sel_code = int(escolha.split('(Cód: ')[1].strip(')'))
-                except: pass
-        elif termo:
-            st.warning("Nenhum item encontrado.")
     
     if sel_code:
         final = df_filt[df_filt['codigo'] == sel_code].copy()
