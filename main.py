@@ -2,22 +2,29 @@ import streamlit as st
 from sqlalchemy import text
 import hashlib
 import json
+import os
 
 from app import main_app as run_baklizi_app
 from app import create_db_tables # ASSUMINDO que esta função foi corrigida para aceitar 'engine'
 from page.area_fornecedor import show_area_fornecedor
 from page.admin_fornecedor import show_admin_fornecedor_page
 
-# --- Funções de Conexão e Segurança (específicas para o login de fornecedor) ---
 @st.cache_resource
-def get_engine():
-    db_url = os.getenv("DATABASE_URL")
+def get_main_engine():
+    db_url = os.getenv("DATABASE_URL") 
+    
     if not db_url:
-        st.error("Erro fatal: DATABASE_URL não encontrada.")
+        st.error("Erro fatal: A variável de ambiente DATABASE_URL não foi encontrada.")
         st.stop()
+        
+    # Lógica de substituição de protocolo (necessária para Postgres no Render)
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
+        
+    # Criação do Engine
+    # Note que a função está agora como get_main_engine, mas funciona como o antigo get_engine
+    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=5, max_overflow=2)
+    #return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
     
     # Usando st.create_engine diretamente (disponível no Streamlit Cloud)
     # Se estiver usando SQLAlchemy puro, use 'create_engine' do módulo 'sqlalchemy'
