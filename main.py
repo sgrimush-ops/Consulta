@@ -3,25 +3,21 @@ from sqlalchemy import text
 import hashlib
 import json
 
-# Import das lógicas das "aplicações"
-# É comum precisar importar a função de criação de tabelas aqui se ela não estiver em app.py,
-# mas vamos assumir que ela precisa ser chamada a partir daqui.
 from app import main_app as run_baklizi_app
-# >> Importar create_db_tables explicitamente se estiver em app.py ou em outro lugar:
 from app import create_db_tables # ASSUMINDO que esta função foi corrigida para aceitar 'engine'
 from page.area_fornecedor import show_area_fornecedor
 from page.admin_fornecedor import show_admin_fornecedor_page
 
 # --- Funções de Conexão e Segurança (específicas para o login de fornecedor) ---
 @st.cache_resource
-def get_main_engine():
-    # Esta função é uma cópia da get_engine() do app.py para tornar o main.py independente
-    db_url = st.secrets.get("database", {}).get("url") # Usando .get() para segurança
+def get_engine():
+    db_url = os.getenv("DATABASE_URL")
     if not db_url:
         st.error("Erro fatal: DATABASE_URL não encontrada.")
         st.stop()
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
+    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
     
     # Usando st.create_engine diretamente (disponível no Streamlit Cloud)
     # Se estiver usando SQLAlchemy puro, use 'create_engine' do módulo 'sqlalchemy'
