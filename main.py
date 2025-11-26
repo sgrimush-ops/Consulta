@@ -1,40 +1,36 @@
 import streamlit as st
-from sqlalchemy import text
+from sqlalchemy import text, create_engine # OK! create_engine importado
 import hashlib
 import json
-import os
+import os # OK! Importado para usar os.getenv
 
+# Import das lógicas das "aplicações"
 from app import main_app as run_baklizi_app
 from app import create_db_tables # ASSUMINDO que esta função foi corrigida para aceitar 'engine'
 from page.area_fornecedor import show_area_fornecedor
 from page.admin_fornecedor import show_admin_fornecedor_page
 
+# --- Funções de Conexão (Corrigida e Limpa) ---
 @st.cache_resource
 def get_main_engine():
+    # 1. Busca a variável de ambiente (DATABASE_URL, como configurado no Render)
     db_url = os.getenv("DATABASE_URL") 
     
     if not db_url:
         st.error("Erro fatal: A variável de ambiente DATABASE_URL não foi encontrada.")
         st.stop()
         
-    # Lógica de substituição de protocolo (necessária para Postgres no Render)
+    # 2. Lógica de substituição de protocolo (necessária para Postgres no Render)
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
         
-    # Criação do Engine
-    # Note que a função está agora como get_main_engine, mas funciona como o antigo get_engine
-    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=5, max_overflow=2)
-    #return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
-    
-    # Usando st.create_engine diretamente (disponível no Streamlit Cloud)
-    # Se estiver usando SQLAlchemy puro, use 'create_engine' do módulo 'sqlalchemy'
+    # 3. Criação do Engine com tratamento de erro (usando try/except para a criação)
     try:
-        from sqlalchemy import create_engine
+        # pool_size=5 e max_overflow=2 são bons valores para serviços web.
         return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=5, max_overflow=2)
     except Exception as e:
-        st.error(f"Erro ao criar engine: {e}")
+        st.error(f"Erro ao criar o mecanismo de conexão com o BD: {e}")
         st.stop()
-# Fim da alteração no get_main_engine, garantindo que o create_engine correto seja usado.
 # ----------------------------------------------------------------------------------
 
 def make_hashes_fornecedor(password):
@@ -128,13 +124,10 @@ def main():
     if st.session_state['app_choice'] is None:
         show_main_menu()
     elif st.session_state['app_choice'] == 'baklizi':
-        # --- Alteração principal para a opção 'baklizi' ---
         # 1. Obter o Engine.
         engine = get_main_engine()
         
-        # 2. Criar as tabelas (Se necessário, chama create_db_tables que foi corrigida)
-        # Se 'create_db_tables' não precisar ser chamada antes de run_baklizi_app, remova esta linha.
-        # Caso contrário, ela garante que o banco de dados está pronto antes do app principal.
+        # 2. Criar as tabelas
         try:
              create_db_tables(engine) 
         except Exception as e:
@@ -153,10 +146,7 @@ def main():
 
     # Botão de voltar unificado
     if st.session_state.get('app_choice') is not None:
-        # Coloca o botão na sidebar, que é um local padrão e limpo
         if st.sidebar.button("Voltar ao Menu Principal"): 
-            # Limpa o estado da sessão para um reinício seguro
-            # Usar st.session_state.clear() é mais simples e seguro.
             st.session_state.clear()
             st.rerun()
 
