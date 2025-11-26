@@ -83,7 +83,7 @@ def update_user_status(username, status):
     except Exception:
         pass
 
-def create_db_tables():
+def create_db_tables(engine):
     try:
         with engine.begin() as conn: 
             conn.execute(text("""
