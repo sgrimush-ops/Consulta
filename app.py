@@ -29,8 +29,7 @@ st.set_page_config(page_title="Gestão de Produtos", layout="wide")
 BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
 os.makedirs(BASE_DATA_PATH, exist_ok=True) 
 
-LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
-               "007", "008", "011", "012", "013", "014", "017", "018"]
+LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "017", "018"]
 
 # =========================================================
 # CONEXÃO DE BANCO
