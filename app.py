@@ -104,7 +104,7 @@ def create_db_tables(engine):
                 CREATE TABLE IF NOT EXISTS pedidos_consolidados (
                     id SERIAL PRIMARY KEY, 
                     codigo_interno TEXT NOT NULL,
-                    nome_produto TEXT,
+                    descricao TEXT,
                     codigo_ean TEXT,
                     embseparacao INTEGER,
                     data_pedido TIMESTAMP,
@@ -142,7 +142,7 @@ def create_db_tables(engine):
                 CREATE TABLE IF NOT EXISTS ofertas (
                     id SERIAL PRIMARY KEY,
                     codigo_interno INTEGER NOT NULL,
-                    nome_produto TEXT,
+                    descricao TEXT,
                     oferta NUMERIC(10, 2),
                     data_inicio DATE NOT NULL,
                     data_final DATE NOT NULL,

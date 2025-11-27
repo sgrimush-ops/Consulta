@@ -14,7 +14,7 @@ def processar_upload(engine, df, data_inicio, data_final):
     """
     
     # MUDANÇA: O DataFrame 'df' agora já chega com os nomes corretos
-    # ['codigo_interno', 'nome_produto', 'oferta'] vindos da função de load.
+    # ['codigo_interno', 'descricao', 'oferta'] vindos da função de load.
     # A lógica de mapeamento de colunas foi removida.
     df_renomeado = df.copy()
     
@@ -25,7 +25,7 @@ def processar_upload(engine, df, data_inicio, data_final):
         # Oferta: Converte para numérico (float), arredonda para 2 casas
         df_renomeado['oferta'] = pd.to_numeric(df_renomeado['oferta'], errors='coerce').fillna(0).round(2)
         # Produto: Converte para string
-        df_renomeado['nome_produto'] = df_renomeado['nome_produto'].astype(str)
+        df_renomeado['descricao'] = df_renomeado['descricao'].astype(str)
         
         # Adiciona as datas
         df_renomeado['data_inicio'] = data_inicio
@@ -44,12 +44,12 @@ def processar_upload(engine, df, data_inicio, data_final):
 
     # 3. Lógica de UPSERT no Banco de Dados (PostgreSQL)
     upsert_query = text("""
-        INSERT INTO ofertas (codigo_interno, nome_produto, oferta, data_inicio, data_final)
-        VALUES (:codigo_interno, :nome_produto, :oferta, :data_inicio, :data_final)
+        INSERT INTO ofertas (codigo_interno, descricao, oferta, data_inicio, data_final)
+        VALUES (:codigo_interno, :descricao, :oferta, :data_inicio, :data_final)
         ON CONFLICT (codigo_interno, data_inicio, data_final) 
         DO UPDATE SET
             oferta = EXCLUDED.oferta,
-            nome_produto = EXCLUDED.nome_produto;
+            descricao = EXCLUDED.descricao;
     """)
     
     records = df_renomeado.to_dict('records')
@@ -90,7 +90,7 @@ def show_upload_ofertas_page(engine, base_data_path):
     st.markdown("""
     O sistema irá ler **automaticamente** as colunas:
     - **Coluna A** (como `codigo_interno`)
-    - **Coluna B** (como `nome_produto`)
+    - **Coluna B** (como `descricao`)
     - **Coluna E** (como `oferta`)
     
     *A primeira linha (cabeçalho) do arquivo será ignorada.*
@@ -107,7 +107,7 @@ def show_upload_ofertas_page(engine, base_data_path):
             df = pd.read_excel(uploaded_file, header=None, skiprows=1, usecols=[0, 1, 4])
             
             # MUDANÇA: Renomeia as colunas lidas (0, 1, 4) para os nomes do nosso DF
-            df.columns = ['codigo_interno', 'nome_produto', 'oferta']
+            df.columns = ['codigo_interno', 'descricao', 'oferta']
                 
         except Exception as e:
             st.error(f"Erro ao ler o arquivo: {e}")

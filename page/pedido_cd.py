@@ -56,7 +56,7 @@ def get_future_offers(engine, code):
     today = date.today()
     query = text("""
         SELECT oferta, data_inicio, data_final FROM ofertas 
-        WHERE CAST(codigo_interno AS TEXT) = :code AND data_final >= :today
+        WHERE CAST(cod_interno AS TEXT) = :code AND data_final >= :today
         ORDER BY data_inicio
     """)
     with engine.connect() as conn:
@@ -108,7 +108,7 @@ def show_pedidos_cd_page(engine, base_data_path):
         codigo_produto = str(item['codigo_interno'])
 
         st.markdown("---")
-        st.subheader(f"Produto Encontrado: {item.get('nome_produto', 'N/A')}")
+        st.subheader(f"Produto Encontrado: {item.get('produto', 'N/A')}")
         col1, col2, col3 = st.columns(3)
         col1.metric("Código Interno", codigo_produto)
         col2.metric("EAN", str(item.get('codigo_ean', 'N/A')))
@@ -124,9 +124,9 @@ def show_pedidos_cd_page(engine, base_data_path):
                 st.info("Este produto não possui histórico de pedidos. Você pode ser o primeiro a solicitar!")
                 # Cria um DataFrame vazio com a estrutura esperada para manter a consistência da UI
                 lojas_cols = [f"loja_{loja}" for loja in LISTA_LOJAS_GLOBAL]
-                placeholder_cols = ['codigo_interno', 'nome_produto'] + lojas_cols
+                placeholder_cols = ['codigo_interno', 'descricao'] + lojas_cols
                 placeholder_df = pd.DataFrame(columns=placeholder_cols)
-                placeholder_df.loc[0] = [codigo_produto, item.get('nome_produto', 'N/A')] + [0] * len(lojas_cols)
+                placeholder_df.loc[0] = [codigo_produto, item.get('produto', 'N/A')] + [0] * len(lojas_cols)
                 st.dataframe(placeholder_df, hide_index=True, use_container_width=True)
         
         with tab2:
@@ -160,7 +160,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 if total_cx > 0:
                     pedido_data = {
                         "codigo_interno": [codigo_produto],
-                        "nome_produto": [item.get('nome_produto', 'N/A')],
+                        "descricao": [item.get('produto', 'N/A')],
                         "codigo_ean": [item.get('codigo_ean', 'N/A')],
                         "embseparacao": [item.get('embseparacao', 0)],
                         "data_pedido": [datetime.now()],

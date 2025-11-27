@@ -12,7 +12,7 @@ def get_stock_data(engine, search_term=""):
         query_str = """
             SELECT 
                 codigo_interno, 
-                nome_produto, 
+                produto AS nome_produto, 
                 codigo_ean, 
                 loja_ativa_mix, 
                 estoque_cd, 
