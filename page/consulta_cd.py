@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text, exc
 
+
 def get_stock_data(engine, search_term=""):
     """
     Busca dados de estoque na tabela 'mix_produtos'.
@@ -12,7 +13,7 @@ def get_stock_data(engine, search_term=""):
         query_str = """
             SELECT 
                 codigo_interno, 
-                produto AS nome_produto, 
+                produto AS descricao, 
                 codigo_ean, 
                 loja_ativa_mix, 
                 estoque_cd, 
@@ -28,7 +29,7 @@ def get_stock_data(engine, search_term=""):
                     CAST(codigo_ean AS TEXT) ILIKE :term
             """
             params = {"term": f"%{search_term}%"}
-        
+        query_str += " ORDER BY descricao"
         query_str += " ORDER BY nome_produto"
 
         with engine.connect() as conn:
@@ -42,9 +43,11 @@ def get_stock_data(engine, search_term=""):
         st.error(f"Ocorreu um erro inesperado: {e}")
         return pd.DataFrame()
 
+
 def show_consulta_cd_page(engine, base_data_path):
     st.title("📊 Consulta de Estoque e Mix (CD)")
-    st.markdown("Visualize o status do mix e os estoques diretamente da base de dados atualizada.")
+    st.markdown(
+        "Visualize o status do mix e os estoques diretamente da base de dados atualizada.")
 
     search_term = st.text_input(
         "Buscar por Código Interno ou EAN:",
@@ -58,9 +61,10 @@ def show_consulta_cd_page(engine, base_data_path):
         st.dataframe(
             df_stock,
             column_config={
-                "codigo_interno": st.column_config.TextColumn("Cód. Interno"), # Alterado
-                "nome_produto": st.column_config.TextColumn("Produto", width="large"),
-                "codigo_ean": st.column_config.TextColumn("EAN"), # Alterado
+                # Alterado
+                "codigo_interno": st.column_config.TextColumn("Cód. Interno"),
+                "descricao": st.column_config.TextColumn("Descrição", width="large"),
+                "codigo_ean": st.column_config.TextColumn("EAN"),  # Alterado
                 "loja_ativa_mix": st.column_config.CheckboxColumn("Mix Ativo?"),
                 "estoque_cd": st.column_config.NumberColumn("Estoque CD"),
                 "total_estoque": st.column_config.NumberColumn("Estoque Total")
@@ -70,4 +74,5 @@ def show_consulta_cd_page(engine, base_data_path):
         )
         st.info(f"Exibindo **{len(df_stock)}** resultado(s).")
     else:
-        st.warning("Nenhum produto encontrado com os critérios de busca ou a base de dados está vazia.")
+        st.warning(
+            "Nenhum produto encontrado com os critérios de busca ou a base de dados está vazia.")

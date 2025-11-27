@@ -20,7 +20,7 @@ ALTER TABLE IF EXISTS ofertas
 -- Drop columns from pedidos_consolidados
 ALTER TABLE IF EXISTS pedidos_consolidados
     DROP COLUMN IF EXISTS cod_interno,
-    DROP COLUMN IF EXISTS nome_produto,
+    DROP COLUMN IF EXISTS descricao,
     DROP COLUMN IF EXISTS codigo_ean;
 
 COMMIT;
