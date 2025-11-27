@@ -126,8 +126,8 @@ def show_gestao_promo_page(engine, base_data_path):
         if not pedidos_para_salvar.empty:
             pedidos_list = []
             username = st.session_state.get('username', 'unknown')
-            
-                for _, row in pedidos_para_salvar.iterrows():
+
+            for _, row in pedidos_para_salvar.iterrows():
                 pedido_dict = {
                     "cod_interno": str(row['cod_interno']),
                     "nome_produto": row['nome_produto'],
