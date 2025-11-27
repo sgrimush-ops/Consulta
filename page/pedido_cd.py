@@ -38,7 +38,7 @@ def search_product_by_code(engine, code):
     """Busca um produto na tabela 'mix_produtos' pelo código interno ou EAN."""
     query = text("""
         SELECT * FROM mix_produtos 
-        WHERE CAST(cod_interno AS TEXT) = :code OR CAST(codigo_ean AS TEXT) = :code
+        WHERE CAST(codigo_interno AS TEXT) = :code OR CAST(codigo_ean AS TEXT) = :code
     """)
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"code": str(code)})

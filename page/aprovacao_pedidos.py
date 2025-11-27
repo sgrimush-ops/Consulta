@@ -85,7 +85,7 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
                 id AS id_pedido, 
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
                 usuario_pedido, 
-                cod_interno, 
+                codigo_interno, 
                 nome_produto, 
                 embseparacao,
                 {lojas_sql},
@@ -127,7 +127,7 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
                 id AS id_pedido, 
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
                 usuario_pedido, 
-                cod_interno, 
+                codigo_interno, 
                 nome_produto, 
                 embseparacao,
                 {lojas_sql},
@@ -277,7 +277,7 @@ def show_aprovacao_page(engine, base_data_path):
         # Define colunas informativas (incluindo as novas de oferta)
         colunas_info = [
             'Selecionar', 'id_pedido', 'data_pedido_str', 'usuario_pedido',
-            'cod_interno', 'nome_produto', 
+            'cod_interno', 'nome_produto, 
             'inicio_oferta', 'fim_oferta', # <--- NOVAS COLUNAS AQUI
             'embseparacao', 'status_item', 'status_aprovacao'
         ]
