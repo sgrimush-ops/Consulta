@@ -40,3 +40,23 @@ Criação de índice não bloqueante (opcional):
 - `codigo_interno` (canônico)
 - `descricao` (nome do produto)
 - `codigo_ean` (EAN)
+
+## Deploy (staging/produção)
+Script único para executar backup + migração segura (+ índice opcional) + limpeza de ofertas antigas:
+
+```bash
+export DATABASE_URL='postgresql://user:pass@host:5432/dbname'
+# Com índice não bloqueante (após commit da migração):
+./scripts/deploy_migrations_and_cleanup.sh --concurrent --cleanup-days 1
+
+# Sem índice concorrente:
+./scripts/deploy_migrations_and_cleanup.sh --cleanup-days 1
+```
+
+Pré-requisitos no host:
+- `psql`, `pg_dump` (cliente PostgreSQL)
+- `python3` (para rodar o script de limpeza)
+
+O script chama internamente:
+- `migrations/run_migration_safe.sh` (gera backup, executa a migração e validações)
+- `scripts/cleanup_old_ofertas.py` (remove ofertas com `data_final` mais antiga que X dias)
