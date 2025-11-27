@@ -1,6 +1,12 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from page import (
+    resolve_pedidos_codigo_col,
+    resolve_pedidos_descricao_col,
+    resolve_pedidos_emb_col,
+    resolve_ofertas_codigo_col,
+)
 import io
 from datetime import datetime, timedelta, date
 
@@ -34,17 +40,23 @@ def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
     int_cols_with_zero_fallback = COLUNAS_LOJAS_PEDIDO + ["total_cx"]
     for col in int_cols_with_zero_fallback:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+            df[col] = (
+                pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+            )
 
     if "embseparacao" in df.columns:
         df["embseparacao"] = (
-            pd.to_numeric(df["embseparacao"], errors="coerce").fillna(0).astype(int)
+            pd.to_numeric(df["embseparacao"], errors="coerce")
+            .fillna(0)
+            .astype(int)
         )
 
     # Garante que o código seja numérico para cruzamento com ofertas
     if "codigo_interno" in df.columns:
         df["codigo_interno"] = (
-            pd.to_numeric(df["codigo_interno"], errors="coerce").fillna(0).astype(int)
+            pd.to_numeric(df["codigo_interno"], errors="coerce")
+            .fillna(0)
+            .astype(int)
         )
 
     return df
@@ -54,9 +66,10 @@ def get_offers_data(engine):
     """Busca ofertas ativas ou futuras para cruzar com os pedidos."""
     today = date.today()
     # Pega ofertas que terminam hoje ou no futuro
+    ofertas_col = resolve_ofertas_codigo_col(engine)
     query = text(
-        """
-        SELECT codigo_interno, data_inicio, data_final
+        f"""
+        SELECT {ofertas_col} AS codigo_interno, data_inicio, data_final
         FROM ofertas
         WHERE data_final >= :today
     """
@@ -69,7 +82,9 @@ def get_offers_data(engine):
         return df
     except Exception:
         # Se der erro (tabela não existe ainda), retorna vazio
-        return pd.DataFrame(columns=["codigo_interno", "data_inicio", "data_final"])
+        return pd.DataFrame(
+            columns=["codigo_interno", "data_inicio", "data_final"]
+        )
 
 
 def merge_with_offers(df_pedidos, df_ofertas):
@@ -79,14 +94,20 @@ def merge_with_offers(df_pedidos, df_ofertas):
 
     if not df_ofertas.empty:
         # Merge (Left Join) para trazer info da oferta
-        df_merged = pd.merge(df_pedidos, df_ofertas, on="codigo_interno", how="left")
+        df_merged = pd.merge(
+            df_pedidos, df_ofertas, on="codigo_interno", how="left"
+        )
 
         # Formata as datas de oferta para string (DD/MM/YYYY) para ficar bonito
         df_merged["inicio_oferta"] = (
-            pd.to_datetime(df_merged["data_inicio"]).dt.strftime("%d/%m/%Y").fillna("-")
+            pd.to_datetime(df_merged["data_inicio"])  # type: ignore[arg-type]
+            .dt.strftime("%d/%m/%Y")
+            .fillna("-")
         )
         df_merged["fim_oferta"] = (
-            pd.to_datetime(df_merged["data_final"]).dt.strftime("%d/%m/%Y").fillna("-")
+            pd.to_datetime(df_merged["data_final"])  # type: ignore[arg-type]
+            .dt.strftime("%d/%m/%Y")
+            .fillna("-")
         )
 
         return df_merged
@@ -100,7 +121,7 @@ def merge_with_offers(df_pedidos, df_ofertas):
 def get_pedidos_para_aprovacao(
     engine, date_start, date_end, only_pending: bool
 ) -> pd.DataFrame:
-    """Busca pedidos para a grade de aprovação, com filtros de data e status."""
+    """Busca pedidos para aprovação, com filtros de data e status."""
     try:
         start_str = datetime.combine(date_start, datetime.min.time()).strftime(
             "%Y-%m-%d %H:%M:%S"
@@ -110,15 +131,23 @@ def get_pedidos_para_aprovacao(
         )
         lojas_sql = ", ".join(COLUNAS_LOJAS_PEDIDO)
 
+        p_code = resolve_pedidos_codigo_col(engine)
+        p_desc = resolve_pedidos_descricao_col(engine)
+        p_emb = resolve_pedidos_emb_col(engine)
+        emb_select = (
+            f", {p_emb} AS embseparacao"
+            if p_emb
+            else ", NULL::INTEGER AS embseparacao"
+        )
         query = text(
             f"""
-            SELECT 
-                id AS id_pedido, 
-                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
-                usuario_pedido, 
-                codigo_interno, 
-                descricao, 
-                embseparacao,
+            SELECT
+                id AS id_pedido,
+                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
+                usuario_pedido,
+                {p_code} AS codigo_interno,
+                {p_desc} AS descricao
+                {emb_select},
                 {lojas_sql},
                 total_cx,
                 status_item,
@@ -154,20 +183,28 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
     try:
         lojas_sql = ", ".join(COLUNAS_LOJAS_PEDIDO)
 
+        p_code = resolve_pedidos_codigo_col(engine)
+        p_desc = resolve_pedidos_descricao_col(engine)
+        p_emb = resolve_pedidos_emb_col(engine)
+        emb_select = (
+            f", {p_emb} AS embseparacao"
+            if p_emb
+            else ", NULL::INTEGER AS embseparacao"
+        )
         query = text(
             f"""
-            SELECT 
-                id AS id_pedido, 
-                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
-                usuario_pedido, 
-                codigo_interno, 
-                descricao, 
-                embseparacao,
+            SELECT
+                id AS id_pedido,
+                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
+                usuario_pedido,
+                {p_code} AS codigo_interno,
+                {p_desc} AS descricao
+                {emb_select},
                 {lojas_sql},
                 total_cx,
                 status_item
             FROM pedidos_consolidados
-            WHERE status_aprovacao = 'Aprovado' 
+            WHERE status_aprovacao = 'Aprovado'
             ORDER BY data_pedido ASC
         """
         )
@@ -194,12 +231,13 @@ def update_pedidos_aprovados(engine, df_editado_selecionado):
     try:
         data_aprovacao_dt = datetime.now()
 
-        set_lojas_sql = ", ".join([f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
+        set_lojas_sql = ", ".join(
+            [f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
 
         query = text(
             f"""
             UPDATE pedidos_consolidados
-            SET 
+            SET
                 status_aprovacao = 'Aprovado',
                 data_aprovacao = :data_aprovacao,
                 total_cx = :total_cx,
@@ -211,7 +249,8 @@ def update_pedidos_aprovados(engine, df_editado_selecionado):
         updates_list = []
         for _, row in df_editado_selecionado.iterrows():
             novas_lojas_vals = {
-                col: int(pd.to_numeric(row[col], errors="coerce", downcast="integer"))
+                col: int(pd.to_numeric(
+                    row[col], errors="coerce", downcast="integer"))
                 for col in COLUNAS_LOJAS_PEDIDO
             }
             novo_total_cx = sum(novas_lojas_vals.values())
@@ -241,14 +280,15 @@ def rejeitar_pedidos(engine, ids_pedidos: list):
         query = text(
             """
             UPDATE pedidos_consolidados
-            SET 
+            SET
                 status_aprovacao = 'Rejeitado',
                 data_aprovacao = :data_aprovacao
             WHERE id IN :ids_list
         """
         )
 
-        params = {"data_aprovacao": data_aprovacao_dt, "ids_list": tuple(ids_pedidos)}
+        params = {"data_aprovacao": data_aprovacao_dt,
+                  "ids_list": tuple(ids_pedidos)}
 
         with engine.begin() as conn:
             conn.execute(query, params)
@@ -271,13 +311,10 @@ def to_excel(df: pd.DataFrame) -> bytes:
         worksheet = writer.sheets["PedidosAprovados"]
         for idx, col in enumerate(df):
             series = df[col]
-            max_len = (
-                max(
-                    (series.astype(str).map(len).max() or len(str(series.name))),
-                    len(str(series.name)),
-                )
-                + 2
-            )
+            max_len = max(
+                (series.astype(str).map(len).max() or len(str(series.name))),
+                len(str(series.name)),
+            ) + 2
             worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
 
@@ -290,7 +327,7 @@ def to_excel(df: pd.DataFrame) -> bytes:
 def show_aprovacao_page(engine, base_data_path):
     st.title("📋 Aprovação Detalhada de Pedidos")
     st.info(
-        "Edite as quantidades, selecione os itens e clique em 'Aprovar' ou 'Rejeitar'."
+        "Edite quantidades, selecione os itens e clique em Aprovar/Rejeitar."
     )
     st.subheader("1. Pedidos para Aprovação")
     st.markdown("#### Filtros de Visualização")
@@ -305,7 +342,8 @@ def show_aprovacao_page(engine, base_data_path):
         data_fim = st.date_input("Data Fim", today)
     with col3:
         st.write("")
-        ver_pendentes = st.checkbox("Mostrar apenas Pedidos Pendentes", value=True)
+        ver_pendentes = st.checkbox(
+            "Mostrar apenas Pedidos Pendentes", value=True)
     st.markdown("---")
 
     df_pedidos_filtrados = get_pedidos_para_aprovacao(
@@ -343,12 +381,16 @@ def show_aprovacao_page(engine, base_data_path):
         df_para_editar = df_pedidos_filtrados[colunas_existentes]
 
         column_config = {
-            "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
+            "Selecionar": st.column_config.CheckboxColumn(
+                "Selecionar", default=False
+            ),
             "id_pedido": None,
             "data_pedido_str": st.column_config.TextColumn(
                 "Data Pedido", disabled=True
             ),
-            "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True),
+            "usuario_pedido": st.column_config.TextColumn(
+                "Usuário", disabled=True
+            ),
             "codigo_interno": st.column_config.TextColumn(
                 "Código Interno", disabled=True
             ),
@@ -359,11 +401,15 @@ def show_aprovacao_page(engine, base_data_path):
             "inicio_oferta": st.column_config.TextColumn(
                 "Início Oferta", disabled=True
             ),
-            "fim_oferta": st.column_config.TextColumn("Fim Oferta", disabled=True),
+            "fim_oferta": st.column_config.TextColumn(
+                "Fim Oferta", disabled=True
+            ),
             "embseparacao": st.column_config.NumberColumn(
                 "Emb.", disabled=True, format="%d"
             ),
-            "status_item": st.column_config.TextColumn("Status Mix", disabled=True),
+            "status_item": st.column_config.TextColumn(
+                "Status Mix", disabled=True
+            ),
             "total_cx": st.column_config.NumberColumn(
                 "Total CX (Original)", disabled=True, format="%d"
             ),
@@ -377,7 +423,10 @@ def show_aprovacao_page(engine, base_data_path):
 
         for col_loja in colunas_editaveis:
             column_config[col_loja] = st.column_config.NumberColumn(
-                col_loja.replace("loja_", "Lj "), min_value=0, step=1, format="%d"
+                col_loja.replace("loja_", "Lj "),
+                min_value=0,
+                step=1,
+                format="%d",
             )
 
         st.markdown("Edite as quantidades (em caixas) e selecione os itens:")
@@ -405,7 +454,7 @@ def show_aprovacao_page(engine, base_data_path):
                     ]
                     if df_para_aprovar.empty:
                         st.warning(
-                            "Nenhum item 'Pendente' foi selecionado para aprovar."
+                            "Nenhum item Pendente selecionado para aprovar."
                         )
                     else:
                         with st.spinner("Aprovando itens..."):
@@ -429,7 +478,7 @@ def show_aprovacao_page(engine, base_data_path):
                     ids_para_rejeitar = df_para_rejeitar["id_pedido"].tolist()
                     if not ids_para_rejeitar:
                         st.warning(
-                            "Nenhum item 'Pendente' foi selecionado para rejeitar."
+                            "Nenhum item Pendente selecionado para rejeitar."
                         )
                     else:
                         with st.spinner("Rejeitando itens..."):
@@ -444,14 +493,14 @@ def show_aprovacao_page(engine, base_data_path):
 
         if not ver_pendentes:
             st.info(
-                "Para aprovar ou rejeitar pedidos, marque o filtro 'Mostrar apenas Pedidos Pendentes'."
+                "Para aprovar/rejeitar, marque 'Somente Pedidos Pendentes'."
             )
 
     st.markdown("---")
 
     st.subheader("2. Baixar Relatório de Pedidos Aprovados (Todos)")
     st.caption(
-        "Esta seção baixa TODOS os pedidos aprovados, independente do filtro de data acima."
+        "Baixa TODOS os pedidos aprovados, independente do filtro de data."
     )
 
     df_aprovados = get_pedidos_aprovados_download(engine)
@@ -460,12 +509,22 @@ def show_aprovacao_page(engine, base_data_path):
         st.info("Nenhum pedido aprovado encontrado para baixar.")
     else:
         st.markdown(
-            f"Encontrados **{len(df_aprovados)}** itens aprovados no banco de dados."
+            (
+                "Encontrados "
+                f"**{len(df_aprovados)}** "
+                "itens aprovados no banco de dados."
+            )
         )
         excel_data = to_excel(df_aprovados)
         st.download_button(
             label="Baixar Aprovados (Excel)",
             data=excel_data,
-            file_name=f"pedidos_aprovados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_name=(
+                "pedidos_aprovados_"
+                f"{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+            ),
+            mime=(
+                "application/vnd.openxmlformats-"
+                "officedocument.spreadsheetml.sheet"
+            ),
         )

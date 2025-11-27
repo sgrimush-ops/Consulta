@@ -1,8 +1,14 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from page import (
+    resolve_ofertas_codigo_col,
+    resolve_mix_codigo_col,
+    resolve_mix_descricao_col,
+    has_table_column,
+)
 from datetime import datetime
-from page import resolve_ofertas_codigo_col
+# (removido import duplicado de resolve_ofertas_codigo_col)
 
 # =========================================================
 # FUNÇÕES DE BANCO DE DADOS
@@ -14,21 +20,41 @@ def get_ofertas_atuais(_engine):
     """Busca ofertas onde a data final é hoje ou no futuro."""
     today = datetime.now().date()
     ofertas_col = resolve_ofertas_codigo_col(_engine)
-    # Seleciona a coluna real e faz alias como codigo_interno para a UI
-    query = text(
-        f"""
-        SELECT
-            id,
-            {ofertas_col} AS codigo_interno,
-            descricao,
-            oferta,
-            data_inicio,
-            data_final
-        FROM ofertas
-        WHERE data_final >= :today
-        ORDER BY data_inicio ASC
-    """
-    )
+    # Se ofertas não tem 'descricao', busca do mix_produtos
+    if has_table_column(_engine, "ofertas", "descricao"):
+        query = text(
+            f"""
+            SELECT
+                id,
+                {ofertas_col} AS codigo_interno,
+                descricao,
+                oferta,
+                data_inicio,
+                data_final
+            FROM ofertas
+            WHERE data_final >= :today
+            ORDER BY data_inicio ASC
+        """
+        )
+    else:
+        mix_code = resolve_mix_codigo_col(_engine)
+        mix_desc = resolve_mix_descricao_col(_engine)
+        query = text(
+            f"""
+            SELECT
+                o.id,
+                o.{ofertas_col} AS codigo_interno,
+                m.{mix_desc} AS descricao,
+                o.oferta,
+                o.data_inicio,
+                o.data_final
+            FROM ofertas AS o
+            LEFT JOIN mix_produtos AS m
+              ON CAST(o.{ofertas_col} AS TEXT) = CAST(m.{mix_code} AS TEXT)
+            WHERE o.data_final >= :today
+            ORDER BY o.data_inicio ASC
+        """
+        )
 
     with _engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"today": today})
@@ -46,7 +72,8 @@ def cleanup_old_ofertas(_engine, older_than_days: int = 1) -> int:
     try:
         with _engine.begin() as conn:
             delete_q = text(
-                "DELETE FROM ofertas WHERE data_final < :threshold RETURNING id"
+                "DELETE FROM ofertas WHERE data_final < :threshold "
+                "RETURNING id"
             )
             result = conn.execute(delete_q, {"threshold": threshold})
             # fetchall para garantir contagem consistente
@@ -57,8 +84,10 @@ def cleanup_old_ofertas(_engine, older_than_days: int = 1) -> int:
         return 0
 
 
-def cleanup_old_pedidos_aprovados(_engine, older_than_days: int = 7) -> int:
-    """Remove pedidos aprovados mais antigos que older_than_days (base em data_aprovacao/data_pedido).
+def cleanup_old_pedidos_aprovados(
+    _engine, older_than_days: int = 7
+) -> int:
+    """Remove pedidos aprovados antigos (base em aprovação/pedido).
 
     Retorna o número de linhas deletadas.
     """
@@ -71,7 +100,8 @@ def cleanup_old_pedidos_aprovados(_engine, older_than_days: int = 7) -> int:
                 """
                 DELETE FROM pedidos_consolidados
                 WHERE status_aprovacao = 'Aprovado'
-                  AND COALESCE(CAST(data_aprovacao AS DATE), CAST(data_pedido AS DATE)) < :threshold
+                  AND COALESCE(CAST(data_aprovacao AS DATE),
+                               CAST(data_pedido AS DATE)) < :threshold
                 RETURNING id
                 """
             )
@@ -87,7 +117,8 @@ def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
     """Atualiza um único campo de uma oferta."""
     try:
         with engine.begin() as conn:
-            # Permitir atualização apenas destes campos (mapear codigo_interno -> coluna real)
+            # Permitir atualização apenas destes campos
+            # (mapear codigo_interno -> coluna real)
             campos_permitidos = [
                 "oferta",
                 "descricao",
@@ -96,7 +127,8 @@ def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
                 "data_final",
             ]
             if campo not in campos_permitidos:
-                st.error(f"Erro: Tentativa de atualizar campo inválido '{campo}'.")
+                st.error(
+                    f"Erro: Tentativa de atualizar campo inválido '{campo}'.")
                 return
 
             if "data" in campo:
@@ -146,15 +178,17 @@ def show_ver_ofertas_page(engine, base_data_path):
     role = st.session_state.get("role", "user")
     pode_editar = (role == "admin") or (role == "mkt")
 
-    # Cleanup old offers (rotina diária): remove ofertas com data_final > 1 dia no passado
+    # Cleanup old offers (rotina diária) - remove ofertas vencidas (> 1 dia)
     try:
         deleted_offers = cleanup_old_ofertas(engine, older_than_days=1)
         if deleted_offers:
-            st.info(f"Removidas {deleted_offers} oferta(s) com data_final antiga.")
-        deleted_orders = cleanup_old_pedidos_aprovados(engine, older_than_days=7)
+            st.info(
+                f"Removidas {deleted_offers} oferta(s) com data_final antiga.")
+        deleted_orders = cleanup_old_pedidos_aprovados(
+            engine, older_than_days=7)
         if deleted_orders:
             st.info(
-                f"Removidos {deleted_orders} pedido(s) aprovados com mais de 7 dias."
+                f"Removidos {deleted_orders} pedidos aprovados (> 7 dias)."
             )
     except Exception:
         # não bloquear a página se cleanup falhar
@@ -167,11 +201,9 @@ def show_ver_ofertas_page(engine, base_data_path):
         st.stop()
 
     if pode_editar:
-        st.info(
-            "Como Admin/Mkt, você pode editar ou deletar ofertas diretamente na tabela abaixo."
-        )
+        st.info("Admin/Mkt: edite ou delete ofertas direto na tabela.")
         st.markdown(
-            "Para **deletar**, marque a caixa 'Deletar' e clique fora da tabela."
+            "Para deletar, marque 'Deletar' e clique fora da tabela."
         )
 
         df_ofertas["Deletar"] = False
@@ -188,14 +220,22 @@ def show_ver_ofertas_page(engine, base_data_path):
         ]
 
         config = {
-            "id": st.column_config.NumberColumn("ID", disabled=True, format="%d"),
+            "id": st.column_config.NumberColumn(
+                "ID", disabled=True, format="%d"
+            ),
             "codigo_interno": st.column_config.NumberColumn(
                 "Cód. Interno", format="%d"
             ),
             "descricao": st.column_config.TextColumn("Descrição"),
-            "oferta": st.column_config.NumberColumn("Oferta (R$)", format="%.2f"),
-            "data_inicio": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
-            "data_final": st.column_config.DateColumn("Final", format="DD/MM/YYYY"),
+            "oferta": st.column_config.NumberColumn(
+                "Oferta (R$)", format="%.2f"
+            ),
+            "data_inicio": st.column_config.DateColumn(
+                "Início", format="DD/MM/YYYY"
+            ),
+            "data_final": st.column_config.DateColumn(
+                "Final", format="DD/MM/YYYY"
+            ),
             "Deletar": st.column_config.CheckboxColumn("Deletar?"),
         }
 
@@ -221,15 +261,17 @@ def show_ver_ofertas_page(engine, base_data_path):
                 st.rerun()
 
             try:
-                mudancas = (df_editado != st.session_state.df_ofertas_original).any(
-                    axis=1
-                )
+                mudancas = (
+                    df_editado != st.session_state.df_ofertas_original
+                ).any(axis=1)
                 linhas_mudadas = df_editado[mudancas]
 
                 if not linhas_mudadas.empty:
                     for index, linha in linhas_mudadas.iterrows():
                         id_mudado = linha["id"]
-                        original_linha = st.session_state.df_ofertas_original.loc[index]
+                        original_linha = (
+                            st.session_state.df_ofertas_original.loc[index]
+                        )
 
                         for col_nome in df_editado.columns:
                             if col_nome == "Deletar" or col_nome == "id":
@@ -237,10 +279,14 @@ def show_ver_ofertas_page(engine, base_data_path):
 
                             if linha[col_nome] != original_linha[col_nome]:
                                 update_oferta_no_banco(
-                                    engine, id_mudado, col_nome, linha[col_nome]
+                                    engine,
+                                    id_mudado,
+                                    col_nome,
+                                    linha[col_nome],
                                 )
                                 st.success(
-                                    f"Oferta ID {id_mudado} atualizada (Campo: {col_nome})."
+                                    f"Oferta {id_mudado} atualizada (Campo: "
+                                    f"{col_nome})."
                                 )
 
                     st.session_state.df_ofertas_original = None
@@ -249,18 +295,22 @@ def show_ver_ofertas_page(engine, base_data_path):
                 pass
 
     else:
-        st.info("Você pode visualizar as ofertas atuais e usar os filtros nas colunas.")
+        st.info("Visualize ofertas atuais e use os filtros nas colunas.")
         st.dataframe(
             df_ofertas,
             column_config={
                 "id": None,
                 "codigo_interno": "Cód. Interno",
                 "descricao": "Descrição",
-                "oferta": st.column_config.NumberColumn("Oferta (R$)", format="%.2f"),
+                "oferta": st.column_config.NumberColumn(
+                    "Oferta (R$)", format="%.2f"
+                ),
                 "data_inicio": st.column_config.DateColumn(
                     "Início", format="DD/MM/YYYY"
                 ),
-                "data_final": st.column_config.DateColumn("Final", format="DD/MM/YYYY"),
+                "data_final": st.column_config.DateColumn(
+                    "Final", format="DD/MM/YYYY"
+                ),
             },
             hide_index=True,
             use_container_width=True,

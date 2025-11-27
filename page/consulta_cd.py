@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text, exc
+from page import (
+    resolve_mix_codigo_col,
+    resolve_mix_descricao_col,
+)
 
 
 def get_stock_data(engine, search_term=""):
@@ -8,24 +12,23 @@ def get_stock_data(engine, search_term=""):
     Busca dados de estoque na tabela 'mix_produtos'.
     """
     try:
-        # CORREÇÃO: codigo -> codigo_interno
-        # Note que também adicionei 'codigo_ean' para garantir
-        query_str = """
-            SELECT 
-                codigo_interno, 
-                produto AS descricao, 
-                codigo_ean, 
-                loja_ativa_mix, 
-                estoque_cd, 
-                total_estoque 
+        code_col = resolve_mix_codigo_col(engine)
+        desc_col = resolve_mix_descricao_col(engine)
+        query_str = f"""
+            SELECT
+                {code_col} AS codigo_interno,
+                {desc_col} AS descricao,
+                codigo_ean,
+                loja_ativa_mix,
+                estoque_cd,
+                total_estoque
             FROM mix_produtos
         """
         params = {}
         if search_term:
-            # CORREÇÃO: WHERE usa codigo_interno e codigo_ean
-            query_str += """
-                WHERE 
-                        CAST(codigo_interno AS TEXT) ILIKE :term OR 
+            query_str += f"""
+                WHERE
+                    CAST({code_col} AS TEXT) ILIKE :term OR
                     CAST(codigo_ean AS TEXT) ILIKE :term
             """
             params = {"term": f"%{search_term}%"}
@@ -46,7 +49,8 @@ def get_stock_data(engine, search_term=""):
 def show_consulta_cd_page(engine, base_data_path):
     st.title("📊 Consulta de Estoque e Mix (CD)")
     st.markdown(
-        "Visualize o status do mix e os estoques diretamente da base de dados atualizada."
+        "Visualize o status do mix e os estoques diretamente da base de dados "
+        "atualizada."
     )
 
     search_term = st.text_input(
@@ -63,11 +67,17 @@ def show_consulta_cd_page(engine, base_data_path):
             column_config={
                 # Alterado
                 "codigo_interno": st.column_config.TextColumn("Cód. Interno"),
-                "descricao": st.column_config.TextColumn("Descrição", width="large"),
+                "descricao": st.column_config.TextColumn(
+                    "Descrição", width="large"
+                ),
                 "codigo_ean": st.column_config.TextColumn("EAN"),  # Alterado
-                "loja_ativa_mix": st.column_config.CheckboxColumn("Mix Ativo?"),
+                "loja_ativa_mix": st.column_config.CheckboxColumn(
+                    "Mix Ativo?"
+                ),
                 "estoque_cd": st.column_config.NumberColumn("Estoque CD"),
-                "total_estoque": st.column_config.NumberColumn("Estoque Total"),
+                "total_estoque": st.column_config.NumberColumn(
+                    "Estoque Total"
+                ),
             },
             hide_index=True,
             use_container_width=True,
@@ -75,5 +85,6 @@ def show_consulta_cd_page(engine, base_data_path):
         st.info(f"Exibindo **{len(df_stock)}** resultado(s).")
     else:
         st.warning(
-            "Nenhum produto encontrado com os critérios de busca ou a base de dados está vazia."
+            "Nenhum produto encontrado com os critérios de busca ou a base de "
+            "dados está vazia."
         )

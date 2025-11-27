@@ -17,20 +17,26 @@ def main():
     try:
         engine = create_engine(db_url, pool_pre_ping=True)
         with engine.begin() as conn:
-            # Delete approved orders older than threshold, using data_aprovacao when available
+            # Delete approved orders older than threshold
+            # Uses data_aprovacao when available
             delete_q = text(
-                """
-                DELETE FROM pedidos_consolidados
-                WHERE status_aprovacao = 'Aprovado'
-                  AND COALESCE(CAST(data_aprovacao AS DATE), CAST(data_pedido AS DATE)) < :threshold
-                RETURNING id
-                """
+                (
+                    "DELETE FROM pedidos_consolidados\n"
+                    "WHERE status_aprovacao = 'Aprovado'\n"
+                    "  AND COALESCE(CAST(data_aprovacao AS DATE), "
+                    "CAST(data_pedido AS DATE)) < :threshold\n"
+                    "RETURNING id\n"
+                )
             )
             result = conn.execute(delete_q, {"threshold": threshold})
             rows = result.fetchall()
             deleted = len(rows)
         print(
-            f"Deleted {deleted} approved order(s) older than {days} day(s) (threshold={threshold})."
+            (
+                "Deleted "
+                f"{deleted} approved order(s) older than {days} day(s) "
+                f"(threshold={threshold})."
+            )
         )
         sys.exit(0)
     except Exception as e:

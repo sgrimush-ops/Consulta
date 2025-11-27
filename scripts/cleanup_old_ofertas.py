@@ -19,13 +19,18 @@ def main():
         with engine.begin() as conn:
             # PostgreSQL supports DELETE ... RETURNING
             delete_q = text(
-                "DELETE FROM ofertas WHERE data_final < :threshold RETURNING id"
+                "DELETE FROM ofertas WHERE data_final < :threshold "
+                "RETURNING id"
             )
             result = conn.execute(delete_q, {"threshold": threshold})
             rows = result.fetchall()
             deleted = len(rows)
         print(
-            f"Deleted {deleted} old offer(s) older than {older_than_days} day(s) (threshold={threshold})."
+            (
+                "Deleted "
+                f"{deleted} old offer(s) older than {older_than_days} day(s) "
+                f"(threshold={threshold})."
+            )
         )
         sys.exit(0)
     except Exception as e:
