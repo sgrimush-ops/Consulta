@@ -41,7 +41,7 @@ def get_active_and_future_promos(engine):
     today = date.today()
     query = text("""
         SELECT 
-            o.cod_interno,
+            o.codigo_interno,
             m.nome_produto,
             m.ean AS codigo_ean,
             m.embseparacao,
@@ -108,7 +108,7 @@ def show_gestao_promo_page(engine, base_data_path):
     edited_df = st.data_editor(
         promo_df,
         column_config={
-            "cod_interno": st.column_config.TextColumn("Código Interno", disabled=True),
+            "codigo_interno": st.column_config.TextColumn("Código Interno", disabled=True),
             "nome_produto": st.column_config.TextColumn("Produto", width="large", disabled=True),
             "oferta": st.column_config.NumberColumn("Preço Oferta", format="R$ %.2f", disabled=True),
             "data_inicio": st.column_config.DateColumn("Início", disabled=True),
@@ -129,7 +129,7 @@ def show_gestao_promo_page(engine, base_data_path):
 
             for _, row in pedidos_para_salvar.iterrows():
                 pedido_dict = {
-                    "cod_interno": str(row['cod_interno']),
+                    "codigo_interno": str(row['codigo_interno']),
                     "nome_produto": row['nome_produto'],
                     "codigo_ean": str(row.get('codigo_ean', '')),
                     "embseparacao": row.get('embseparacao', 0),
