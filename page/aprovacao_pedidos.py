@@ -44,12 +44,14 @@ def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
                 pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
             )
 
-    if "embseparacao" in df.columns:
-        df["embseparacao"] = (
-            pd.to_numeric(df["embseparacao"], errors="coerce")
-            .fillna(0)
-            .astype(int)
-        )
+    # Formata embalagem (tenta ambos nomes para compat)
+    for col_name in ["embalagem", "embseparacao"]:
+        if col_name in df.columns:
+            df[col_name] = (
+                pd.to_numeric(df[col_name], errors="coerce")
+                .fillna(0)
+                .astype(int)
+            )
 
     # Garante que o código seja numérico para cruzamento com ofertas
     if "codigo_interno" in df.columns:
@@ -141,11 +143,7 @@ def get_pedidos_para_aprovacao(
         p_code = resolve_pedidos_codigo_col(engine)
         p_desc = resolve_pedidos_descricao_col(engine)
         p_emb = resolve_pedidos_emb_col(engine)
-        emb_select = (
-            f", {p_emb} AS embseparacao"
-            if p_emb
-            else ", NULL::INTEGER AS embseparacao"
-        )
+
         query = text(
             f"""
             SELECT
@@ -153,8 +151,8 @@ def get_pedidos_para_aprovacao(
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
                 usuario_pedido,
                 {p_code} AS codigo_interno,
-                {p_desc} AS descricao
-                {emb_select},
+                {p_desc} AS descricao,
+                {p_emb} AS embalagem,
                 {lojas_sql},
                 total_cx,
                 status_item,
@@ -193,11 +191,7 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
         p_code = resolve_pedidos_codigo_col(engine)
         p_desc = resolve_pedidos_descricao_col(engine)
         p_emb = resolve_pedidos_emb_col(engine)
-        emb_select = (
-            f", {p_emb} AS embseparacao"
-            if p_emb
-            else ", NULL::INTEGER AS embseparacao"
-        )
+
         query = text(
             f"""
             SELECT
@@ -205,8 +199,8 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
                 usuario_pedido,
                 {p_code} AS codigo_interno,
-                {p_desc} AS descricao
-                {emb_select},
+                {p_desc} AS descricao,
+                {p_emb} AS embalagem,
                 {lojas_sql},
                 total_cx,
                 status_item
@@ -373,7 +367,7 @@ def show_aprovacao_page(engine, base_data_path):
             "descricao",
             "inicio_oferta",
             "fim_oferta",
-            "embseparacao",
+            "embalagem",
             "status_item",
             "status_aprovacao",
         ]
@@ -411,8 +405,8 @@ def show_aprovacao_page(engine, base_data_path):
             "fim_oferta": st.column_config.TextColumn(
                 "Fim Oferta", disabled=True
             ),
-            "embseparacao": st.column_config.NumberColumn(
-                "Emb.", disabled=True, format="%d"
+            "embalagem": st.column_config.NumberColumn(
+                "Emb. (Un/Cx)", disabled=True, format="%d"
             ),
             "status_item": st.column_config.TextColumn(
                 "Status Mix", disabled=True

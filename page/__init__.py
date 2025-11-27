@@ -74,19 +74,26 @@ def resolve_mix_descricao_col(engine) -> str:
     )
 
 
-def resolve_mix_emb_col(engine) -> str | None:
-    return resolve_table_column(
-        engine,
-        "mix_produtos",
-        [
-            "embseparacao",
-            "emb_separacao",
-            "embalagem",
-            "emb",
-            "qtd_embalagem",
-            "embalagem_separacao",
-        ],
-        default=None,
+def resolve_mix_emb_col(engine) -> str:
+    """Resolve coluna de embalagem em mix_produtos.
+
+    Prioridade: embalagem > embseparacao > outras variações
+    """
+    return (
+        resolve_table_column(
+            engine,
+            "mix_produtos",
+            [
+                "embalagem",
+                "embseparacao",
+                "emb_separacao",
+                "emb",
+                "qtd_embalagem",
+                "embalagem_separacao",
+            ],
+            default="embalagem",
+        )
+        or "embalagem"
     )
 
 
@@ -114,10 +121,17 @@ def resolve_pedidos_descricao_col(engine) -> str:
     )
 
 
-def resolve_pedidos_emb_col(engine) -> str | None:
-    return resolve_table_column(
-        engine,
-        "pedidos_consolidados",
-        ["embseparacao", "emb_separacao"],
-        default=None,
+def resolve_pedidos_emb_col(engine) -> str:
+    """Resolve coluna de embalagem em pedidos_consolidados.
+
+    Prioridade: embalagem > embseparacao > emb_separacao
+    """
+    return (
+        resolve_table_column(
+            engine,
+            "pedidos_consolidados",
+            ["embalagem", "embseparacao", "emb_separacao"],
+            default="embalagem",
+        )
+        or "embalagem"
     )

@@ -103,10 +103,10 @@ def main() -> int:
         assert resolve_ofertas_codigo_col(engine) == "codigo_interno"
         assert resolve_mix_codigo_col(engine) == "codigo_interno"
         assert resolve_mix_descricao_col(engine) == "descricao"
-        assert resolve_mix_emb_col(engine) is None
+        assert resolve_mix_emb_col(engine) == "embalagem"
         assert resolve_pedidos_codigo_col(engine) == "codigo_interno"
         assert resolve_pedidos_descricao_col(engine) == "descricao"
-        assert resolve_pedidos_emb_col(engine) is None
+        assert resolve_pedidos_emb_col(engine) == "embalagem"
         print("resolvers_ok")
 
         # Teste de conversão de tipos em aprovacao_pedidos
@@ -118,14 +118,14 @@ def main() -> int:
                 "loja_001": ["1", "2"],
                 "loja_002": ["0", None],
                 "total_cx": ["3", "4"],
-                "embseparacao": ["5", "6"],
+                "embalagem": ["5", "6"],
                 "codigo_interno": ["123", "456"],
             }
         )
         res = formatar_tipos_df(df)
         assert str(res["loja_001"].dtype) == "int64"
         assert str(res["total_cx"].dtype) == "int64"
-        assert str(res["embseparacao"].dtype) == "int64"
+        assert str(res["embalagem"].dtype) == "int64"
         assert str(res["codigo_interno"].dtype) == "int64"
         print("format_ok")
 

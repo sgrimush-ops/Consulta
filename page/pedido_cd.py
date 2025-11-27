@@ -271,13 +271,18 @@ def show_pedidos_cd_page(engine, base_data_path):
 
             if st.form_submit_button("Enviar para Aprovação"):
                 if total_cx > 0:
+                    # Busca embalagem do item
+                    emb_val = item.get(mix_emb_col, 0)
+                    if pd.isna(emb_val) or emb_val is None:
+                        emb_val = 0
+                    else:
+                        emb_val = int(emb_val)
+                    
                     pedido_data = {
                         "codigo_interno": [codigo_produto],
                         "descricao": [item.get(mix_desc_col, "N/A")],
                         "codigo_ean": [item.get("codigo_ean", "N/A")],
-                        "embseparacao": [
-                            item.get(mix_emb_col, 0) if mix_emb_col else 0
-                        ],
+                        "embalagem": [emb_val],
                         "data_pedido": [datetime.now()],
                         "usuario_pedido": [
                             st.session_state.get("username", "unknown")
@@ -302,16 +307,10 @@ def show_pedidos_cd_page(engine, base_data_path):
                         rename_map["codigo_interno"] = pedidos_code_col
                     if pedidos_desc_col != "descricao":
                         rename_map["descricao"] = pedidos_desc_col
-                    if pedidos_emb_col and pedidos_emb_col != "embseparacao":
-                        rename_map["embseparacao"] = pedidos_emb_col
+                    if pedidos_emb_col != "embalagem":
+                        rename_map["embalagem"] = pedidos_emb_col
 
                     df_real = df_to_save.rename(columns=rename_map)
-                    if (
-                        not pedidos_emb_col
-                        and "embseparacao" in df_real.columns
-                    ):
-                        df_real = df_real.drop(
-                            columns=["embseparacao"])  # compat
 
                     # Compatibilidade: se a tabela exigir coluna 'codigo'
                     # (NOT NULL), popular com o mesmo valor do código real.

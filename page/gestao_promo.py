@@ -80,19 +80,15 @@ def get_active_and_future_promos(engine):
     mix_code = resolve_mix_codigo_col(engine)
     mix_desc = resolve_mix_descricao_col(engine)
     mix_emb = resolve_mix_emb_col(engine)
-    emb_select = (
-        f", m.{mix_emb} AS embseparacao"
-        if mix_emb
-        else ", NULL::INTEGER AS embseparacao"
-    )
+
     query = text(
         f"""
         SELECT
             m.{mix_code} AS codigo_interno,
             m.{mix_desc} AS descricao,
             m.codigo_ean,
-            m.estoque_cd
-            {emb_select},
+            m.estoque_cd,
+            m.{mix_emb} AS embalagem,
             o.oferta,
             o.data_inicio,
             o.data_final
@@ -106,18 +102,10 @@ def get_active_and_future_promos(engine):
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"today": today})
 
-    # Debug: mostra aviso se coluna não foi encontrada
-    if mix_emb is None:
-        st.warning(
-            "⚠️ Coluna de embalagem não encontrada em mix_produtos. "
-            "Verifique se existe 'embseparacao', 'emb_separacao', "
-            "'embalagem' ou 'emb' no banco."
-        )
-
-    # Garante que embseparacao seja inteiro (0 se NULL)
-    if "embseparacao" in df.columns:
-        df["embseparacao"] = (
-            pd.to_numeric(df["embseparacao"], errors="coerce")
+    # Garante que embalagem seja inteiro (0 se NULL)
+    if "embalagem" in df.columns:
+        df["embalagem"] = (
+            pd.to_numeric(df["embalagem"], errors="coerce")
             .fillna(0)
             .astype(int)
         )
@@ -146,12 +134,10 @@ def save_promo_pedidos(engine, pedidos_df):
             rename_map["codigo_interno"] = pedidos_code_col
         if pedidos_desc_col != "descricao":
             rename_map["descricao"] = pedidos_desc_col
-        if pedidos_emb_col and pedidos_emb_col != "embseparacao":
-            rename_map["embseparacao"] = pedidos_emb_col
+        if pedidos_emb_col != "embalagem":
+            rename_map["embalagem"] = pedidos_emb_col
 
         df_real = pedidos_df.rename(columns=rename_map)
-        if not pedidos_emb_col and "embseparacao" in df_real.columns:
-            df_real = df_real.drop(columns=["embseparacao"])  # compat
 
         # Compat: preencher coluna 'codigo' quando existir
         try:
@@ -285,7 +271,7 @@ def show_gestao_promo_page(engine, base_data_path):
             "codigo_ean": st.column_config.TextColumn(
                 "EAN", disabled=True
             ),
-            "embseparacao": st.column_config.NumberColumn(
+            "embalagem": st.column_config.NumberColumn(
                 "Emb. (Un/Cx)", disabled=True, format="%d"
             ),
             "estoque_cd": st.column_config.NumberColumn(
@@ -315,8 +301,8 @@ def show_gestao_promo_page(engine, base_data_path):
             username = st.session_state.get("username", "unknown")
 
             for _, row in pedidos_para_salvar.iterrows():
-                # Garante conversão de embseparacao para inteiro
-                emb_val = row.get("embseparacao")
+                # Garante conversão de embalagem para inteiro
+                emb_val = row.get("embalagem", 0)
                 if pd.isna(emb_val) or emb_val is None:
                     emb_val = 0
                 else:
@@ -326,7 +312,7 @@ def show_gestao_promo_page(engine, base_data_path):
                     "codigo_interno": str(row["codigo_interno"]),
                     "descricao": row["descricao"],
                     "codigo_ean": str(row.get("codigo_ean", "")),
-                    "embseparacao": emb_val,
+                    "embalagem": emb_val,
                     "data_pedido": datetime.now(),
                     "usuario_pedido": username,
                     "status_item": "Pendente",
