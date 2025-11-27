@@ -312,6 +312,39 @@ def show_pedidos_cd_page(engine, base_data_path):
                         # Não bloquear salvamento em caso de detecção falhar
                         pass
 
+                    # Compat: colunas legadas de descrição
+                    # Ex.: produto/nome_produto NOT NULL
+                    try:
+                        # Coluna fonte para descrição no DataFrame
+                        desc_source = None
+                        for cand in [
+                            pedidos_desc_col,
+                            "descricao",
+                            "produto",
+                            "nome_produto",
+                        ]:
+                            if cand and cand in df_real.columns:
+                                desc_source = cand
+                                break
+
+                        if desc_source:
+                            for legacy_col in [
+                                "produto",
+                                "nome_produto",
+                                "descricao",
+                            ]:
+                                if (
+                                    has_table_column(
+                                        engine,
+                                        "pedidos_consolidados",
+                                        legacy_col,
+                                    )
+                                    and legacy_col not in df_real.columns
+                                ):
+                                    df_real[legacy_col] = df_real[desc_source]
+                    except Exception:
+                        pass
+
                     if save_pedido_consolidado(engine, df_real):
                         st.success(
                             "Pedido enviado com sucesso para aprovação!"
