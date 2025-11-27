@@ -10,9 +10,7 @@ set -euo pipefail
 #  - run basic validations (column existence and non-empty counts)
 #  - optionally create a CONCURRENTLY index (if you pass --concurrent)
 
-MIGRATION_FILE="
-migrations/001_safe_add_columns.sql
-"
+MIGRATION_FILE="migrations/001_safe_add_columns.sql"
 ROLLBACK_FILE="migrations/001_safe_add_columns_rollback.sql"
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
