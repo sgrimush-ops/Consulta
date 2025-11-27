@@ -3,10 +3,10 @@
 
 BEGIN;
 
--- 1) mix_produtos: add cod_interno, nome_produto, codigo_ean as TEXT (if not exists)
+-- 1) mix_produtos: add cod_interno, descricao, codigo_ean as TEXT (if not exists)
 ALTER TABLE IF EXISTS mix_produtos
     ADD COLUMN IF NOT EXISTS cod_interno TEXT,
-    ADD COLUMN IF NOT EXISTS nome_produto TEXT,
+    ADD COLUMN IF NOT EXISTS descricao TEXT,
     ADD COLUMN IF NOT EXISTS codigo_ean TEXT;
 
 -- Copy values from older columns if present
@@ -17,9 +17,9 @@ BEGIN
         UPDATE mix_produtos SET cod_interno = CAST(codigo_interno AS TEXT) WHERE cod_interno IS NULL OR cod_interno = '';
     END IF;
 
-    -- nome_produto <- produto
+    -- descricao <- produto
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name='produto') THEN
-        UPDATE mix_produtos SET nome_produto = produto WHERE nome_produto IS NULL OR nome_produto = '';
+        UPDATE mix_produtos SET descricao = produto WHERE descricao IS NULL OR descricao = '';
     END IF;
 
     -- codigo_ean <- ean
@@ -28,10 +28,10 @@ BEGIN
     END IF;
 END$$;
 
--- 2) ofertas: add cod_interno, nome_produto as TEXT
+-- 2) ofertas: add cod_interno, descricao as TEXT
 ALTER TABLE IF EXISTS ofertas
     ADD COLUMN IF NOT EXISTS cod_interno TEXT,
-    ADD COLUMN IF NOT EXISTS nome_produto TEXT;
+    ADD COLUMN IF NOT EXISTS descricao TEXT;
 
 DO $$
 BEGIN
@@ -39,7 +39,7 @@ BEGIN
         UPDATE ofertas SET cod_interno = CAST(codigo AS TEXT) WHERE cod_interno IS NULL OR cod_interno = '';
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ofertas' AND column_name='produto') THEN
-        UPDATE ofertas SET nome_produto = produto WHERE nome_produto IS NULL OR nome_produto = '';
+        UPDATE ofertas SET descricao = produto WHERE descricao IS NULL OR descricao = '';
     END IF;
 END$$;
 
@@ -57,10 +57,10 @@ BEGIN
     END IF;
 END$$;
 
--- 3) pedidos_consolidados: add cod_interno, nome_produto, codigo_ean
+-- 3) pedidos_consolidados: add cod_interno, descricao, codigo_ean
 ALTER TABLE IF EXISTS pedidos_consolidados
     ADD COLUMN IF NOT EXISTS cod_interno TEXT,
-    ADD COLUMN IF NOT EXISTS nome_produto TEXT,
+    ADD COLUMN IF NOT EXISTS descricao TEXT,
     ADD COLUMN IF NOT EXISTS codigo_ean TEXT;
 
 DO $$
@@ -72,7 +72,7 @@ BEGIN
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name='produto') THEN
-        UPDATE pedidos_consolidados SET nome_produto = produto WHERE nome_produto IS NULL OR nome_produto = '';
+        UPDATE pedidos_consolidados SET descricao = produto WHERE descricao IS NULL OR descricao = '';
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name='ean') THEN
@@ -84,5 +84,5 @@ COMMIT;
 
 -- Notes:
 -- * Run this first on a staging/test DB.
--- * After running, validate that application code can read the new columns (cod_interno, nome_produto, codigo_ean).
+-- * After running, validate that application code can read the new columns (cod_interno, descricao, codigo_ean).
 -- * When validation is complete, you can create application-level migrations that start writing to the new columns.

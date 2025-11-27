@@ -106,7 +106,7 @@ def show_ver_ofertas_page(engine, base_data_path):
             "id": st.column_config.NumberColumn("ID", disabled=True, format="%d"),
             # Alterado label
             "cod_interno": st.column_config.NumberColumn("Cód. Interno", format="%d"),
-            "descricao": st.column_config.TextColumn("Produto"),
+            "descricao": st.column_config.TextColumn("Descrição"),
             "oferta": st.column_config.NumberColumn("Oferta (R$)", format="%.2f"),
             "data_inicio": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
             "data_final": st.column_config.DateColumn("Final", format="DD/MM/YYYY"),
@@ -166,7 +166,7 @@ def show_ver_ofertas_page(engine, base_data_path):
             column_config={
                 "id": None,
                 "cod_interno": "Cód. Interno",  # Alterado label
-                "descricao": "Produto",
+                "descricao": "Descrição",
                 "oferta": st.column_config.NumberColumn("Oferta (R$)", format="%.2f"),
                 "data_inicio": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
                 "data_final": st.column_config.DateColumn("Final", format="DD/MM/YYYY"),

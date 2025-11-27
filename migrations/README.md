@@ -3,7 +3,7 @@
 Este diretório contém scripts para migrar os nomes de colunas do banco para a nova padronização usada pela aplicação:
 
 - cod_interno (substitui codigo/codigo_interno)
-- nome_produto (substitui produto)
+- descricao (substitui produto)
 - codigo_ean (substitui ean)
 
 ATENÇÃO: antes de rodar qualquer script em produção, sempre execute em um ambiente de teste/staging e faça backup completo do banco.
@@ -16,7 +16,7 @@ Files:
 
 Recomendações de procedimento (safest path):
 1. Executar 001_safe_add_columns.sql em staging. Validar a aplicação (apontar o app para staging e rodar testes).
-2. Ajustar a aplicação para escrever nas novas colunas (`cod_interno`, `nome_produto`, `codigo_ean`). Faça deploy e execute em modo compatível (leitura de ambas colunas, se necessário).
+2. Ajustar a aplicação para escrever nas novas colunas (`cod_interno`, `descricao`, `codigo_ean`). Faça deploy e execute em modo compatível (leitura de ambas colunas, se necessário).
 3. Quando estiver seguro, e após monitorar por alguns deploys com apenas leitura/escrita nos novos campos, executar um curto processo de universo:
    - Se preferir manter compatibilidade máxima, mantenha colunas antigas por mais tempo; ou
    - Se quiser simplificar o schema, depois de validar, execute uma migração final para remover as colunas antigas e ajustar constraints/indexes.

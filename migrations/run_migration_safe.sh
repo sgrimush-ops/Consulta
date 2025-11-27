@@ -43,15 +43,15 @@ echo "Migration finished."
 
 echo "Running validations..."
 echo "Checking mix_produtos columns and non-null counts..."
-psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name IN ('cod_interno','nome_produto','codigo_ean');"
+psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name IN ('cod_interno','descricao','codigo_ean');"
 psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(cod_interno) AS cod_interno_count FROM mix_produtos;"
 
 echo "Checking ofertas columns and non-null counts..."
-psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='ofertas' AND column_name IN ('cod_interno','nome_produto');"
+psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='ofertas' AND column_name IN ('cod_interno','descricao');"
 psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(cod_interno) AS cod_interno_count FROM ofertas;"
 
 echo "Checking pedidos_consolidados columns and non-null counts..."
-psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name IN ('cod_interno','nome_produto','codigo_ean');"
+psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name IN ('cod_interno','descricao','codigo_ean');"
 psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(cod_interno) AS cod_interno_count FROM pedidos_consolidados;"
 
 if [[ "${1:-}" == "--concurrent" || "${2:-}" == "--concurrent" ]]; then

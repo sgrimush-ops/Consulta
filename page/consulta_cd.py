@@ -30,7 +30,7 @@ def get_stock_data(engine, search_term=""):
             """
             params = {"term": f"%{search_term}%"}
         query_str += " ORDER BY descricao"
-        query_str += " ORDER BY nome_produto"
+        query_str += " ORDER BY descricao"
 
         with engine.connect() as conn:
             df = pd.read_sql(text(query_str), conn, params=params)
