@@ -256,6 +256,12 @@ def show_gestao_promo_page(engine, base_data_path):
             "descricao": st.column_config.TextColumn(
                 "Produto", width="large", disabled=True
             ),
+            "codigo_ean": st.column_config.TextColumn(
+                "EAN", disabled=True
+            ),
+            "embseparacao": st.column_config.NumberColumn(
+                "Emb. (Un/Cx)", disabled=True, format="%d"
+            ),
             "oferta": st.column_config.NumberColumn(
                 "Preço Oferta", format="R$ %.2f", disabled=True
             ),
