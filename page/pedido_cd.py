@@ -109,9 +109,8 @@ def show_pedidos_cd_page(engine, base_data_path):
 
         st.markdown("---")
         st.subheader(f"Produto Encontrado: {item.get('produto', 'N/A')}")
-        
-col1, col2, col3 = st.columns(3)
-col1.metric("Código Interno", codigo_produto)
+                col1, col2, col3 = st.columns(3)
+        col1.metric("Código Interno", codigo_produto)
         col2.metric("EAN", str(item.get('ean', 'N/A')))
         col3.metric("Embalagem Separação", str(item.get('embseparacao', 'N/A')))
 
