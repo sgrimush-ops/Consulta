@@ -76,7 +76,17 @@ def resolve_mix_descricao_col(engine) -> str:
 
 def resolve_mix_emb_col(engine) -> str | None:
     return resolve_table_column(
-        engine, "mix_produtos", ["embseparacao", "emb_separacao"], default=None
+        engine,
+        "mix_produtos",
+        [
+            "embseparacao",
+            "emb_separacao",
+            "embalagem",
+            "emb",
+            "qtd_embalagem",
+            "embalagem_separacao",
+        ],
+        default=None,
     )
 
 

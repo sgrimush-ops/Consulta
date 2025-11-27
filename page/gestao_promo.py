@@ -104,6 +104,22 @@ def get_active_and_future_promos(engine):
     )
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"today": today})
+
+    # Debug: mostra aviso se coluna não foi encontrada
+    if mix_emb is None:
+        st.warning(
+            "⚠️ Coluna de embalagem não encontrada em mix_produtos. "
+            "Verifique se existe 'embseparacao', 'emb_separacao', "
+            "'embalagem' ou 'emb' no banco."
+        )
+
+    # Garante que embseparacao seja inteiro (0 se NULL)
+    if "embseparacao" in df.columns:
+        df["embseparacao"] = (
+            pd.to_numeric(df["embseparacao"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
     return df
 
 
@@ -286,11 +302,18 @@ def show_gestao_promo_page(engine, base_data_path):
             username = st.session_state.get("username", "unknown")
 
             for _, row in pedidos_para_salvar.iterrows():
+                # Garante conversão de embseparacao para inteiro
+                emb_val = row.get("embseparacao")
+                if pd.isna(emb_val) or emb_val is None:
+                    emb_val = 0
+                else:
+                    emb_val = int(emb_val)
+
                 pedido_dict = {
                     "codigo_interno": str(row["codigo_interno"]),
                     "descricao": row["descricao"],
                     "codigo_ean": str(row.get("codigo_ean", "")),
-                    "embseparacao": row.get("embseparacao", 0),
+                    "embseparacao": emb_val,
                     "data_pedido": datetime.now(),
                     "usuario_pedido": username,
                     "status_item": "Pendente",
