@@ -376,6 +376,106 @@ def show_pedidos_cd_page(engine, base_data_path):
                         "O pedido não foi enviado."
                     )
 
+    # --- Meus Pedidos Pendentes ---
+    st.markdown("---")
+    st.subheader("📋 Meus Pedidos Pendentes (Aguardando Aprovação)")
+    
+    username = st.session_state.get("username", "unknown")
+    try:
+        p_code = resolve_pedidos_codigo_col(engine)
+        p_desc = resolve_pedidos_descricao_col(engine)
+        p_emb = resolve_pedidos_emb_col(engine)
+        
+        query_pendentes = text(
+            f"""
+            SELECT
+                id,
+                {p_code} AS codigo_interno,
+                {p_desc} AS descricao,
+                {p_emb} AS embalagem,
+                total_cx,
+                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido,
+                status_aprovacao
+            FROM pedidos_consolidados
+            WHERE usuario_pedido = :username
+              AND status_aprovacao = 'Pendente'
+            ORDER BY data_pedido DESC
+            LIMIT 50
+            """
+        )
+        
+        with engine.connect() as conn:
+            df_pendentes = pd.read_sql(
+                query_pendentes, conn, params={"username": username}
+            )
+        
+        if not df_pendentes.empty:
+            st.info(
+                f"Você tem {len(df_pendentes)} pedido(s) aguardando aprovação."
+            )
+            
+            # Adiciona checkbox para exclusão
+            df_pendentes["Excluir"] = False
+            
+            df_editado = st.data_editor(
+                df_pendentes,
+                column_config={
+                    "id": None,
+                    "codigo_interno": st.column_config.TextColumn(
+                        "Código", disabled=True
+                    ),
+                    "descricao": st.column_config.TextColumn(
+                        "Produto", width="large", disabled=True
+                    ),
+                    "embalagem": st.column_config.NumberColumn(
+                        "Emb. (Un/Cx)", disabled=True, format="%d"
+                    ),
+                    "total_cx": st.column_config.NumberColumn(
+                        "Total CX", disabled=True, format="%d"
+                    ),
+                    "data_pedido": st.column_config.TextColumn(
+                        "Data/Hora", disabled=True
+                    ),
+                    "status_aprovacao": None,
+                    "Excluir": st.column_config.CheckboxColumn(
+                        "Excluir?", default=False
+                    ),
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="pendentes_cd",
+            )
+            
+            if st.button("🗑️ Excluir Selecionados", key="btn_excluir_cd"):
+                ids_excluir = df_editado[df_editado["Excluir"]]["id"].tolist()
+                if ids_excluir:
+                    try:
+                        with engine.begin() as conn:
+                            delete_q = text(
+                                """
+                                DELETE FROM pedidos_consolidados
+                                WHERE id = ANY(:ids)
+                                  AND usuario_pedido = :username
+                                  AND status_aprovacao = 'Pendente'
+                                """
+                            )
+                            conn.execute(
+                                delete_q,
+                                {"ids": ids_excluir, "username": username},
+                            )
+                        st.success(
+                            f"{len(ids_excluir)} pedido(s) excluído(s)!"
+                        )
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir pedidos: {e}")
+                else:
+                    st.warning("Nenhum pedido selecionado para exclusão.")
+        else:
+            st.info("Você não tem pedidos pendentes no momento.")
+    except Exception as e:
+        st.error(f"Erro ao buscar pedidos pendentes: {e}")
+
     # --- Componente de Chamado ---
     st.markdown("---")
     with st.expander(
