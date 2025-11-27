@@ -277,7 +277,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                         emb_val = 0
                     else:
                         emb_val = int(emb_val)
-                    
+
                     pedido_data = {
                         "codigo_interno": [codigo_produto],
                         "descricao": [item.get(mix_desc_col, "N/A")],
@@ -379,13 +379,13 @@ def show_pedidos_cd_page(engine, base_data_path):
     # --- Meus Pedidos Pendentes ---
     st.markdown("---")
     st.subheader("📋 Meus Pedidos Pendentes (Aguardando Aprovação)")
-    
+
     username = st.session_state.get("username", "unknown")
     try:
         p_code = resolve_pedidos_codigo_col(engine)
         p_desc = resolve_pedidos_descricao_col(engine)
         p_emb = resolve_pedidos_emb_col(engine)
-        
+
         query_pendentes = text(
             f"""
             SELECT
@@ -403,20 +403,20 @@ def show_pedidos_cd_page(engine, base_data_path):
             LIMIT 50
             """
         )
-        
+
         with engine.connect() as conn:
             df_pendentes = pd.read_sql(
                 query_pendentes, conn, params={"username": username}
             )
-        
+
         if not df_pendentes.empty:
             st.info(
                 f"Você tem {len(df_pendentes)} pedido(s) aguardando aprovação."
             )
-            
+
             # Adiciona checkbox para exclusão
             df_pendentes["Excluir"] = False
-            
+
             df_editado = st.data_editor(
                 df_pendentes,
                 column_config={
@@ -445,7 +445,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 use_container_width=True,
                 key="pendentes_cd",
             )
-            
+
             if st.button("🗑️ Excluir Selecionados", key="btn_excluir_cd"):
                 ids_excluir = df_editado[df_editado["Excluir"]]["id"].tolist()
                 if ids_excluir:
