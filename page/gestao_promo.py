@@ -10,6 +10,7 @@ from page import (
     resolve_pedidos_codigo_col,
     resolve_pedidos_descricao_col,
     resolve_pedidos_emb_col,
+    has_table_column,
 )
 
 # --- Funções de Chamado (Copiado de contato.py) ---
@@ -125,6 +126,46 @@ def save_promo_pedidos(engine, pedidos_df):
         df_real = pedidos_df.rename(columns=rename_map)
         if not pedidos_emb_col and "embseparacao" in df_real.columns:
             df_real = df_real.drop(columns=["embseparacao"])  # compat
+
+        # Compat: preencher coluna 'codigo' quando existir
+        try:
+            if has_table_column(
+                engine, "pedidos_consolidados", "codigo"
+            ) and "codigo" not in df_real.columns:
+                code_col = (
+                    pedidos_code_col
+                    if pedidos_code_col in df_real.columns
+                    else "codigo_interno"
+                )
+                if code_col in df_real.columns:
+                    df_real["codigo"] = df_real[code_col]
+        except Exception:
+            pass
+
+        # Compat: colunas legadas de descrição
+        try:
+            desc_source = None
+            for cand in [
+                pedidos_desc_col,
+                "descricao",
+                "produto",
+                "nome_produto",
+            ]:
+                if cand and cand in df_real.columns:
+                    desc_source = cand
+                    break
+
+            if desc_source:
+                for legacy_col in ["produto", "nome_produto", "descricao"]:
+                    if (
+                        has_table_column(
+                            engine, "pedidos_consolidados", legacy_col
+                        )
+                        and legacy_col not in df_real.columns
+                    ):
+                        df_real[legacy_col] = df_real[desc_source]
+        except Exception:
+            pass
 
         with engine.begin() as conn:
             df_real.to_sql(
