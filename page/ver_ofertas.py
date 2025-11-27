@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 from datetime import datetime
+from page import resolve_ofertas_codigo_col
 
 # =========================================================
 # FUNÇÕES DE BANCO DE DADOS
@@ -12,15 +13,16 @@ from datetime import datetime
 def get_ofertas_atuais(_engine):
     """Busca ofertas onde a data final é hoje ou no futuro."""
     today = datetime.now().date()
-    # CORREÇÃO: usar `codigo_interno` como nome canônico
+    ofertas_col = resolve_ofertas_codigo_col(_engine)
+    # Seleciona a coluna real e faz alias como codigo_interno para a UI
     query = text(
-        """
-        SELECT 
-            id, 
-            codigo_interno, 
-            descricao, 
-            oferta, 
-            data_inicio, 
+        f"""
+        SELECT
+            id,
+            {ofertas_col} AS codigo_interno,
+            descricao,
+            oferta,
+            data_inicio,
             data_final
         FROM ofertas
         WHERE data_final >= :today
@@ -59,7 +61,7 @@ def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
     """Atualiza um único campo de uma oferta."""
     try:
         with engine.begin() as conn:
-            # CORREÇÃO: usar `codigo_interno` como nome canônico
+            # Permitir atualização apenas destes campos (mapear codigo_interno -> coluna real)
             campos_permitidos = [
                 "oferta",
                 "descricao",
@@ -74,10 +76,15 @@ def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
             if "data" in campo:
                 novo_valor = pd.to_datetime(novo_valor).date()
 
+            # Resolver a coluna real quando atualizando codigo_interno
+            real_col = campo
+            if campo == "codigo_interno":
+                real_col = resolve_ofertas_codigo_col(engine)
+
             query = text(
                 f"""
                 UPDATE ofertas
-                SET {campo} = :valor
+                SET {real_col} = :valor
                 WHERE id = :id_oferta
             """
             )

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 from datetime import datetime, date
+from page import resolve_ofertas_codigo_col
 
 # --- Funções de Chamado (Copiado de contato.py) ---
 
@@ -53,22 +54,23 @@ def get_active_and_future_promos(engine):
     Busca todas as ofertas ativas e futuras e junta com os detalhes dos produtos.
     """
     today = date.today()
+    ofertas_col = resolve_ofertas_codigo_col(engine)
     query = text(
-        """
+        f"""
         SELECT 
-            o.codigo_interno,
-            m.produto AS descricao,
-            m.ean AS codigo_ean,
+            m.codigo_interno,
+            m.descricao,
+            m.codigo_ean,
             m.embseparacao,
             o.oferta,
             o.data_inicio,
             o.data_final
         FROM ofertas AS o
         JOIN mix_produtos AS m
-            ON CAST(o.codigo_interno AS TEXT) = CAST(m.codigo_interno AS TEXT)
+            ON CAST(o.{ofertas_col} AS TEXT) = CAST(m.codigo_interno AS TEXT)
         WHERE o.data_final >= :today AND m.estoque_cd > 0
-        ORDER BY o.data_inicio, m.produto
-    """
+        ORDER BY o.data_inicio, m.descricao
+        """
     )
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"today": today})

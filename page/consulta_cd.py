@@ -30,7 +30,6 @@ def get_stock_data(engine, search_term=""):
             """
             params = {"term": f"%{search_term}%"}
         query_str += " ORDER BY descricao"
-        query_str += " ORDER BY descricao"
 
         with engine.connect() as conn:
             df = pd.read_sql(text(query_str), conn, params=params)
@@ -47,11 +46,12 @@ def get_stock_data(engine, search_term=""):
 def show_consulta_cd_page(engine, base_data_path):
     st.title("📊 Consulta de Estoque e Mix (CD)")
     st.markdown(
-        "Visualize o status do mix e os estoques diretamente da base de dados atualizada.")
+        "Visualize o status do mix e os estoques diretamente da base de dados atualizada."
+    )
 
     search_term = st.text_input(
         "Buscar por Código Interno ou EAN:",
-        placeholder="Digite o código para filtrar..."
+        placeholder="Digite o código para filtrar...",
     )
 
     with st.spinner("Carregando dados de estoque..."):
@@ -67,12 +67,13 @@ def show_consulta_cd_page(engine, base_data_path):
                 "codigo_ean": st.column_config.TextColumn("EAN"),  # Alterado
                 "loja_ativa_mix": st.column_config.CheckboxColumn("Mix Ativo?"),
                 "estoque_cd": st.column_config.NumberColumn("Estoque CD"),
-                "total_estoque": st.column_config.NumberColumn("Estoque Total")
+                "total_estoque": st.column_config.NumberColumn("Estoque Total"),
             },
             hide_index=True,
-            use_container_width=True
+            use_container_width=True,
         )
         st.info(f"Exibindo **{len(df_stock)}** resultado(s).")
     else:
         st.warning(
-            "Nenhum produto encontrado com os critérios de busca ou a base de dados está vazia.")
+            "Nenhum produto encontrado com os critérios de busca ou a base de dados está vazia."
+        )

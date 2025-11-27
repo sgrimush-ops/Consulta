@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from page import resolve_ofertas_codigo_col
 from datetime import datetime, date
 
 # --- Funções de Chamado (Copiado de contato.py) ---
@@ -74,10 +75,11 @@ def get_product_history(engine, code):
 def get_future_offers(engine, code):
     """Busca ofertas futuras para um produto."""
     today = date.today()
+    ofertas_col = resolve_ofertas_codigo_col(engine)
     query = text(
-        """
-        SELECT oferta, data_inicio, data_final FROM ofertas 
-        WHERE CAST(codigo_interno AS TEXT) = :code AND data_final >= :today
+        f"""
+        SELECT oferta, data_inicio, data_final FROM ofertas
+        WHERE CAST({ofertas_col} AS TEXT) = :code AND data_final >= :today
         ORDER BY data_inicio
     """
     )
