@@ -43,22 +43,22 @@ echo "Migration finished."
 
 echo "Running validations..."
 echo "Checking mix_produtos columns and non-null counts..."
-psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name IN ('cod_interno','descricao','codigo_ean');"
-psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(cod_interno) AS cod_interno_count FROM mix_produtos;"
+psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name IN ('codigo_interno','descricao','codigo_ean');"
+psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(codigo_interno) AS codigo_interno_count FROM mix_produtos;"
 
 echo "Checking ofertas columns and non-null counts..."
-psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='ofertas' AND column_name IN ('cod_interno','descricao');"
-psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(cod_interno) AS cod_interno_count FROM ofertas;"
+psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='ofertas' AND column_name IN ('codigo_interno','descricao');"
+psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(codigo_interno) AS codigo_interno_count FROM ofertas;"
 
 echo "Checking pedidos_consolidados columns and non-null counts..."
-psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name IN ('cod_interno','descricao','codigo_ean');"
-psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(cod_interno) AS cod_interno_count FROM pedidos_consolidados;"
+psql "${DATABASE_URL}" -c "SELECT column_name FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name IN ('codigo_interno','descricao','codigo_ean');"
+psql "${DATABASE_URL}" -c "SELECT COUNT(*) AS total, COUNT(codigo_interno) AS codigo_interno_count FROM pedidos_consolidados;"
 
 if [[ "${1:-}" == "--concurrent" || "${2:-}" == "--concurrent" ]]; then
   echo "User requested CONCURRENT index creation — creating index concurrently (note: must be run outside long transactions)"
-  echo "Creating unique index CONCURRENTLY on ofertas(cod_interno, data_inicio, data_final)"
+  echo "Creating unique index CONCURRENTLY on ofertas(codigo_interno, data_inicio, data_final)"
   # As per PostgreSQL behavior, CREATE INDEX CONCURRENTLY cannot run inside a transaction; this command will run standalone
-  psql "${DATABASE_URL}" -c "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uniq_ofertas_cod_period ON ofertas (cod_interno, data_inicio, data_final);"
+  psql "${DATABASE_URL}" -c "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uniq_ofertas_cod_period ON ofertas (codigo_interno, data_inicio, data_final);"
   echo "CONCURRENT index creation requested finished."
 else
   echo "Skipping CONCURRENT index creation. To create non-blocking index, re-run with --concurrent"

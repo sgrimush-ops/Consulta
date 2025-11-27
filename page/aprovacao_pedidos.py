@@ -5,8 +5,22 @@ import io
 from datetime import datetime, timedelta, date
 
 # --- Configurações ---
-LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
-               "007", "008", "011", "012", "013", "014", "017", "018"]
+LISTA_LOJAS = [
+    "001",
+    "002",
+    "003",
+    "004",
+    "005",
+    "006",
+    "007",
+    "008",
+    "011",
+    "012",
+    "013",
+    "014",
+    "017",
+    "018",
+]
 COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
 
 
@@ -14,22 +28,24 @@ COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
 #   FUNÇÕES DE FORMATAÇÃO E CONSULTA
 # ===========================================================
 
+
 def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
     """Formata tipos de dados e corrige valores numéricos."""
-    int_cols_with_zero_fallback = COLUNAS_LOJAS_PEDIDO + ['total_cx']
+    int_cols_with_zero_fallback = COLUNAS_LOJAS_PEDIDO + ["total_cx"]
     for col in int_cols_with_zero_fallback:
         if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col], errors='coerce').fillna(0).astype(int)
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
 
-    if 'embseparacao' in df.columns:
-        df['embseparacao'] = pd.to_numeric(
-            df['embseparacao'], errors='coerce').fillna(0).astype(int)
+    if "embseparacao" in df.columns:
+        df["embseparacao"] = (
+            pd.to_numeric(df["embseparacao"], errors="coerce").fillna(0).astype(int)
+        )
 
     # Garante que o código seja numérico para cruzamento com ofertas
-    if 'cod_interno' in df.columns:
-        df['cod_interno'] = pd.to_numeric(
-            df['cod_interno'], errors='coerce').fillna(0).astype(int)
+    if "codigo_interno" in df.columns:
+        df["codigo_interno"] = (
+            pd.to_numeric(df["codigo_interno"], errors="coerce").fillna(0).astype(int)
+        )
 
     return df
 
@@ -38,20 +54,22 @@ def get_offers_data(engine):
     """Busca ofertas ativas ou futuras para cruzar com os pedidos."""
     today = date.today()
     # Pega ofertas que terminam hoje ou no futuro
-    query = text("""
-        SELECT cod_interno, data_inicio, data_final
+    query = text(
+        """
+        SELECT codigo_interno, data_inicio, data_final
         FROM ofertas
         WHERE data_final >= :today
-    """)
+    """
+    )
     try:
         with engine.connect() as conn:
             df = pd.read_sql_query(query, conn, params={"today": today})
             # Remove duplicatas mantendo a última vigência cadastrada
-            df = df.drop_duplicates(subset=['cod_interno'], keep='last')
+            df = df.drop_duplicates(subset=["codigo_interno"], keep="last")
         return df
     except Exception:
         # Se der erro (tabela não existe ainda), retorna vazio
-        return pd.DataFrame(columns=['cod_interno', 'data_inicio', 'data_final'])
+        return pd.DataFrame(columns=["codigo_interno", "data_inicio", "data_final"])
 
 
 def merge_with_offers(df_pedidos, df_ofertas):
@@ -61,33 +79,39 @@ def merge_with_offers(df_pedidos, df_ofertas):
 
     if not df_ofertas.empty:
         # Merge (Left Join) para trazer info da oferta
-        df_merged = pd.merge(df_pedidos, df_ofertas,
-                             on='cod_interno', how='left')
+        df_merged = pd.merge(df_pedidos, df_ofertas, on="codigo_interno", how="left")
 
         # Formata as datas de oferta para string (DD/MM/YYYY) para ficar bonito
-        df_merged['inicio_oferta'] = pd.to_datetime(
-            df_merged['data_inicio']).dt.strftime('%d/%m/%Y').fillna('-')
-        df_merged['fim_oferta'] = pd.to_datetime(
-            df_merged['data_final']).dt.strftime('%d/%m/%Y').fillna('-')
+        df_merged["inicio_oferta"] = (
+            pd.to_datetime(df_merged["data_inicio"]).dt.strftime("%d/%m/%Y").fillna("-")
+        )
+        df_merged["fim_oferta"] = (
+            pd.to_datetime(df_merged["data_final"]).dt.strftime("%d/%m/%Y").fillna("-")
+        )
 
         return df_merged
     else:
         # Se não tem ofertas, cria as colunas vazias
-        df_pedidos['inicio_oferta'] = '-'
-        df_pedidos['fim_oferta'] = '-'
+        df_pedidos["inicio_oferta"] = "-"
+        df_pedidos["fim_oferta"] = "-"
         return df_pedidos
 
 
-def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool) -> pd.DataFrame:
+def get_pedidos_para_aprovacao(
+    engine, date_start, date_end, only_pending: bool
+) -> pd.DataFrame:
     """Busca pedidos para a grade de aprovação, com filtros de data e status."""
     try:
-        start_str = datetime.combine(
-            date_start, datetime.min.time()).strftime('%Y-%m-%d %H:%M:%S')
-        end_str = datetime.combine(
-            date_end, datetime.max.time()).strftime('%Y-%m-%d %H:%M:%S')
+        start_str = datetime.combine(date_start, datetime.min.time()).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        end_str = datetime.combine(date_end, datetime.max.time()).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         lojas_sql = ", ".join(COLUNAS_LOJAS_PEDIDO)
 
-        query = text(f"""
+        query = text(
+            f"""
             SELECT 
                 id AS id_pedido, 
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
@@ -101,7 +125,8 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
                 status_aprovacao
             FROM pedidos_consolidados
             WHERE data_pedido BETWEEN :start_str AND :end_str
-        """)
+        """
+        )
 
         params = {"start_str": start_str, "end_str": end_str}
 
@@ -129,7 +154,8 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
     try:
         lojas_sql = ", ".join(COLUNAS_LOJAS_PEDIDO)
 
-        query = text(f"""
+        query = text(
+            f"""
             SELECT 
                 id AS id_pedido, 
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
@@ -143,7 +169,8 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
             FROM pedidos_consolidados
             WHERE status_aprovacao = 'Aprovado' 
             ORDER BY data_pedido ASC
-        """)
+        """
+        )
         df_pedidos = pd.read_sql_query(query, con=engine)
         df_pedidos = formatar_tipos_df(df_pedidos)
 
@@ -161,15 +188,16 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
 #   FUNÇÕES DE ATUALIZAÇÃO
 # ===========================================================
 
+
 def update_pedidos_aprovados(engine, df_editado_selecionado):
     """Atualiza o banco com quantidades editadas e aprova os itens."""
     try:
         data_aprovacao_dt = datetime.now()
 
-        set_lojas_sql = ", ".join(
-            [f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
+        set_lojas_sql = ", ".join([f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
 
-        query = text(f"""
+        query = text(
+            f"""
             UPDATE pedidos_consolidados
             SET 
                 status_aprovacao = 'Aprovado',
@@ -177,19 +205,22 @@ def update_pedidos_aprovados(engine, df_editado_selecionado):
                 total_cx = :total_cx,
                 {set_lojas_sql}
             WHERE id = :id_pedido
-        """)
+        """
+        )
 
         updates_list = []
         for _, row in df_editado_selecionado.iterrows():
-            novas_lojas_vals = {col: int(pd.to_numeric(
-                row[col], errors='coerce', downcast='integer')) for col in COLUNAS_LOJAS_PEDIDO}
+            novas_lojas_vals = {
+                col: int(pd.to_numeric(row[col], errors="coerce", downcast="integer"))
+                for col in COLUNAS_LOJAS_PEDIDO
+            }
             novo_total_cx = sum(novas_lojas_vals.values())
 
             params = {
                 "data_aprovacao": data_aprovacao_dt,
                 "total_cx": novo_total_cx,
-                "id_pedido": row['id_pedido'],
-                **novas_lojas_vals
+                "id_pedido": row["id_pedido"],
+                **novas_lojas_vals,
             }
             updates_list.append(params)
 
@@ -207,18 +238,17 @@ def rejeitar_pedidos(engine, ids_pedidos: list):
     try:
         data_aprovacao_dt = datetime.now()
 
-        query = text("""
+        query = text(
+            """
             UPDATE pedidos_consolidados
             SET 
                 status_aprovacao = 'Rejeitado',
                 data_aprovacao = :data_aprovacao
             WHERE id IN :ids_list
-        """)
+        """
+        )
 
-        params = {
-            "data_aprovacao": data_aprovacao_dt,
-            "ids_list": tuple(ids_pedidos)
-        }
+        params = {"data_aprovacao": data_aprovacao_dt, "ids_list": tuple(ids_pedidos)}
 
         with engine.begin() as conn:
             conn.execute(query, params)
@@ -232,18 +262,22 @@ def rejeitar_pedidos(engine, ids_pedidos: list):
 #   FUNÇÃO DE EXPORTAÇÃO
 # ===========================================================
 
+
 def to_excel(df: pd.DataFrame) -> bytes:
     """Exporta pedidos aprovados para Excel."""
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='PedidosAprovados')
-        worksheet = writer.sheets['PedidosAprovados']
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="PedidosAprovados")
+        worksheet = writer.sheets["PedidosAprovados"]
         for idx, col in enumerate(df):
             series = df[col]
-            max_len = max(
-                (series.astype(str).map(len).max() or len(str(series.name))),
-                len(str(series.name))
-            ) + 2
+            max_len = (
+                max(
+                    (series.astype(str).map(len).max() or len(str(series.name))),
+                    len(str(series.name)),
+                )
+                + 2
+            )
             worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
 
@@ -252,10 +286,12 @@ def to_excel(df: pd.DataFrame) -> bytes:
 #   PÁGINA PRINCIPAL
 # ===========================================================
 
+
 def show_aprovacao_page(engine, base_data_path):
     st.title("📋 Aprovação Detalhada de Pedidos")
     st.info(
-        "Edite as quantidades, selecione os itens e clique em 'Aprovar' ou 'Rejeitar'.")
+        "Edite as quantidades, selecione os itens e clique em 'Aprovar' ou 'Rejeitar'."
+    )
     st.subheader("1. Pedidos para Aprovação")
     st.markdown("#### Filtros de Visualização")
 
@@ -269,52 +305,75 @@ def show_aprovacao_page(engine, base_data_path):
         data_fim = st.date_input("Data Fim", today)
     with col3:
         st.write("")
-        ver_pendentes = st.checkbox(
-            "Mostrar apenas Pedidos Pendentes", value=True)
+        ver_pendentes = st.checkbox("Mostrar apenas Pedidos Pendentes", value=True)
     st.markdown("---")
 
     df_pedidos_filtrados = get_pedidos_para_aprovacao(
-        engine, data_inicio, data_fim, ver_pendentes)
+        engine, data_inicio, data_fim, ver_pendentes
+    )
 
     if df_pedidos_filtrados.empty:
         st.success("Nenhum pedido encontrado para os filtros selecionados.")
     else:
-        df_pedidos_filtrados['Selecionar'] = False
+        df_pedidos_filtrados["Selecionar"] = False
 
         # Define colunas informativas (incluindo as novas de oferta)
         colunas_info = [
-            'Selecionar', 'id_pedido', 'data_pedido_str', 'usuario_pedido',
+            "Selecionar",
+            "id_pedido",
+            "data_pedido_str",
+            "usuario_pedido",
             # <--- NOVAS COLUNAS AQUI
-            'cod_interno', 'descricao',             'inicio_oferta', 'fim_oferta',
-            'embseparacao', 'status_item', 'status_aprovacao'
+            "codigo_interno",
+            "descricao",
+            "inicio_oferta",
+            "fim_oferta",
+            "embseparacao",
+            "status_item",
+            "status_aprovacao",
         ]
         colunas_editaveis = COLUNAS_LOJAS_PEDIDO
-        colunas_total = ['total_cx']
+        colunas_total = ["total_cx"]
 
-        colunas_existentes = [col for col in (
-            colunas_info + colunas_editaveis + colunas_total) if col in df_pedidos_filtrados.columns]
+        colunas_existentes = [
+            col
+            for col in (colunas_info + colunas_editaveis + colunas_total)
+            if col in df_pedidos_filtrados.columns
+        ]
         df_para_editar = df_pedidos_filtrados[colunas_existentes]
 
         column_config = {
             "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
             "id_pedido": None,
-            "data_pedido_str": st.column_config.TextColumn("Data Pedido", disabled=True),
+            "data_pedido_str": st.column_config.TextColumn(
+                "Data Pedido", disabled=True
+            ),
             "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True),
-            "cod_interno": st.column_config.TextColumn("Código Interno", disabled=True),
-            "descricao": st.column_config.TextColumn("Descrição", width="medium", disabled=True),
+            "codigo_interno": st.column_config.TextColumn(
+                "Código Interno", disabled=True
+            ),
+            "descricao": st.column_config.TextColumn(
+                "Descrição", width="medium", disabled=True
+            ),
             # Configuração das colunas de oferta
-            "inicio_oferta": st.column_config.TextColumn("Início Oferta", disabled=True),
+            "inicio_oferta": st.column_config.TextColumn(
+                "Início Oferta", disabled=True
+            ),
             "fim_oferta": st.column_config.TextColumn("Fim Oferta", disabled=True),
-
-            "embseparacao": st.column_config.NumberColumn("Emb.", disabled=True, format="%d"),
+            "embseparacao": st.column_config.NumberColumn(
+                "Emb.", disabled=True, format="%d"
+            ),
             "status_item": st.column_config.TextColumn("Status Mix", disabled=True),
-            "total_cx": st.column_config.NumberColumn("Total CX (Original)", disabled=True, format="%d"),
-            "status_aprovacao": None
+            "total_cx": st.column_config.NumberColumn(
+                "Total CX (Original)", disabled=True, format="%d"
+            ),
+            "status_aprovacao": None,
         }
 
         if not ver_pendentes:
             column_config["status_aprovacao"] = st.column_config.TextColumn(
-                "Status", disabled=True)
+                "Status", disabled=True
+            )
 
         for col_loja in colunas_editaveis:
             column_config[col_loja] = st.column_config.NumberColumn(
@@ -328,11 +387,11 @@ def show_aprovacao_page(engine, base_data_path):
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            key="editor_aprovacao"
+            key="editor_aprovacao",
         )
         st.markdown("---")
 
-        df_selecionado = df_editado[df_editado['Selecionar'] == True]
+        df_selecionado = df_editado[df_editado["Selecionar"]]
 
         col_btn_1, col_btn_2, col_spacer = st.columns([1, 1, 3])
 
@@ -341,14 +400,18 @@ def show_aprovacao_page(engine, base_data_path):
                 if df_selecionado.empty:
                     st.warning("Nenhum item foi selecionado para aprovar.")
                 else:
-                    df_para_aprovar = df_selecionado[df_selecionado['status_aprovacao'] == 'Pendente']
+                    df_para_aprovar = df_selecionado[
+                        df_selecionado["status_aprovacao"] == "Pendente"
+                    ]
                     if df_para_aprovar.empty:
                         st.warning(
-                            "Nenhum item 'Pendente' foi selecionado para aprovar.")
+                            "Nenhum item 'Pendente' foi selecionado para aprovar."
+                        )
                     else:
                         with st.spinner("Aprovando itens..."):
                             success, message = update_pedidos_aprovados(
-                                engine, df_para_aprovar)
+                                engine, df_para_aprovar
+                            )
                             if success:
                                 st.success(message)
                                 st.rerun()
@@ -360,15 +423,19 @@ def show_aprovacao_page(engine, base_data_path):
                 if df_selecionado.empty:
                     st.warning("Nenhum item foi selecionado para rejeitar.")
                 else:
-                    df_para_rejeitar = df_selecionado[df_selecionado['status_aprovacao'] == 'Pendente']
-                    ids_para_rejeitar = df_para_rejeitar['id_pedido'].tolist()
+                    df_para_rejeitar = df_selecionado[
+                        df_selecionado["status_aprovacao"] == "Pendente"
+                    ]
+                    ids_para_rejeitar = df_para_rejeitar["id_pedido"].tolist()
                     if not ids_para_rejeitar:
                         st.warning(
-                            "Nenhum item 'Pendente' foi selecionado para rejeitar.")
+                            "Nenhum item 'Pendente' foi selecionado para rejeitar."
+                        )
                     else:
                         with st.spinner("Rejeitando itens..."):
                             success, message = rejeitar_pedidos(
-                                engine, ids_para_rejeitar)
+                                engine, ids_para_rejeitar
+                            )
                             if success:
                                 st.success(message)
                                 st.rerun()
@@ -377,13 +444,15 @@ def show_aprovacao_page(engine, base_data_path):
 
         if not ver_pendentes:
             st.info(
-                "Para aprovar ou rejeitar pedidos, marque o filtro 'Mostrar apenas Pedidos Pendentes'.")
+                "Para aprovar ou rejeitar pedidos, marque o filtro 'Mostrar apenas Pedidos Pendentes'."
+            )
 
     st.markdown("---")
 
     st.subheader("2. Baixar Relatório de Pedidos Aprovados (Todos)")
     st.caption(
-        "Esta seção baixa TODOS os pedidos aprovados, independente do filtro de data acima.")
+        "Esta seção baixa TODOS os pedidos aprovados, independente do filtro de data acima."
+    )
 
     df_aprovados = get_pedidos_aprovados_download(engine)
 
@@ -391,11 +460,12 @@ def show_aprovacao_page(engine, base_data_path):
         st.info("Nenhum pedido aprovado encontrado para baixar.")
     else:
         st.markdown(
-            f"Encontrados **{len(df_aprovados)}** itens aprovados no banco de dados.")
+            f"Encontrados **{len(df_aprovados)}** itens aprovados no banco de dados."
+        )
         excel_data = to_excel(df_aprovados)
         st.download_button(
             label="Baixar Aprovados (Excel)",
             data=excel_data,
             file_name=f"pedidos_aprovados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
