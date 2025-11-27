@@ -1,7 +1,6 @@
 import streamlit as st
 from sqlalchemy import text, create_engine
 import hashlib
-import json
 import os
 
 # Import das lógicas das "aplicações"
@@ -65,6 +64,8 @@ def check_fornecedor_login(engine, username, password):
         st.exception(e)
     return False, None
 
+# --- Lógica de Interface ---
+
 
 def show_main_menu():
     """Exibe o menu principal de seleção de perfil."""
@@ -83,12 +84,13 @@ def show_main_menu():
         st.rerun()
     if col2.button("Sou Fornecedor/Promotor", use_container_width=True):
         st.session_state['app_choice'] = 'fornecedor'
-        st.session_state['fornecedor_logged_in'] = False
+        st.session_state['fornecedor_logged_in'] = False  # Reseta o login
         st.rerun()
 
 
 def show_fornecedor_login(engine):
     """Exibe o formulário de login para fornecedores."""
+    # Garante que a tabela existe antes do login
     from page.admin_fornecedor import create_fornecedores_table
     create_fornecedores_table(engine)
 
@@ -99,31 +101,9 @@ def show_fornecedor_login(engine):
     if st.button("Entrar", type="primary"):
         logged_in, role = check_fornecedor_login(engine, username, password)
         if logged_in:
-            # Buscar lojas de acesso do fornecedor
-            try:
-                with engine.connect() as conn:
-                    query = text("""
-                        SELECT lojas_acesso
-                        FROM fornecedores_users
-                        WHERE username = :username
-                    """)
-                    result = conn.execute(query, {"username": username})
-                    data = result.fetchone()
-                    lojas_json = data[0] if data else None
-
-                lojas = []
-                if lojas_json:
-                    try:
-                        lojas = json.loads(lojas_json)
-                    except json.JSONDecodeError:
-                        lojas = []
-            except Exception:
-                lojas = []
-
             st.session_state['fornecedor_logged_in'] = True
             st.session_state['fornecedor_username'] = username
             st.session_state['fornecedor_role'] = role
-            st.session_state['fornecedor_lojas_acesso'] = lojas
             st.rerun()
         else:
             st.error("Usuário ou senha de fornecedor inválidos.")
@@ -140,6 +120,7 @@ def fornecedor_area_main(engine):
         "Página Inicial": lambda: show_area_fornecedor(),
     }
     if role == 'admin_fornecedor':
+        # Nota: show_admin_fornecedor_page precisa do 'engine'
         paginas_fornecedor["Admin Fornecedores"] = (
             lambda: show_admin_fornecedor_page(engine)
         )
@@ -152,6 +133,8 @@ def fornecedor_area_main(engine):
     # Executa a página escolhida
     paginas_fornecedor[page_choice]()
 
+# --- Lógica Principal do Roteador ---
+
 
 def main():
     st.set_page_config(page_title="Bakizi", layout="wide")
@@ -162,14 +145,17 @@ def main():
     if st.session_state['app_choice'] is None:
         show_main_menu()
     elif st.session_state['app_choice'] == 'baklizi':
+        # 1. Obter o Engine.
         engine = get_main_engine()
 
+        # 2. Criar as tabelas
         try:
             create_db_tables(engine)
         except Exception as e:
             st.error(f"Erro ao inicializar o banco de dados: {e}")
             st.stop()
 
+        # 3. Executa o app principal
         run_baklizi_app()
 
     elif st.session_state['app_choice'] == 'fornecedor':
