@@ -43,13 +43,13 @@ def get_active_and_future_promos(engine):
         SELECT 
             o.cod_interno,
             m.nome_produto,
-            m.codigo_ean,
+            m.ean AS codigo_ean,
             m.embseparacao,
             o.oferta,
             o.data_inicio,
             o.data_final
         FROM ofertas AS o
-        JOIN mix_produtos AS m ON CAST(o.cod_interno AS TEXT) = CAST(m.cod_interno AS TEXT)
+        JOIN mix_produtos AS m ON CAST(o.cod_interno AS TEXT) = CAST(m.codigo_interno AS TEXT)
         WHERE o.data_final >= :today AND m.estoque_cd > 0
         ORDER BY o.data_inicio, m.nome_produto
     """)
