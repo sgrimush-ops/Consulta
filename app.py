@@ -103,9 +103,9 @@ def create_db_tables(engine):
             conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS pedidos_consolidados (
                     id SERIAL PRIMARY KEY, 
-                    codigo TEXT NOT NULL,
-                    produto TEXT,
-                    ean TEXT,
+                    cod_interno TEXT NOT NULL,
+                    nome_produto TEXT,
+                    codigo_ean TEXT,
                     embseparacao INTEGER,
                     data_pedido TIMESTAMP,
                     data_aprovacao TIMESTAMP,
@@ -141,12 +141,12 @@ def create_db_tables(engine):
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS ofertas (
                     id SERIAL PRIMARY KEY,
-                    codigo INTEGER NOT NULL,
-                    produto TEXT,
+                    cod_interno INTEGER NOT NULL,
+                    nome_produto TEXT,
                     oferta NUMERIC(10, 2),
                     data_inicio DATE NOT NULL,
                     data_final DATE NOT NULL,
-                    UNIQUE(codigo, data_inicio, data_final)
+                    UNIQUE(cod_interno, data_inicio, data_final)
                 )
             """))
     except Exception as e:
@@ -215,7 +215,7 @@ def main_app():
         "Home": lambda: show_home_page(engine, BASE_DATA_PATH),
         "Consulta de Estoque e Mix (CD)": lambda: show_consulta_cd_page(engine, BASE_DATA_PATH), # <-- ADICIONADO
         "Ofertas Atuais": lambda: show_ver_ofertas_page(engine, BASE_DATA_PATH),
-        "Alterar Senha": lambda: show_mudar_senha_page(engine),
+        "Alterar Senha": lambda: show_mudar_senha_page(engine, BASE_DATA_PATH),
         "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH), 
     }
 

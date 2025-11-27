@@ -27,8 +27,8 @@ def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
             df['embseparacao'], errors='coerce').fillna(0).astype(int)
 
     # Garante que o código seja numérico para cruzamento com ofertas
-    if 'codigo_interno' in df.columns:
-        df['codigo_interno'] = pd.to_numeric(df['codigo_interno'], errors='coerce').fillna(0).astype(int)
+    if 'cod_interno' in df.columns:
+        df['cod_interno'] = pd.to_numeric(df['cod_interno'], errors='coerce').fillna(0).astype(int)
 
     return df
 
@@ -37,7 +37,7 @@ def get_offers_data(engine):
     today = date.today()
     # Pega ofertas que terminam hoje ou no futuro
     query = text("""
-        SELECT codigo_interno, data_inicio, data_final
+        SELECT cod_interno, data_inicio, data_final
         FROM ofertas
         WHERE data_final >= :today
     """)
@@ -45,11 +45,11 @@ def get_offers_data(engine):
         with engine.connect() as conn:
             df = pd.read_sql_query(query, conn, params={"today": today})
             # Remove duplicatas mantendo a última vigência cadastrada
-            df = df.drop_duplicates(subset=['codigo_interno'], keep='last')
+            df = df.drop_duplicates(subset=['cod_interno'], keep='last')
         return df
     except Exception:
         # Se der erro (tabela não existe ainda), retorna vazio
-        return pd.DataFrame(columns=['codigo_interno', 'data_inicio', 'data_final'])
+        return pd.DataFrame(columns=['cod_interno', 'data_inicio', 'data_final'])
 
 def merge_with_offers(df_pedidos, df_ofertas):
     """Função auxiliar para cruzar pedidos com ofertas."""
@@ -58,7 +58,7 @@ def merge_with_offers(df_pedidos, df_ofertas):
 
     if not df_ofertas.empty:
         # Merge (Left Join) para trazer info da oferta
-        df_merged = pd.merge(df_pedidos, df_ofertas, on='codigo_interno', how='left')
+        df_merged = pd.merge(df_pedidos, df_ofertas, on='cod_interno', how='left')
         
         # Formata as datas de oferta para string (DD/MM/YYYY) para ficar bonito
         df_merged['inicio_oferta'] = pd.to_datetime(df_merged['data_inicio']).dt.strftime('%d/%m/%Y').fillna('-')
@@ -85,8 +85,8 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
                 id AS id_pedido, 
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
                 usuario_pedido, 
-                codigo_interno, 
-                produto, 
+                cod_interno, 
+                nome_produto, 
                 embseparacao,
                 {lojas_sql},
                 total_cx,
@@ -127,8 +127,8 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
                 id AS id_pedido, 
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str, 
                 usuario_pedido, 
-                codigo_interno, 
-                produto, 
+                cod_interno, 
+                nome_produto, 
                 embseparacao,
                 {lojas_sql},
                 total_cx,
@@ -277,7 +277,7 @@ def show_aprovacao_page(engine, base_data_path):
         # Define colunas informativas (incluindo as novas de oferta)
         colunas_info = [
             'Selecionar', 'id_pedido', 'data_pedido_str', 'usuario_pedido',
-            'codigo_interno', 'produto', 
+            'cod_interno', 'nome_produto', 
             'inicio_oferta', 'fim_oferta', # <--- NOVAS COLUNAS AQUI
             'embseparacao', 'status_item', 'status_aprovacao'
         ]
@@ -293,8 +293,8 @@ def show_aprovacao_page(engine, base_data_path):
             "id_pedido": None,
             "data_pedido_str": st.column_config.TextColumn("Data Pedido", disabled=True),
             "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True),
-            "codigo_interno": st.column_config.TextColumn("Código Interno", disabled=True),
-            "produto": st.column_config.TextColumn("Produto", width="medium", disabled=True),
+            "cod_interno": st.column_config.TextColumn("Código Interno", disabled=True),
+            "nome_produto": st.column_config.TextColumn("Produto", width="medium", disabled=True),
             # Configuração das colunas de oferta
             "inicio_oferta": st.column_config.TextColumn("Início Oferta", disabled=True),
             "fim_oferta": st.column_config.TextColumn("Fim Oferta", disabled=True),

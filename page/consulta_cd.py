@@ -11,8 +11,8 @@ def get_stock_data(engine, search_term=""):
         # Note que também adicionei 'codigo_ean' para garantir
         query_str = """
             SELECT 
-                codigo_interno, 
-                produto, 
+                cod_interno, 
+                nome_produto, 
                 codigo_ean, 
                 loja_ativa_mix, 
                 estoque_cd, 
@@ -24,12 +24,12 @@ def get_stock_data(engine, search_term=""):
             # CORREÇÃO: WHERE usa codigo_interno e codigo_ean
             query_str += """
                 WHERE 
-                    CAST(codigo_interno AS TEXT) ILIKE :term OR 
+                        CAST(cod_interno AS TEXT) ILIKE :term OR 
                     CAST(codigo_ean AS TEXT) ILIKE :term
             """
             params = {"term": f"%{search_term}%"}
         
-        query_str += " ORDER BY produto"
+        query_str += " ORDER BY nome_produto"
 
         with engine.connect() as conn:
             df = pd.read_sql(text(query_str), conn, params=params)
@@ -58,8 +58,8 @@ def show_consulta_cd_page(engine, base_data_path):
         st.dataframe(
             df_stock,
             column_config={
-                "codigo_interno": st.column_config.TextColumn("Cód. Interno"), # Alterado
-                "produto": st.column_config.TextColumn("Produto", width="large"),
+                "cod_interno": st.column_config.TextColumn("Cód. Interno"), # Alterado
+                "nome_produto": st.column_config.TextColumn("Produto", width="large"),
                 "codigo_ean": st.column_config.TextColumn("EAN"), # Alterado
                 "loja_ativa_mix": st.column_config.CheckboxColumn("Mix Ativo?"),
                 "estoque_cd": st.column_config.NumberColumn("Estoque CD"),

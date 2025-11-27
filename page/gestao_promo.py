@@ -41,17 +41,17 @@ def get_active_and_future_promos(engine):
     today = date.today()
     query = text("""
         SELECT 
-            o.codigo_interno,
-            m.produto,
-            m.ean,
+            o.cod_interno,
+            m.nome_produto,
+            m.codigo_ean,
             m.embseparacao,
             o.oferta,
             o.data_inicio,
             o.data_final
         FROM ofertas AS o
-        JOIN mix_produtos AS m ON CAST(o.codigo_interno AS TEXT) = CAST(m.codigo_interno AS TEXT)
+        JOIN mix_produtos AS m ON CAST(o.cod_interno AS TEXT) = CAST(m.cod_interno AS TEXT)
         WHERE o.data_final >= :today AND m.estoque_cd > 0
-        ORDER BY o.data_inicio, m.produto
+        ORDER BY o.data_inicio, m.nome_produto
     """)
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"today": today})
@@ -108,8 +108,8 @@ def show_gestao_promo_page(engine, base_data_path):
     edited_df = st.data_editor(
         promo_df,
         column_config={
-            "codigo_interno": st.column_config.TextColumn("Código Interno", disabled=True),
-            "produto": st.column_config.TextColumn("Produto", width="large", disabled=True),
+            "cod_interno": st.column_config.TextColumn("Código Interno", disabled=True),
+            "nome_produto": st.column_config.TextColumn("Produto", width="large", disabled=True),
             "oferta": st.column_config.NumberColumn("Preço Oferta", format="R$ %.2f", disabled=True),
             "data_inicio": st.column_config.DateColumn("Início", disabled=True),
             "data_final": st.column_config.DateColumn("Final", disabled=True),
@@ -127,11 +127,11 @@ def show_gestao_promo_page(engine, base_data_path):
             pedidos_list = []
             username = st.session_state.get('username', 'unknown')
             
-            for _, row in pedidos_para_salvar.iterrows():
+                for _, row in pedidos_para_salvar.iterrows():
                 pedido_dict = {
-                    "codigo_interno": str(row['codigo_interno']),
-                    "produto": row['produto'],
-                    "ean": str(row.get('ean', '')),
+                    "cod_interno": str(row['cod_interno']),
+                    "nome_produto": row['nome_produto'],
+                    "codigo_ean": str(row.get('codigo_ean', '')),
                     "embseparacao": row.get('embseparacao', 0),
                     "data_pedido": datetime.now(),
                     "usuario_pedido": username,

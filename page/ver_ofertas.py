@@ -11,12 +11,12 @@ from datetime import datetime
 def get_ofertas_atuais(_engine):
     """Busca ofertas onde a data final é hoje ou no futuro."""
     today = datetime.now().date()
-    # CORREÇÃO: codigo -> codigo_interno
+    # CORREÇÃO: codigo -> cod_interno
     query = text("""
         SELECT 
             id, 
-            codigo_interno, 
-            produto, 
+            cod_interno, 
+            nome_produto, 
             oferta, 
             data_inicio, 
             data_final
@@ -33,8 +33,8 @@ def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
     """Atualiza um único campo de uma oferta."""
     try:
         with engine.begin() as conn:
-            # CORREÇÃO: codigo -> codigo_interno
-            campos_permitidos = ['oferta', 'produto', 'codigo_interno', 'data_inicio', 'data_final']
+            # CORREÇÃO: codigo -> cod_interno
+            campos_permitidos = ['oferta', 'nome_produto', 'cod_interno', 'data_inicio', 'data_final']
             if campo not in campos_permitidos:
                 st.error(f"Erro: Tentativa de atualizar campo inválido '{campo}'.")
                 return
@@ -88,16 +88,16 @@ def show_ver_ofertas_page(engine, base_data_path):
 
         df_ofertas["Deletar"] = False
         
-        # CORREÇÃO: codigo -> codigo_interno
+        # CORREÇÃO: para colunas usadas no DF
         colunas = [
-            'Deletar', 'id', 'codigo_interno', 'produto', 'oferta', 
+            'Deletar', 'id', 'cod_interno', 'nome_produto', 'oferta', 
             'data_inicio', 'data_final'
         ]
         
         config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, format="%d"),
-            "codigo_interno": st.column_config.NumberColumn("Cód. Interno", format="%d"), # Alterado label
-            "produto": st.column_config.TextColumn("Produto"),
+            "cod_interno": st.column_config.NumberColumn("Cód. Interno", format="%d"), # Alterado label
+            "nome_produto": st.column_config.TextColumn("Produto"),
             "oferta": st.column_config.NumberColumn("Oferta (R$)", format="%.2f"),
             "data_inicio": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
             "data_final": st.column_config.DateColumn("Final", format="DD/MM/YYYY"),
@@ -153,8 +153,8 @@ def show_ver_ofertas_page(engine, base_data_path):
             df_ofertas,
             column_config={
                 "id": None,
-                "codigo_interno": "Cód. Interno", # Alterado label
-                "produto": "Produto",
+                "cod_interno": "Cód. Interno", # Alterado label
+                "nome_produto": "Produto",
                 "oferta": st.column_config.NumberColumn("Oferta (R$)", format="%.2f"),
                 "data_inicio": st.column_config.DateColumn("Início", format="DD/MM/YYYY"),
                 "data_final": st.column_config.DateColumn("Final", format="DD/MM/YYYY"),
