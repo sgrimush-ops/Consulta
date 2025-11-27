@@ -12,7 +12,6 @@ from page.consulta_cd import show_consulta_cd_page
 from page.aprovacao_pedidos import show_aprovacao_page
 from page.status_usuarios import show_status_page
 from page.admin_maint import show_admin_page
-from page.admin_tools import show_admin_tools
 from page.mudar_senha import show_mudar_senha_page
 from page.contato import show_contato_page
 from page.upload_ofertas import show_upload_ofertas_page
@@ -233,7 +232,6 @@ def main_app():
         paginas["Aprovação de Pedidos"] = lambda: show_aprovacao_page(engine, BASE_DATA_PATH)
         paginas["Status do Usuário"] = lambda: show_status_page(engine, BASE_DATA_PATH)
         paginas["Administração"] = lambda: show_admin_page(engine, BASE_DATA_PATH)
-        paginas["Atualização de Dependências"] = lambda: show_admin_tools(engine, BASE_DATA_PATH)
         paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine) # <-- Adicionada a nova página
 
     # Seletor de Página

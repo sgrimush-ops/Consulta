@@ -41,7 +41,7 @@ def get_active_and_future_promos(engine):
     today = date.today()
     query = text("""
         SELECT 
-            o.codigo,
+            o.codigo_interno,
             m.produto,
             m.ean,
             m.embseparacao,
@@ -49,7 +49,7 @@ def get_active_and_future_promos(engine):
             o.data_inicio,
             o.data_final
         FROM ofertas AS o
-        JOIN mix_produtos AS m ON CAST(o.codigo AS TEXT) = CAST(m.codigo AS TEXT)
+        JOIN mix_produtos AS m ON CAST(o.codigo_interno AS TEXT) = CAST(m.codigo_interno AS TEXT)
         WHERE o.data_final >= :today AND m.estoque_cd > 0
         ORDER BY o.data_inicio, m.produto
     """)
@@ -108,7 +108,7 @@ def show_gestao_promo_page(engine, base_data_path):
     edited_df = st.data_editor(
         promo_df,
         column_config={
-            "codigo": st.column_config.TextColumn("Código", disabled=True),
+            "codigo_interno": st.column_config.TextColumn("Código Interno", disabled=True),
             "produto": st.column_config.TextColumn("Produto", width="large", disabled=True),
             "oferta": st.column_config.NumberColumn("Preço Oferta", format="R$ %.2f", disabled=True),
             "data_inicio": st.column_config.DateColumn("Início", disabled=True),
@@ -129,7 +129,7 @@ def show_gestao_promo_page(engine, base_data_path):
             
             for _, row in pedidos_para_salvar.iterrows():
                 pedido_dict = {
-                    "codigo": str(row['codigo']),
+                    "codigo_interno": str(row['codigo_interno']),
                     "produto": row['produto'],
                     "ean": str(row.get('ean', '')),
                     "embseparacao": row.get('embseparacao', 0),

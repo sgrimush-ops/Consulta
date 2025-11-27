@@ -4,27 +4,28 @@ from sqlalchemy import text, exc
 
 def get_stock_data(engine, search_term=""):
     """
-    Busca dados de estoque na tabela 'mix_produtos', com um filtro opcional.
+    Busca dados de estoque na tabela 'mix_produtos'.
     """
     try:
-        # A consulta base seleciona todas as colunas relevantes
+        # CORREÇÃO: codigo -> codigo_interno
+        # Note que também adicionei 'codigo_ean' para garantir
         query_str = """
             SELECT 
-                codigo, 
+                codigo_interno, 
                 produto, 
-                ean, 
+                codigo_ean, 
                 loja_ativa_mix, 
                 estoque_cd, 
                 total_estoque 
             FROM mix_produtos
         """
         params = {}
-        # Se um termo de busca for fornecido, adiciona a cláusula WHERE
         if search_term:
+            # CORREÇÃO: WHERE usa codigo_interno e codigo_ean
             query_str += """
                 WHERE 
-                    CAST(codigo AS TEXT) ILIKE :term OR 
-                    CAST(ean AS TEXT) ILIKE :term
+                    CAST(codigo_interno AS TEXT) ILIKE :term OR 
+                    CAST(codigo_ean AS TEXT) ILIKE :term
             """
             params = {"term": f"%{search_term}%"}
         
@@ -35,30 +36,21 @@ def get_stock_data(engine, search_term=""):
         return df
 
     except exc.ProgrammingError as e:
-        # Erro comum se as colunas esperadas não existirem (ex: após um novo upload)
-        st.error(
-            "Erro de Banco de Dados: Uma ou mais colunas esperadas (`loja_ativa_mix`, `estoque_cd`, `total_estoque`) "
-            "não foram encontradas na tabela `mix_produtos`. Verifique o arquivo `mix.parquet` mais recente."
-        )
-        return pd.DataFrame() # Retorna um dataframe vazio em caso de erro
+        st.error(f"Erro de Banco de Dados: {e}")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Ocorreu um erro inesperado ao consultar o banco de dados: {e}")
+        st.error(f"Ocorreu um erro inesperado: {e}")
         return pd.DataFrame()
 
 def show_consulta_cd_page(engine, base_data_path):
-    """
-    Cria a interface para a consulta de estoque do CD.
-    """
     st.title("📊 Consulta de Estoque e Mix (CD)")
     st.markdown("Visualize o status do mix e os estoques diretamente da base de dados atualizada.")
 
-    # --- Barra de Busca ---
     search_term = st.text_input(
         "Buscar por Código Interno ou EAN:",
         placeholder="Digite o código para filtrar..."
     )
 
-    # --- Exibição dos Dados ---
     with st.spinner("Carregando dados de estoque..."):
         df_stock = get_stock_data(engine, search_term)
 
@@ -66,9 +58,9 @@ def show_consulta_cd_page(engine, base_data_path):
         st.dataframe(
             df_stock,
             column_config={
-                "codigo": st.column_config.TextColumn("Código"),
+                "codigo_interno": st.column_config.TextColumn("Cód. Interno"), # Alterado
                 "produto": st.column_config.TextColumn("Produto", width="large"),
-                "ean": st.column_config.TextColumn("EAN"),
+                "codigo_ean": st.column_config.TextColumn("EAN"), # Alterado
                 "loja_ativa_mix": st.column_config.CheckboxColumn("Mix Ativo?"),
                 "estoque_cd": st.column_config.NumberColumn("Estoque CD"),
                 "total_estoque": st.column_config.NumberColumn("Estoque Total")
