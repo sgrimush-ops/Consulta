@@ -2,6 +2,30 @@
 
 Este repositório contém a aplicação (Streamlit) e scripts de migração/rotina para gestão de promoções e pedidos.
 
+## 📁 Estrutura do Projeto
+
+```
+ProjetoBak/
+├── app.py                      # Aplicação principal Streamlit
+├── main.py                     # Ponto de entrada da aplicação
+├── requirements.txt            # Dependências Python
+├── page/                       # Módulos de páginas da aplicação
+│   ├── admin_fornecedor.py
+│   ├── upload_ofertas.py
+│   └── ...
+├── migrations/                 # Scripts de migração do banco de dados
+│   ├── 001_safe_add_columns.sql
+│   ├── 002_direct_rename.sql
+│   └── run_migration_safe.sh
+├── scripts/                    # Scripts de manutenção e limpeza
+│   ├── cleanup_old_ofertas.py
+│   └── deploy_migrations_and_cleanup.sh
+└── tools/                      # Ferramentas auxiliares e diagnóstico
+    ├── diagnose_ofertas.py
+    ├── CORRECAO_OFERTAS.md
+    └── backups/
+```
+
 ## Rotina diária: limpeza de ofertas antigas
 Para manter o banco enxuto, delete ofertas com `data_final` mais antiga que 1 dia:
 
@@ -41,6 +65,20 @@ Criação de índice não bloqueante (opcional):
 - `codigo_interno` (canônico)
 - `descricao` (nome do produto)
 - `codigo_ean` (EAN)
+
+## 🛠️ Ferramentas de Diagnóstico
+
+Se encontrar erros relacionados a colunas do banco de dados (ex: "column codigo_interno does not exist"):
+
+```bash
+# Script de diagnóstico e correção automática
+python3 tools/diagnose_ofertas.py
+
+# Ou usando o script bash (verifica dependências)
+./tools/fix_ofertas_quick.sh
+```
+
+Consulte `tools/CORRECAO_OFERTAS.md` para documentação completa sobre resolução de problemas.
 
 ## Deploy (staging/produção)
 Script único para executar backup + migração segura (+ índice opcional) + limpeza de ofertas antigas:
