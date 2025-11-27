@@ -277,7 +277,7 @@ def show_aprovacao_page(engine, base_data_path):
         # Define colunas informativas (incluindo as novas de oferta)
         colunas_info = [
             'Selecionar', 'id_pedido', 'data_pedido_str', 'usuario_pedido',
-            'cod_interno', 'nome_produto, 
+            'cod_interno', 'nome_produto', 
             'inicio_oferta', 'fim_oferta', # <--- NOVAS COLUNAS AQUI
             'embseparacao', 'status_item', 'status_aprovacao'
         ]
