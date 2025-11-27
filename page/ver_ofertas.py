@@ -57,6 +57,32 @@ def cleanup_old_ofertas(_engine, older_than_days: int = 1) -> int:
         return 0
 
 
+def cleanup_old_pedidos_aprovados(_engine, older_than_days: int = 7) -> int:
+    """Remove pedidos aprovados mais antigos que older_than_days (base em data_aprovacao/data_pedido).
+
+    Retorna o número de linhas deletadas.
+    """
+    from datetime import date, timedelta
+
+    threshold = date.today() - timedelta(days=older_than_days)
+    try:
+        with _engine.begin() as conn:
+            delete_q = text(
+                """
+                DELETE FROM pedidos_consolidados
+                WHERE status_aprovacao = 'Aprovado'
+                  AND COALESCE(CAST(data_aprovacao AS DATE), CAST(data_pedido AS DATE)) < :threshold
+                RETURNING id
+                """
+            )
+            result = conn.execute(delete_q, {"threshold": threshold})
+            rows = result.fetchall()
+            deleted = len(rows)
+        return deleted
+    except Exception:
+        return 0
+
+
 def update_oferta_no_banco(engine, id_oferta, campo, novo_valor):
     """Atualiza um único campo de uma oferta."""
     try:
@@ -122,9 +148,14 @@ def show_ver_ofertas_page(engine, base_data_path):
 
     # Cleanup old offers (rotina diária): remove ofertas com data_final > 1 dia no passado
     try:
-        deleted_count = cleanup_old_ofertas(engine, older_than_days=1)
-        if deleted_count:
-            st.info(f"Removidas {deleted_count} oferta(s) com data_final antiga.")
+        deleted_offers = cleanup_old_ofertas(engine, older_than_days=1)
+        if deleted_offers:
+            st.info(f"Removidas {deleted_offers} oferta(s) com data_final antiga.")
+        deleted_orders = cleanup_old_pedidos_aprovados(engine, older_than_days=7)
+        if deleted_orders:
+            st.info(
+                f"Removidos {deleted_orders} pedido(s) aprovados com mais de 7 dias."
+            )
     except Exception:
         # não bloquear a página se cleanup falhar
         pass
