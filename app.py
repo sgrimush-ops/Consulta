@@ -103,7 +103,7 @@ def create_db_tables(engine):
             conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS pedidos_consolidados (
                     id SERIAL PRIMARY KEY, 
-                    cod_interno TEXT NOT NULL,
+                    codigo_interno TEXT NOT NULL,
                     nome_produto TEXT,
                     codigo_ean TEXT,
                     embseparacao INTEGER,
@@ -141,12 +141,12 @@ def create_db_tables(engine):
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS ofertas (
                     id SERIAL PRIMARY KEY,
-                    cod_interno INTEGER NOT NULL,
+                    codigo_interno INTEGER NOT NULL,
                     nome_produto TEXT,
                     oferta NUMERIC(10, 2),
                     data_inicio DATE NOT NULL,
                     data_final DATE NOT NULL,
-                    UNIQUE(cod_interno, data_inicio, data_final)
+                    UNIQUE(codigo_interno, data_inicio, data_final)
                 )
             """))
     except Exception as e:

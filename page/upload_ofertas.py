@@ -14,14 +14,14 @@ def processar_upload(engine, df, data_inicio, data_final):
     """
     
     # MUDANÇA: O DataFrame 'df' agora já chega com os nomes corretos
-    # ['cod_interno', 'nome_produto', 'oferta'] vindos da função de load.
+    # ['codigo_interno', 'nome_produto', 'oferta'] vindos da função de load.
     # A lógica de mapeamento de colunas foi removida.
     df_renomeado = df.copy()
     
     # 2. Limpeza e Validação dos Dados
     try:
         # Codigo Interno: Remove não numéricos, preenche com 0, converte para int
-        df_renomeado['cod_interno'] = pd.to_numeric(df_renomeado['cod_interno'], errors='coerce').fillna(0).astype(int)
+        df_renomeado['codigo_interno'] = pd.to_numeric(df_renomeado['codigo_interno'], errors='coerce').fillna(0).astype(int)
         # Oferta: Converte para numérico (float), arredonda para 2 casas
         df_renomeado['oferta'] = pd.to_numeric(df_renomeado['oferta'], errors='coerce').fillna(0).round(2)
         # Produto: Converte para string
@@ -32,7 +32,7 @@ def processar_upload(engine, df, data_inicio, data_final):
         df_renomeado['data_final'] = data_final
         
         # Remove linhas onde o código é 0 (inválido)
-        df_renomeado = df_renomeado[df_renomeado['cod_interno'] != 0]
+        df_renomeado = df_renomeado[df_renomeado['codigo_interno'] != 0]
         
     except Exception as e:
         st.error(f"Erro ao processar os tipos de dados do arquivo: {e}")
@@ -44,9 +44,9 @@ def processar_upload(engine, df, data_inicio, data_final):
 
     # 3. Lógica de UPSERT no Banco de Dados (PostgreSQL)
     upsert_query = text("""
-        INSERT INTO ofertas (cod_interno, nome_produto, oferta, data_inicio, data_final)
-        VALUES (:cod_interno, :nome_produto, :oferta, :data_inicio, :data_final)
-        ON CONFLICT (cod_interno, data_inicio, data_final) 
+        INSERT INTO ofertas (codigo_interno, nome_produto, oferta, data_inicio, data_final)
+        VALUES (:codigo_interno, :nome_produto, :oferta, :data_inicio, :data_final)
+        ON CONFLICT (codigo_interno, data_inicio, data_final) 
         DO UPDATE SET
             oferta = EXCLUDED.oferta,
             nome_produto = EXCLUDED.nome_produto;
@@ -89,7 +89,7 @@ def show_upload_ofertas_page(engine, base_data_path):
     st.subheader("2. Selecione o Arquivo")
     st.markdown("""
     O sistema irá ler **automaticamente** as colunas:
-    - **Coluna A** (como `cod_interno`)
+    - **Coluna A** (como `codigo_interno`)
     - **Coluna B** (como `nome_produto`)
     - **Coluna E** (como `oferta`)
     
@@ -107,7 +107,7 @@ def show_upload_ofertas_page(engine, base_data_path):
             df = pd.read_excel(uploaded_file, header=None, skiprows=1, usecols=[0, 1, 4])
             
             # MUDANÇA: Renomeia as colunas lidas (0, 1, 4) para os nomes do nosso DF
-            df.columns = ['cod_interno', 'nome_produto', 'oferta']
+            df.columns = ['codigo_interno', 'nome_produto', 'oferta']
                 
         except Exception as e:
             st.error(f"Erro ao ler o arquivo: {e}")
