@@ -188,11 +188,29 @@ def show_pedidos_cd_page(engine, base_data_path):
 
         st.markdown("---")
         st.subheader(f"Produto Encontrado: {item.get(mix_desc_col, 'N/A')}")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("Código Interno", codigo_produto)
         col2.metric("EAN", str(item.get("codigo_ean", "N/A")))
-        emb_val = item.get(mix_emb_col) if mix_emb_col else "N/A"
-        col3.metric("Embalagem Separação", str(emb_val))
+
+        # Embalagem (Un/Cx)
+        emb_val = (
+            item.get(mix_emb_col)
+            if mix_emb_col
+            else item.get("embalagem")
+        )
+        if pd.isna(emb_val) or emb_val is None:
+            emb_val = "N/A"
+        else:
+            emb_val = int(emb_val)
+        col3.metric("Emb. (Un/Cx)", str(emb_val))
+
+        # Estoque CD (em caixas)
+        estoque_val = item.get("estoque_cd", 0)
+        if pd.isna(estoque_val) or estoque_val is None:
+            estoque_val = 0
+        else:
+            estoque_val = int(estoque_val)
+        col4.metric("Estoque CD (Cx)", str(estoque_val))
 
         # Abas com informações adicionais
         tab1, tab2 = st.tabs(["Histórico de Solicitações", "Ofertas Futuras"])

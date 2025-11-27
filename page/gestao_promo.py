@@ -90,7 +90,8 @@ def get_active_and_future_promos(engine):
         SELECT
             m.{mix_code} AS codigo_interno,
             m.{mix_desc} AS descricao,
-            m.codigo_ean
+            m.codigo_ean,
+            m.estoque_cd
             {emb_select},
             o.oferta,
             o.data_inicio,
@@ -120,6 +121,15 @@ def get_active_and_future_promos(engine):
             .fillna(0)
             .astype(int)
         )
+
+    # Garante que estoque_cd seja inteiro (0 se NULL)
+    if "estoque_cd" in df.columns:
+        df["estoque_cd"] = (
+            pd.to_numeric(df["estoque_cd"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
+
     return df
 
 
@@ -277,6 +287,9 @@ def show_gestao_promo_page(engine, base_data_path):
             ),
             "embseparacao": st.column_config.NumberColumn(
                 "Emb. (Un/Cx)", disabled=True, format="%d"
+            ),
+            "estoque_cd": st.column_config.NumberColumn(
+                "Estoque CD (Cx)", disabled=True, format="%d"
             ),
             "oferta": st.column_config.NumberColumn(
                 "Preço Oferta", format="R$ %.2f", disabled=True
