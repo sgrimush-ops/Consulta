@@ -11,8 +11,8 @@ BEGIN
         EXECUTE 'ALTER TABLE mix_produtos RENAME COLUMN codigo_interno TO cod_interno';
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name='produto') AND
-       NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name='nome_produto') THEN
-        EXECUTE 'ALTER TABLE mix_produtos RENAME COLUMN produto TO nome_produto';
+       NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name='descricao') THEN
+        EXECUTE 'ALTER TABLE mix_produtos RENAME COLUMN produto TO descricao';
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name='ean') AND
        NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mix_produtos' AND column_name='codigo_ean') THEN
@@ -28,8 +28,8 @@ BEGIN
         EXECUTE 'ALTER TABLE ofertas RENAME COLUMN codigo TO cod_interno';
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ofertas' AND column_name='produto') AND
-       NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ofertas' AND column_name='nome_produto') THEN
-        EXECUTE 'ALTER TABLE ofertas RENAME COLUMN produto TO nome_produto';
+       NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ofertas' AND column_name='descricao') THEN
+        EXECUTE 'ALTER TABLE ofertas RENAME COLUMN produto TO descricao';
     END IF;
 END$$;
 
@@ -45,8 +45,8 @@ BEGIN
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name='produto') AND
-       NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name='nome_produto') THEN
-        EXECUTE 'ALTER TABLE pedidos_consolidados RENAME COLUMN produto TO nome_produto';
+       NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name='descricao') THEN
+        EXECUTE 'ALTER TABLE pedidos_consolidados RENAME COLUMN produto TO descricao';
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pedidos_consolidados' AND column_name='ean') AND
