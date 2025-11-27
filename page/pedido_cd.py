@@ -9,6 +9,7 @@ from page import (
     resolve_pedidos_codigo_col,
     resolve_pedidos_descricao_col,
     resolve_pedidos_emb_col,
+    has_table_column,
 )
 from datetime import datetime, date
 
@@ -293,6 +294,23 @@ def show_pedidos_cd_page(engine, base_data_path):
                     ):
                         df_real = df_real.drop(
                             columns=["embseparacao"])  # compat
+
+                    # Compatibilidade: se a tabela exigir coluna 'codigo'
+                    # (NOT NULL), popular com o mesmo valor do código real.
+                    try:
+                        if has_table_column(
+                            engine, "pedidos_consolidados", "codigo"
+                        ) and "codigo" not in df_real.columns:
+                            code_col = (
+                                pedidos_code_col
+                                if pedidos_code_col in df_real.columns
+                                else "codigo_interno"
+                            )
+                            if code_col in df_real.columns:
+                                df_real["codigo"] = df_real[code_col]
+                    except Exception:
+                        # Não bloquear salvamento em caso de detecção falhar
+                        pass
 
                     if save_pedido_consolidado(engine, df_real):
                         st.success(

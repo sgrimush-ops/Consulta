@@ -77,6 +77,13 @@ def get_offers_data(engine):
     try:
         with engine.connect() as conn:
             df = pd.read_sql_query(query, conn, params={"today": today})
+            # Normaliza tipo do código para inteiro
+            if "codigo_interno" in df.columns:
+                df["codigo_interno"] = (
+                    pd.to_numeric(df["codigo_interno"], errors="coerce")
+                    .fillna(0)
+                    .astype(int)
+                )
             # Remove duplicatas mantendo a última vigência cadastrada
             df = df.drop_duplicates(subset=["codigo_interno"], keep="last")
         return df
