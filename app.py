@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 
 # --- Importa as páginas ---
 from page.home import show_home_page
-from page.consulta_cd import show_consulta_cd_page 
+from page.consulta_cd import show_consulta_cd_page
 from page.aprovacao_pedidos import show_aprovacao_page
 from page.status_usuarios import show_status_page
 from page.admin_maint import show_admin_page
@@ -16,9 +16,10 @@ from page.mudar_senha import show_mudar_senha_page
 from page.contato import show_contato_page
 from page.upload_ofertas import show_upload_ofertas_page
 from page.ver_ofertas import show_ver_ofertas_page
-from page.admin_uploads import show_admin_uploads_page 
-from page.pedido_cd import show_pedidos_cd_page 
-from page.gestao_promo import show_gestao_promo_page 
+from page.admin_uploads import show_admin_uploads_page
+from page.pedido_cd import show_pedidos_cd_page
+from page.gestao_promo import show_gestao_promo_page
+from page.dashboard_online import show_dashboard_online_page
 
 # =========================================================
 # CONFIGURAÇÕES INICIAIS
@@ -26,13 +27,16 @@ from page.gestao_promo import show_gestao_promo_page
 st.set_page_config(page_title="Gestão de Produtos", layout="wide")
 
 BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
-os.makedirs(BASE_DATA_PATH, exist_ok=True) 
+os.makedirs(BASE_DATA_PATH, exist_ok=True)
 
-LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "017", "018"]
+LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
+               "007", "008", "011", "012", "013", "014", "017", "018"]
 
 # =========================================================
 # CONEXÃO DE BANCO
 # =========================================================
+
+
 @st.cache_resource
 def get_engine():
     db_url = os.getenv("DATABASE_URL")
@@ -43,22 +47,28 @@ def get_engine():
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
 
+
 engine = get_engine()
 
 # =========================================================
 # FUNÇÕES DE SEGURANÇA
 # =========================================================
+
+
 def make_hashes(password):
     # CORREÇÃO: Adicionando codificação explícita
-    return hashlib.sha256(password.encode('utf-8')).hexdigest() 
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
 
 def check_hashes(password, hashed_text):
     return make_hashes(password) == hashed_text
 
+
 def check_login_and_get_roles(engine, username, password):
     # A definição aqui está correta (3 argumentos)
     with engine.connect() as conn:
-        query = text("SELECT password, role, lojas_acesso FROM users WHERE username = :username")
+        query = text(
+            "SELECT password, role, lojas_acesso FROM users WHERE username = :username")
         result = conn.execute(query, {"username": username.lower()})
         data = result.fetchone()
 
@@ -74,19 +84,23 @@ def check_login_and_get_roles(engine, username, password):
             return True, (role or "user"), lojas
     return False, "user", []
 
+
 def update_user_status(username, status):
     try:
         current_time = datetime.now()
-        query = text("UPDATE users SET ultimo_acesso = :time, status_logado = :status WHERE username = :username")
+        query = text(
+            "UPDATE users SET ultimo_acesso = :time, status_logado = :status WHERE username = :username")
         with engine.begin() as conn:
-            conn.execute(query, {"time": current_time, "status": status, "username": username.lower()})
+            conn.execute(query, {"time": current_time,
+                         "status": status, "username": username.lower()})
     except Exception:
         pass
+
 
 def create_db_tables(engine):
     # Esta função agora aceita 1 argumento (engine)
     try:
-        with engine.begin() as conn: 
+        with engine.begin() as conn:
             # ... comandos CREATE TABLE (os comandos estão OK)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -98,8 +112,9 @@ def create_db_tables(engine):
                     lojas_acesso TEXT
                 )
             """))
-            
-            lojas_sql_cols = ", ".join([f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
+
+            lojas_sql_cols = ", ".join(
+                [f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
             conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS pedidos_consolidados (
                     id SERIAL PRIMARY KEY, 
@@ -126,8 +141,8 @@ def create_db_tables(engine):
                     ultimo_update TIMESTAMP,
                     status TEXT DEFAULT 'Aguardando Retorno' 
                 )
-            """)) 
-            
+            """))
+
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS contato_mensagens (
                     id SERIAL PRIMARY KEY,
@@ -137,7 +152,7 @@ def create_db_tables(engine):
                     data_envio TIMESTAMP
                 )
             """))
-            
+
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS ofertas (
                     id SERIAL PRIMARY KEY,
@@ -152,18 +167,21 @@ def create_db_tables(engine):
     except Exception as e:
         # Melhoria: avisa se houver erro ao criar tabelas
         st.warning(f"Aviso: Falha ao tentar criar tabelas no BD. {e}")
-        pass 
+        pass
 
 # =========================================================
 # NAVEGAÇÃO E LOGIN
 # =========================================================
+
+
 def login_page(engine):
     st.title("🔐 Login do Sistema")
     username = st.text_input("Usuário:").lower()
     senha = st.text_input("Senha:", type="password")
 
     if st.button("Entrar", type="primary"):
-        logged_in, role, lojas = check_login_and_get_roles(engine, username, senha)
+        logged_in, role, lojas = check_login_and_get_roles(
+            engine, username, senha)
         if logged_in:
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
@@ -175,10 +193,11 @@ def login_page(engine):
             st.error("Usuário ou senha inválidos.")
     st.stop()
 
+
 def main_app():
     engine = get_engine()
     create_db_tables(engine)
-    
+
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
@@ -213,26 +232,36 @@ def main_app():
     # Menu
     paginas = {
         "Home": lambda: show_home_page(engine, BASE_DATA_PATH),
-        "Consulta de Estoque e Mix (CD)": lambda: show_consulta_cd_page(engine, BASE_DATA_PATH), # <-- ADICIONADO
+        # <-- ADICIONADO
+        "Consulta de Estoque e Mix (CD)": lambda: show_consulta_cd_page(engine, BASE_DATA_PATH),
         "Ofertas Atuais": lambda: show_ver_ofertas_page(engine, BASE_DATA_PATH),
         "Alterar Senha": lambda: show_mudar_senha_page(engine, BASE_DATA_PATH),
-        "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH), 
+        "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH),
     }
 
     if st.session_state.get("lojas_acesso"):
         # Adiciona as novas páginas de pedido no topo do sub-menu
-        paginas["Pedidos de Promoção"] = lambda: show_gestao_promo_page(engine, BASE_DATA_PATH)
-        paginas["Pedido por Código (CD)"] = lambda: show_pedidos_cd_page(engine, BASE_DATA_PATH)
+        paginas["Pedidos de Promoção"] = lambda: show_gestao_promo_page(
+            engine, BASE_DATA_PATH)
+        paginas["Pedido por Código (CD)"] = lambda: show_pedidos_cd_page(
+            engine, BASE_DATA_PATH)
         # "Digitar Pedidos (Legado)" foi removido junto com o arquivo pedidos.py
 
     if st.session_state.get("role") in ["mkt", "admin"]:
-        paginas["Upload Ofertas"] = lambda: show_upload_ofertas_page(engine, BASE_DATA_PATH)
-    
+        paginas["Upload Ofertas"] = lambda: show_upload_ofertas_page(
+            engine, BASE_DATA_PATH)
+
     if st.session_state.get("role") == "admin":
-        paginas["Aprovação de Pedidos"] = lambda: show_aprovacao_page(engine, BASE_DATA_PATH)
-        paginas["Status do Usuário"] = lambda: show_status_page(engine, BASE_DATA_PATH)
-        paginas["Administração"] = lambda: show_admin_page(engine, BASE_DATA_PATH)
-        paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine) # <-- Adicionada a nova página
+        paginas["Aprovação de Pedidos"] = lambda: show_aprovacao_page(
+            engine, BASE_DATA_PATH)
+        paginas["Status do Usuário"] = lambda: show_status_page(
+            engine, BASE_DATA_PATH)
+        paginas["Administração"] = lambda: show_admin_page(
+            engine, BASE_DATA_PATH)
+        paginas["Admin Uploads"] = lambda: show_admin_uploads_page(
+            engine)  # <-- Adicionada a nova página
+        paginas["Dashboard"] = lambda: show_dashboard_online_page(
+            engine, BASE_DATA_PATH)
 
     # Seletor de Página
     page_labels = list(paginas.keys())
@@ -242,9 +271,10 @@ def main_app():
     # Validação e ajuste da página atual
     current_key = st.session_state.page_key
     if "Contato" in current_key:
-        found_contact = next((k for k in page_labels if "Contato" in k), "Home")
+        found_contact = next(
+            (k for k in page_labels if "Contato" in k), "Home")
         if st.session_state.page_key != found_contact:
-             st.session_state.page_key = found_contact
+            st.session_state.page_key = found_contact
     elif st.session_state.page_key not in page_labels:
         st.session_state.page_key = "Home"
 
@@ -258,19 +288,20 @@ def main_app():
         st.session_state.page_key = "Home"
 
     st.sidebar.radio(
-        "Navegação:", 
-        page_labels, 
+        "Navegação:",
+        page_labels,
         index=current_index,
         key="nav_radio",
         on_change=update_page
     )
-    
+
     # --- EXECUÇÃO ---
     try:
         func = paginas[st.session_state.page_key]
         func()
     except Exception as e:
         st.error(f"Erro ao carregar página: {e}")
+
 
 @st.cache_data(ttl=60)
 def get_unread_message_count(_engine, username, role):
@@ -282,7 +313,8 @@ def get_unread_message_count(_engine, username, role):
         query_str = "SELECT COUNT(id) FROM contato_chamados WHERE status = 'Respondido' AND usuario_username = :username"
         params = {"username": username}
 
-    if not query_str: return 0
+    if not query_str:
+        return 0
 
     try:
         with _engine.connect() as conn:
@@ -290,6 +322,7 @@ def get_unread_message_count(_engine, username, role):
             return result.scalar_one_or_none() or 0
     except Exception:
         return 0
+
 
 if __name__ == "__main__":
     main_app()
