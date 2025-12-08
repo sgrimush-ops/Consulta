@@ -309,21 +309,8 @@ def show_dashboard_online_page(engine, base_data_path=None):
 
     # Calcular métricas
     metricas = calcular_metricas(df)
-            st.write(
-                f"- Colunas com null: {sum(1 for v in diag['nulos'].values() if v > 0)}")
 
-        st.write("**Métricas Calculadas:**")
-        st.json({
-            'giro_cd_dias': round(metricas['giro_cd'], 2),
-            'giro_por_loja_count': len(metricas['giro_por_loja']),
-            'com_sugestao': metricas['com_sugestao'],
-            'total_gerado': metricas['total_gerado'],
-            'total_sugerido': metricas['total_sugerido']
-        })
-
-    st.markdown("---")
-
-    # Header com info geral
+    # SEÇÃO DE MÉTRICAS PRINCIPAIS
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total de Produtos", f"{metricas['total_analisados']:,}")
