@@ -128,54 +128,45 @@ def calcular_metricas(df):
         ) if 'sugestao' in df.columns else 0
         metricas['variacao_perc'] = 0
 
-    # Giro CD - Suporta nomes de coluna diferentes
-    estoque_cd_col = 'estoque_total_cd' if 'estoque_total_cd' in df.columns else 'estoque' if 'estoque' in df.columns else None
+    # Giro CD baseado em demanda (usando venda_media_dia - como no local)
+    if 'estoque_total_cd' in df.columns and 'venda_media_dia' in df.columns:
+        estoque_total_cd = df['estoque_total_cd'].sum()
+        demanda_media_total = df['venda_media_dia'].sum()
 
-    if estoque_cd_col and 'sugestao' in df.columns:
-        df_com_sugestao = df[df['sugestao'] > 0].copy()
-        if len(df_com_sugestao) > 0:
-            # Sugestão mensal total (já é a sugestão diária * dias)
-            sugestao_mensal_total = df_com_sugestao['sugestao'].sum()
-            estoque_total_cd = df_com_sugestao[estoque_cd_col].sum()
-
-            # Giro = Estoque / (Sugestão mensal / 30) = (Estoque / Sugestão mensal) * 30
-            # Resultado em dias de cobertura
-            if sugestao_mensal_total > 0:
-                metricas['giro_cd'] = round((
-                    estoque_total_cd / sugestao_mensal_total) * 30, 1)
-            else:
-                metricas['giro_cd'] = 0
+        if demanda_media_total > 0:
+            metricas['giro_cd'] = round(
+                estoque_total_cd / demanda_media_total, 1)
         else:
             metricas['giro_cd'] = 0
     else:
         metricas['giro_cd'] = 0
 
-    # Giro por loja - Suporta nomes de coluna diferentes
-    estoque_loja_col = 'estoque_total_loja' if 'estoque_total_loja' in df.columns else 'estoque' if 'estoque' in df.columns else None
-
-    metricas['giro_por_loja'] = {}
-    if 'loja' in df.columns and estoque_loja_col and 'sugestao' in df.columns:
-        for loja in df['loja'].unique():
-            df_loja = df[(df['loja'] == loja) & (df['sugestao'] > 0)].copy()
-            if len(df_loja) > 0:
-                sugestao_mensal_loja = df_loja['sugestao'].sum()
-                estoque_loja = df_loja[estoque_loja_col].sum()
-
-                # Giro por loja em dias
-                if sugestao_mensal_loja > 0:
-                    giro = round((estoque_loja / sugestao_mensal_loja) * 30, 1)
-                    metricas['giro_por_loja'][str(loja)] = giro
-
-    if metricas['giro_por_loja']:
-        metricas['giro_medio_geral'] = round(sum(
-            metricas['giro_por_loja'].values()) / len(metricas['giro_por_loja']), 1)
+    # Giro médio geral (dias_cobertura_atual - como no local)
+    if 'dias_cobertura_atual' in df.columns:
+        df_com_estoque = df[df['dias_cobertura_atual'] > 0]
+        metricas['giro_medio_geral'] = round(
+            df_com_estoque['dias_cobertura_atual'].mean(), 1
+        ) if len(df_com_estoque) > 0 else 0
     else:
         metricas['giro_medio_geral'] = 0
 
-    # Risco de ruptura
-    if 'cobertura_dias' in df.columns:
-        metricas['risco_ruptura_3d'] = (df['cobertura_dias'] < 3).sum()
-        metricas['risco_ruptura_5d'] = (df['cobertura_dias'] < 5).sum()
+    # Giro por loja (dias_cobertura_atual - como no local)
+    metricas['giro_por_loja'] = {}
+    if 'loja' in df.columns and 'dias_cobertura_atual' in df.columns:
+        df_com_estoque = df[df['dias_cobertura_atual'] > 0]
+        if len(df_com_estoque) > 0:
+            giro_por_loja = df_com_estoque.groupby(
+                'loja')['dias_cobertura_atual'].mean()
+            for loja, giro in giro_por_loja.items():
+                metricas['giro_por_loja'][str(loja)] = round(giro, 1)
+
+    # Risco de ruptura (dias_cobertura_atual - como no local)
+    if 'dias_cobertura_atual' in df.columns:
+        metricas['risco_ruptura_3d'] = (df['dias_cobertura_atual'] < 3).sum()
+        metricas['risco_ruptura_5d'] = (
+            (df['dias_cobertura_atual'] >= 3) &
+            (df['dias_cobertura_atual'] < 5)
+        ).sum()
     else:
         metricas['risco_ruptura_3d'] = 0
         metricas['risco_ruptura_5d'] = 0
