@@ -89,8 +89,10 @@ def calcular_metricas(df):
         metricas['perc_sugestao'] = (
             metricas['com_sugestao'] / metricas['total_analisados'] * 100) if metricas['total_analisados'] > 0 else 0
     else:
-        metricas['com_sugestao'] = (df['sugestao'] > 0).sum()
-        metricas['sem_sugestao'] = (df['sugestao'] == 0).sum()
+        metricas['com_sugestao'] = (
+            df['sugestao'] > 0).sum() if 'sugestao' in df.columns else 0
+        metricas['sem_sugestao'] = (df['sugestao'] == 0).sum(
+        ) if 'sugestao' in df.columns else metricas['total_analisados'] - metricas['com_sugestao']
         metricas['perc_sugestao'] = (
             metricas['com_sugestao'] / metricas['total_analisados'] * 100) if metricas['total_analisados'] > 0 else 0
 
@@ -126,13 +128,15 @@ def calcular_metricas(df):
         ) if 'sugestao' in df.columns else 0
         metricas['variacao_perc'] = 0
 
-    # Giro CD
-    if 'estoque_total_cd' in df.columns and 'sugestao' in df.columns:
+    # Giro CD - Suporta nomes de coluna diferentes
+    estoque_cd_col = 'estoque_total_cd' if 'estoque_total_cd' in df.columns else 'estoque' if 'estoque' in df.columns else None
+
+    if estoque_cd_col and 'sugestao' in df.columns:
         df_com_sugestao = df[df['sugestao'] > 0].copy()
         if len(df_com_sugestao) > 0:
             # Sugestão mensal total (já é a sugestão diária * dias)
             sugestao_mensal_total = df_com_sugestao['sugestao'].sum()
-            estoque_total_cd = df_com_sugestao['estoque_total_cd'].sum()
+            estoque_total_cd = df_com_sugestao[estoque_cd_col].sum()
 
             # Giro = Estoque / (Sugestão mensal / 30) = (Estoque / Sugestão mensal) * 30
             # Resultado em dias de cobertura
@@ -146,14 +150,16 @@ def calcular_metricas(df):
     else:
         metricas['giro_cd'] = 0
 
-    # Giro por loja
+    # Giro por loja - Suporta nomes de coluna diferentes
+    estoque_loja_col = 'estoque_total_loja' if 'estoque_total_loja' in df.columns else 'estoque' if 'estoque' in df.columns else None
+
     metricas['giro_por_loja'] = {}
-    if 'loja' in df.columns and 'estoque_total_loja' in df.columns and 'sugestao' in df.columns:
+    if 'loja' in df.columns and estoque_loja_col and 'sugestao' in df.columns:
         for loja in df['loja'].unique():
             df_loja = df[(df['loja'] == loja) & (df['sugestao'] > 0)].copy()
             if len(df_loja) > 0:
                 sugestao_mensal_loja = df_loja['sugestao'].sum()
-                estoque_loja = df_loja['estoque_total_loja'].sum()
+                estoque_loja = df_loja[estoque_loja_col].sum()
 
                 # Giro por loja em dias
                 if sugestao_mensal_loja > 0:
