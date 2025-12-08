@@ -21,8 +21,6 @@ from sqlalchemy import create_engine, text
 BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
 os.makedirs(BASE_DATA_PATH, exist_ok=True)
 
-# CSS customizado
-
 
 def setup_css():
     st.markdown("""
@@ -80,7 +78,6 @@ def calcular_metricas(df):
     """Calcula métricas do dashboard"""
     metricas = {}
 
-    # Total analisado
     metricas['total_analisados'] = len(df)
 
     # Sugestões
@@ -89,12 +86,13 @@ def calcular_metricas(df):
             0) + df['sugestao_pendente'].fillna(0)
         metricas['com_sugestao'] = (df['sugestao_total'] > 0).sum()
         metricas['sem_sugestao'] = (df['sugestao_total'] == 0).sum()
-    elif 'sugestao' in df.columns:
+        metricas['perc_sugestao'] = (
+            metricas['com_sugestao'] / metricas['total_analisados'] * 100) if metricas['total_analisados'] > 0 else 0
+    else:
         metricas['com_sugestao'] = (df['sugestao'] > 0).sum()
         metricas['sem_sugestao'] = (df['sugestao'] == 0).sum()
-    else:
-        metricas['com_sugestao'] = 0
-        metricas['sem_sugestao'] = metricas['total_analisados']
+        metricas['perc_sugestao'] = (
+            metricas['com_sugestao'] / metricas['total_analisados'] * 100) if metricas['total_analisados'] > 0 else 0
 
     # Situações
     if 'situacao' in df.columns:
@@ -130,12 +128,17 @@ def calcular_metricas(df):
 
     # Giro CD
     if 'estoque_total_cd' in df.columns and 'sugestao' in df.columns:
-        df_com_sugestao = df[df['sugestao'] > 0]
+        df_com_sugestao = df[df['sugestao'] > 0].copy()
         if len(df_com_sugestao) > 0:
-            sugestao_diaria = df_com_sugestao['sugestao'].sum() / 30
+            # Sugestão mensal total
+            sugestao_mensal_total = df_com_sugestao['sugestao'].sum()
             estoque_total_cd = df_com_sugestao['estoque_total_cd'].sum()
-            if sugestao_diaria > 0:
-                metricas['giro_cd'] = estoque_total_cd / sugestao_diaria
+
+            # Giro = Estoque / (Sugestão mensal / 30)
+            # Resultado em dias de cobertura
+            if sugestao_mensal_total > 0:
+                metricas['giro_cd'] = (
+                    estoque_total_cd / sugestao_mensal_total) * 30
             else:
                 metricas['giro_cd'] = 0
         else:
@@ -147,12 +150,14 @@ def calcular_metricas(df):
     metricas['giro_por_loja'] = {}
     if 'loja' in df.columns and 'estoque_total_loja' in df.columns and 'sugestao' in df.columns:
         for loja in df['loja'].unique():
-            df_loja = df[(df['loja'] == loja) & (df['sugestao'] > 0)]
+            df_loja = df[(df['loja'] == loja) & (df['sugestao'] > 0)].copy()
             if len(df_loja) > 0:
-                sugestao_diaria_loja = df_loja['sugestao'].sum() / 30
+                sugestao_mensal_loja = df_loja['sugestao'].sum()
                 estoque_loja = df_loja['estoque_total_loja'].sum()
-                if sugestao_diaria_loja > 0:
-                    giro = estoque_loja / sugestao_diaria_loja
+
+                # Giro por loja em dias
+                if sugestao_mensal_loja > 0:
+                    giro = (estoque_loja / sugestao_mensal_loja) * 30
                     metricas['giro_por_loja'][str(loja)] = giro
 
     if metricas['giro_por_loja']:
@@ -319,6 +324,33 @@ def show_dashboard_online_page(engine, base_data_path=None):
 
     # Calcular métricas
     metricas = calcular_metricas(df)
+
+    # --- DIAGNÓSTICO (Expandível) ---
+    with st.expander("🔍 Diagnóstico da Estrutura de Dados"):
+        diag = diagnosticar_estrutura(df)
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write("**Colunas Disponíveis:**")
+            for col in diag['colunas']:
+                st.code(col, language="text")
+
+        with col2:
+            st.write("**Resumo dos Dados:**")
+            st.write(f"- Total de linhas: {diag['total_linhas']}")
+            st.write(
+                f"- Colunas com null: {sum(1 for v in diag['nulos'].values() if v > 0)}")
+
+        st.write("**Métricas Calculadas:**")
+        st.json({
+            'giro_cd_dias': round(metricas['giro_cd'], 2),
+            'giro_por_loja_count': len(metricas['giro_por_loja']),
+            'com_sugestao': metricas['com_sugestao'],
+            'total_gerado': metricas['total_gerado'],
+            'total_sugerido': metricas['total_sugerido']
+        })
+
+    st.markdown("---")
 
     # Header com info geral
     col1, col2, col3 = st.columns(3)
