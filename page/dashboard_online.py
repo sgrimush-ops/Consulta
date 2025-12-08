@@ -33,6 +33,27 @@ def setup_css():
             text-align: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
+        .status-excelente {
+            background-color: #d5f4e6;
+            border-left: 4px solid #27ae60;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status-atencao {
+            background-color: #fef5e7;
+            border-left: 4px solid #f39c12;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status-critico {
+            background-color: #fadbd8;
+            border-left: 4px solid #e74c3c;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -225,7 +246,30 @@ def criar_grafico_situacoes(metricas):
             insidetextorientation='horizontal'
         )
     ])
-    fig.update_layout(height=400)
+    fig.update_layout(height=400, showlegend=False)
+    return fig
+
+
+def criar_grafico_comparativo(metricas):
+    """Cria gráfico comparativo Gerado vs Sugerido"""
+    fig = go.Figure(data=[
+        go.Bar(
+            x=['Original', 'ML Sugerido'],
+            y=[metricas['total_gerado'], metricas['total_sugerido']],
+            marker=dict(color=['#3498db', '#e74c3c']),
+            text=[
+                f"{metricas['total_gerado']:,}",
+                f"{metricas['total_sugerido']:,}"
+            ],
+            textposition='outside'
+        )
+    ])
+    fig.update_layout(
+        title="Comparativo Gerado vs Sugerido",
+        yaxis_title="Quantidade (caixas)",
+        height=350,
+        showlegend=False
+    )
     return fig
 
 
@@ -256,9 +300,10 @@ def criar_grafico_giro_lojas(metricas):
         y=df_lojas['Loja_Label'],
         x=df_lojas['Giro Médio (dias)'],
         orientation='h',
-        marker=dict(color=df_lojas['Cor']),
+        marker=dict(color=df_lojas['Cor'], line=dict(width=2, color='white')),
         text=df_lojas['Giro Médio (dias)'].round(1),
-        textposition='outside'
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>Giro: %{x:.1f} dias<extra></extra>'
     ))
 
     fig.add_vline(x=22, line_dash="dash", line_color="green",
@@ -284,8 +329,14 @@ def show_dashboard_online_page(engine, base_data_path=None):
     """Função principal da página dashboard"""
     setup_css()
 
-    st.title("📊 Dashboard Sugestões IA")
-    st.markdown("---")
+    st.set_page_config(
+        page_title="Dashboard Sugestões IA",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    st.title("📊 DASHBOARD - ANÁLISE DE SUGESTÕES IA")
 
     # Tentar carregar do banco automaticamente
     df = None
@@ -298,28 +349,63 @@ def show_dashboard_online_page(engine, base_data_path=None):
     if df is None:
         st.error("❌ Nenhum dado disponível no banco de dados. Por favor, configure a conexão com o banco ou faça uma importação na seção de Admin.")
         st.stop()
-    else:
-        # Se carregou do banco com sucesso, mostrar opção de recarregar
-        if st.button("🔄 Recarregar Dados", type="secondary"):
-            st.cache_data.clear()
-            st.rerun()
+
+    # Se carregou do banco com sucesso, mostrar opção de recarregar
+    if st.button("🔄 Recarregar Dados", type="secondary"):
+        st.cache_data.clear()
+        st.rerun()
 
     # Calcular métricas
     metricas = calcular_metricas(df)
 
-    # SEÇÃO DE MÉTRICAS PRINCIPAIS
-    col1, col2, col3 = st.columns(3)
+    # Data da análise
+    data_analise = (
+        pd.to_datetime(df['data_analise'].iloc[0]).strftime('%d/%m/%Y')
+        if 'data_analise' in df.columns else datetime.now().strftime('%d/%m/%Y')
+    )
+    st.markdown(f"**Data da análise:** {data_analise}")
+    st.markdown("---")
+
+    # ==============================================================================
+    # SEÇÃO 1: VISÃO GERAL
+    # ==============================================================================
+    st.header("📈 Visão Geral")
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-        st.metric("Total de Produtos", f"{metricas['total_analisados']:,}")
+        st.metric(
+            "Total Analisados",
+            f"{metricas['total_analisados']:,}",
+            f"Com sugestão: {metricas['com_sugestao']:,}"
+        )
+
     with col2:
-        st.metric("Com Sugestão", f"{metricas['com_sugestao']:,}")
+        st.metric(
+            "Em Atendimento",
+            f"{metricas['em_atendimento']:,}",
+            f"{metricas['em_atendimento']/max(metricas['com_sugestao'], 1)*100:.1f}%"
+        )
+
     with col3:
-        st.metric("Data Análise", metricas['data_analise'])
+        st.metric(
+            "Insuficiente",
+            f"{metricas['insuficiente']:,}",
+            f"{metricas['insuficiente']/max(metricas['com_sugestao'], 1)*100:.1f}%"
+        )
+
+    with col4:
+        st.metric(
+            "Falta Estoque",
+            f"{metricas['falta_estoque']:,}",
+            f"{metricas['falta_estoque']/max(metricas['com_sugestao'], 1)*100:.1f}%"
+        )
 
     st.markdown("---")
 
-    # SEÇÃO 1: SUGESTÕES
-    st.header("📦 Sugestões ML")
+    # ==============================================================================
+    # SEÇÃO 2: SUGESTÕES E SITUAÇÕES (lado a lado)
+    # ==============================================================================
+    st.header("📊 Análise Detalhada")
     col1, col2 = st.columns(2)
 
     with col1:
@@ -332,75 +418,406 @@ def show_dashboard_online_page(engine, base_data_path=None):
 
     st.markdown("---")
 
-    # SEÇÃO 2: COMPARATIVO GERADO vs SUGERIDO
+    # ==============================================================================
+    # SEÇÃO 3: COMPARATIVO GERADO vs SUGERIDO
+    # ==============================================================================
     st.header("📈 Comparativo: Gerado vs Sugerido")
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("Total Gerado", f"{metricas['total_gerado']:,} cx")
+        fig3 = criar_grafico_comparativo(metricas)
+        st.plotly_chart(fig3, use_container_width=True)
+
     with col2:
-        st.metric("Total Sugerido", f"{metricas['total_sugerido']:,} cx")
+        st.metric("Total Gerado", f"{metricas['total_gerado']:,} cx")
+
     with col3:
-        cor = "🟢" if metricas['variacao_perc'] < 0 else "🔴"
-        st.metric("Variação", f"{metricas['variacao_perc']:+.2f}%", f"{cor}")
+        st.metric("Total Sugerido", f"{metricas['total_sugerido']:,} cx")
+
+        variacao = metricas['variacao_perc']
+        cor_var = "🔴" if variacao > 0 else "🟢" if variacao < 0 else "⚪"
+        st.metric("Variação", f"{variacao:+.1f}%", f"{cor_var}")
 
     st.markdown("---")
 
-    # SEÇÃO 3: GIRO DO CD
+    # ==============================================================================
+    # SEÇÃO 4: ANÁLISE DE GIRO DO CD
+    # ==============================================================================
     st.header("📦 Análise de Giro do CD")
 
     giro_cd = metricas['giro_cd']
     if giro_cd < 90:
         cor_giro = "#27ae60"
         status = "ÓTIMO"
-        msg = "CD com giro saudável"
+        interpretacao = "CD com giro saudável. Estoque bem dimensionado."
     elif giro_cd <= 120:
         cor_giro = "#f39c12"
         status = "ATENÇÃO"
-        msg = "Giro acima do ideal"
+        interpretacao = "Giro acima do ideal. CD pode estar superabastecido."
     else:
         cor_giro = "#e74c3c"
         status = "CRÍTICO"
-        msg = "CD girando muito lentamente"
+        interpretacao = "CD girando muito lentamente. Risco de obsolescência."
 
-    st.markdown(f"""
-    <div style="background-color: {cor_giro}; color: white; padding: 20px; border-radius: 10px;">
-        <h3 style="margin:0;">Dias de Cobertura do CD</h3>
-        <h2 style="margin:10px 0;">{giro_cd:.1f} dias</h2>
-        <p style="margin:0; font-size:14px;">{status}: {msg}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown(f"""
+        <div style="background-color: {cor_giro}; color: white; padding: 20px; 
+                    border-radius: 10px;">
+            <h3 style="margin:0;">Dias de Cobertura do CD</h3>
+            <h2 style="margin:10px 0;">{giro_cd:.1f} dias</h2>
+            <p style="margin:0; font-size:14px;">{status}: {interpretacao}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"""
+        <details>
+        <summary style="cursor:pointer; color:#666;">ℹ️ Como é calculado?</summary>
+        <div style="padding:10px; background:#f5f5f5; border-radius:5px; 
+                    margin-top:5px; font-size:12px;">
+        <b>Giro CD = Estoque Total do CD / Demanda Média Diária</b><br><br>
+        Mostra quantos dias o estoque total do CD consegue atender 
+        a demanda combinada de todas as lojas.
+        </div>
+        </details>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.metric("Cobertura CD", f"{giro_cd:.1f}d", "Dias")
 
     st.markdown("---")
 
-    # SEÇÃO 4: GIRO POR LOJA
+    # ==============================================================================
+    # SEÇÃO 5: COMPARAÇÃO GIRO: LOJAS vs CD
+    # ==============================================================================
+    st.markdown("---")
+    st.subheader("📊 Comparação: Giro Loja vs CD")
+
+    if metricas['giro_por_loja']:
+        giro_lojas = list(metricas['giro_por_loja'].values())
+        giro_medio_loja = sum(giro_lojas) / \
+            len(giro_lojas) if giro_lojas else 0
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            fig_comparacao = go.Figure(data=[
+                go.Bar(
+                    x=['Lojas', 'CD'],
+                    y=[giro_medio_loja, giro_cd],
+                    marker=dict(
+                        color=['#3498db', '#e74c3c'],
+                        line=dict(width=2, color='white')
+                    ),
+                    text=[f'{giro_medio_loja:.1f}d', f'{giro_cd:.1f}d'],
+                    textposition='outside',
+                    hovertemplate='<b>%{x}</b><br>Giro: %{y:.1f} dias<extra></extra>',
+                    showlegend=False
+                )
+            ])
+
+            fig_comparacao.add_hline(
+                y=90, line_dash="dash", line_color="green",
+                annotation_text="Ideal CD (90d)", annotation_position="right"
+            )
+
+            fig_comparacao.update_layout(
+                title="Giro Médio: Lojas vs CD",
+                xaxis_title="Nível",
+                yaxis_title="Dias de Cobertura",
+                height=350,
+                margin=dict(l=50, r=50, t=60, b=50)
+            )
+
+            st.plotly_chart(fig_comparacao, use_container_width=True)
+
+        with col2:
+            diferenca = giro_cd - giro_medio_loja
+            percentual = (diferenca / giro_medio_loja *
+                          100) if giro_medio_loja > 0 else 0
+
+            if diferenca > 0:
+                st.success(f"""
+                ✅ **CD mais estável**
+                
+                O CD tem {abs(diferenca):.1f} dias a mais de cobertura
+                ({percentual:+.1f}% vs lojas)
+                """)
+            elif diferenca < -1:
+                st.error(f"""
+                ⚠️ **CD subdimensionado**
+                
+                O CD tem {abs(diferenca):.1f} dias a menos
+                ({percentual:+.1f}% vs lojas)
+                """)
+            else:
+                st.info(f"""
+                ℹ️ **Níveis similares**
+                
+                CD e lojas com giro próximo
+                ({percentual:+.1f}%)
+                """)
+
+        with col3:
+            st.metric("Giro Médio Lojas", f"{giro_medio_loja:.1f}d")
+            st.metric("Giro do CD", f"{giro_cd:.1f}d")
+            st.metric("Diferença", f"{diferenca:+.1f}d")
+
+    st.markdown("---")
+
+    # ==============================================================================
+    # SEÇÃO 6: RISCO DE RUPTURA
+    # ==============================================================================
+    st.header("⚠️ Previsão de Ruptura")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        fig5 = go.Figure(data=[
+            go.Bar(
+                x=['< 3 dias', '3-5 dias'],
+                y=[
+                    metricas['risco_ruptura_3d'],
+                    metricas['risco_ruptura_5d']
+                ],
+                marker=dict(color=['#e74c3c', '#f39c12']),
+                text=[
+                    metricas['risco_ruptura_3d'],
+                    metricas['risco_ruptura_5d']
+                ],
+                textposition='outside'
+            )
+        ])
+        fig5.update_layout(
+            title="Risco de Ruptura",
+            yaxis_title="Quantidade",
+            height=300,
+            showlegend=False
+        )
+        st.plotly_chart(fig5, use_container_width=True)
+
+    with col2:
+        giro = metricas['giro_medio_geral']
+        cor_giro = "#e74c3c" if giro < 4 else "#27ae60" if giro <= 6 else "#f39c12"
+        status_giro = "BAIXO" if giro < 4 else "IDEAL" if giro <= 6 else "ALTO"
+
+        fig6 = go.Figure(data=[
+            go.Indicator(
+                mode="gauge+number",
+                value=giro,
+                title="Giro Médio (dias)",
+                gauge={
+                    'axis': {'range': [0, 50]},
+                    'bar': {'color': cor_giro},
+                    'steps': [
+                        {'range': [0, 4], 'color': "#fadbd8"},
+                        {'range': [4, 6], 'color': "#d5f4e6"},
+                        {'range': [6, 50], 'color': "#fef5e7"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': 6
+                    }
+                }
+            )
+        ])
+        fig6.update_layout(height=300)
+        st.plotly_chart(fig6, use_container_width=True)
+
+    with col3:
+        st.metric(
+            "Giro Médio (Loja)",
+            f"{giro:.1f} dias"
+        )
+
+        st.metric(
+            "Giro do CD",
+            f"{metricas['giro_cd']:.1f} dias"
+        )
+
+        st.metric(
+            "Ruptura Crítica",
+            f"{metricas['risco_ruptura_3d']}"
+        )
+
+    st.markdown("---")
+
+    # ==============================================================================
+    # SEÇÃO 7: GIRO POR LOJA (Tabela Detalhada)
+    # ==============================================================================
     st.header("🏪 Giro Médio por Loja")
 
     if metricas['giro_por_loja']:
-        fig = criar_grafico_giro_lojas(metricas)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        df_lojas = pd.DataFrame(
+            list(metricas['giro_por_loja'].items()),
+            columns=['Loja', 'Giro Médio (dias)']
+        ).sort_values('Giro Médio (dias)', ascending=False)
+
+        df_lojas['Loja_Label'] = 'Loja ' + df_lojas['Loja'].astype(str)
+
+        def get_color_giro(valor):
+            if valor < 22:
+                return '#27ae60'
+            elif valor <= 30:
+                return '#f39c12'
+            else:
+                return '#e74c3c'
+
+        df_lojas['Cor'] = df_lojas['Giro Médio (dias)'].apply(get_color_giro)
+
+        fig7 = go.Figure()
+
+        fig7.add_trace(go.Bar(
+            y=df_lojas['Loja_Label'].head(20),
+            x=df_lojas['Giro Médio (dias)'].head(20),
+            orientation='h',
+            marker=dict(
+                color=df_lojas['Cor'].head(20),
+                line=dict(width=2, color='white')
+            ),
+            text=df_lojas['Giro Médio (dias)'].head(20).round(1),
+            textposition='outside',
+            hovertemplate='<b>%{y}</b><br>Giro: %{x:.1f} dias<extra></extra>',
+            showlegend=False
+        ))
+
+        fig7.add_vline(x=22, line_dash="dash", line_color="green",
+                       line_width=2, annotation_text="Saudável (22d)",
+                       annotation_position="top right")
+        fig7.add_vline(x=30, line_dash="dash", line_color="red",
+                       line_width=2, annotation_text="Alto (30d)",
+                       annotation_position="top right")
+
+        fig7.update_layout(
+            title={
+                'text': "Giro Médio por Loja (Top 20)",
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 18, 'color': '#2c3e50'}
+            },
+            xaxis_title="Dias de Cobertura",
+            yaxis_title="Loja",
+            yaxis=dict(
+                tickfont=dict(size=12, color='#2c3e50', family='Arial Black')
+            ),
+            xaxis=dict(
+                tickfont=dict(size=11)
+            ),
+            height=500,
+            showlegend=False,
+            hovermode='closest',
+            margin=dict(l=150, r=100, t=80, b=60)
+        )
+
+        fig7.add_annotation(
+            text="<b>Legenda:</b> <span style='color:#27ae60'>●</span> Saudável (<22d) " +
+                 "<span style='color:#f39c12'>●</span> Atenção (22-30d) " +
+                 "<span style='color:#e74c3c'>●</span> Alto (>30d)",
+            xref="paper", yref="paper",
+            x=0.5, y=-0.12,
+            showarrow=False,
+            xanchor='center',
+            font=dict(size=11)
+        )
+
+        st.plotly_chart(fig7, use_container_width=True)
+
+        st.subheader("📊 Detalhes por Loja")
+
+        df_tabela = df_lojas[['Loja_Label', 'Giro Médio (dias)']].copy()
+        df_tabela['Giro Médio (dias)'] = df_tabela['Giro Médio (dias)'].round(
+            2)
+        df_tabela.columns = ['Loja', 'Giro (dias)']
+        df_tabela = df_tabela.reset_index(drop=True)
+        df_tabela.index = df_tabela.index + 1
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.dataframe(
+                df_tabela,
+                use_container_width=True,
+                height=400,
+                column_config={
+                    "Loja": st.column_config.TextColumn("🏪 Loja", width="large"),
+                    "Giro (dias)": st.column_config.NumberColumn(
+                        "📈 Giro (dias)",
+                        format="%.2f"
+                    )
+                }
+            )
+
+        with col2:
+            st.metric("Máximo", f"{df_lojas['Giro Médio (dias)'].max():.1f}d")
+            st.metric("Mínimo", f"{df_lojas['Giro Médio (dias)'].min():.1f}d")
+            st.metric("Média", f"{df_lojas['Giro Médio (dias)'].mean():.1f}d")
+
+            qtd_baixo = (df_lojas['Giro Médio (dias)'] < 22).sum()
+            qtd_ideal = ((df_lojas['Giro Médio (dias)'] >= 22) &
+                         (df_lojas['Giro Médio (dias)'] <= 30)).sum()
+            qtd_alto = (df_lojas['Giro Médio (dias)'] > 30).sum()
+
+            st.markdown(f"""
+            **Distribuição:**
+            - 🟢 Saudável: {qtd_baixo}
+            - 🟠 Atenção: {qtd_ideal}
+            - 🔴 Alto: {qtd_alto}
+            """)
     else:
-        st.info("ℹ️ Sem dados de giro por loja disponíveis")
+        st.info("Dados de loja não disponíveis")
 
     st.markdown("---")
 
-    # SEÇÃO 5: RISCO DE RUPTURA
-    st.header("⚠️ Risco de Ruptura")
-    col1, col2 = st.columns(2)
+    # ==============================================================================
+    # SEÇÃO 8: RESUMO DE INDICADORES
+    # ==============================================================================
+    st.header("📋 Resumo de Indicadores")
+
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-        st.metric("Produtos com <3 dias", f"{metricas['risco_ruptura_3d']}")
+        st.markdown(f"""
+        ### Sugestões 🎯
+        - **Com sugestão:** {metricas['com_sugestao']:,}
+        - **Sem sugestão:** {metricas['sem_sugestao']:,}
+        - **%:** {metricas['com_sugestao']/metricas['total_analisados']*100:.1f}%
+        """)
+
     with col2:
-        st.metric("Produtos com <5 dias", f"{metricas['risco_ruptura_5d']}")
+        st.markdown(f"""
+        ### Comparativo 📊
+        - **Original:** {metricas['total_gerado']:,} cx
+        - **ML:** {metricas['total_sugerido']:,} cx
+        - **Variação:** {metricas['variacao_perc']:+.1f}%
+        """)
+
+    with col3:
+        st.markdown(f"""
+        ### Giro 📈
+        - **Giro Médio:** {metricas['giro_medio_geral']:.1f} dias
+        - **Giro CD:** {metricas['giro_cd']:.1f} dias
+        - **Produtos Lentos:** {metricas['risco_ruptura_5d']}
+        """)
+
+    with col4:
+        st.markdown(f"""
+        ### Ruptura & Giro ⚠️
+        - **Crítico:** {metricas['risco_ruptura_3d']} produtos
+        - **Alerta:** {metricas['risco_ruptura_5d']} produtos
+        - **Giro:** {metricas['giro_medio_geral']:.1f} dias
+        """)
 
     st.markdown("---")
 
+    # ==============================================================================
     # RODAPÉ
+    # ==============================================================================
     st.markdown(f"""
     <div style="text-align: center; color: #95a5a6; font-size: 12px;">
         Dashboard gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}
         <br>
-        Dados: sugestao_ia.parquet
+        Data de análise: {data_analise}
     </div>
     """, unsafe_allow_html=True)
 
