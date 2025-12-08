@@ -297,47 +297,18 @@ def show_dashboard_online_page(engine, base_data_path=None):
         with st.spinner("Carregando dados do banco..."):
             df = carregar_dados_banco(engine)
 
-    # Se não conseguiu do banco, oferecer opção de arquivo local
+    # Se não conseguiu do banco, mostrar mensagem
     if df is None:
-        st.info("ℹ️ Para carregar dados do arquivo local, use o formulário abaixo:")
-
-        if base_data_path and st.button("Carregar do Arquivo Local", type="primary"):
-            with st.spinner("Carregando arquivo local..."):
-                df = carregar_dados_parquet(base_data_path)
-        else:
-            st.warning(
-                "⚠️ Nenhum dado disponível. Configure o banco de dados ou um arquivo local.")
-            st.stop()
+        st.error("❌ Nenhum dado disponível no banco de dados. Por favor, configure a conexão com o banco ou faça uma importação na seção de Admin.")
+        st.stop()
     else:
         # Se carregou do banco com sucesso, mostrar opção de recarregar
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Recarregar do Banco", type="secondary"):
-                st.cache_data.clear()
-                st.rerun()
-        with col2:
-            if base_data_path and st.button("📁 Carregar do Arquivo Local", type="secondary"):
-                with st.spinner("Carregando arquivo local..."):
-                    df = carregar_dados_parquet(base_data_path)
-                    if df is not None:
-                        st.rerun()
+        if st.button("🔄 Recarregar Dados", type="secondary"):
+            st.cache_data.clear()
+            st.rerun()
 
     # Calcular métricas
     metricas = calcular_metricas(df)
-
-    # --- DIAGNÓSTICO (Expandível) ---
-    with st.expander("🔍 Diagnóstico da Estrutura de Dados"):
-        diag = diagnosticar_estrutura(df)
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write("**Colunas Disponíveis:**")
-            for col in diag['colunas']:
-                st.code(col, language="text")
-
-        with col2:
-            st.write("**Resumo dos Dados:**")
-            st.write(f"- Total de linhas: {diag['total_linhas']}")
             st.write(
                 f"- Colunas com null: {sum(1 for v in diag['nulos'].values() if v > 0)}")
 
