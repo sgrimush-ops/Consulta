@@ -61,9 +61,8 @@ def setup_css():
 # =========================================================
 # CARREGAMENTO DE DADOS
 # =========================================================
-@st.cache_data
 def carregar_dados_parquet(base_path):
-    """Carrega dados do sugestao_ia.parquet do diretório de dados"""
+    """Carrega dados do sugestao_ia.parquet do diretório de dados (sem cache para atualização automática)"""
     arquivo = os.path.join(base_path, 'sugestao_ia.parquet')
 
     if not os.path.exists(arquivo):
@@ -79,9 +78,8 @@ def carregar_dados_parquet(base_path):
         return None
 
 
-@st.cache_data
 def carregar_dados_banco(_engine):
-    """Carrega dados da tabela sugestao_ia do banco de dados"""
+    """Carrega dados da tabela sugestao_ia do banco de dados (sem cache para atualização automática)"""
     try:
         with _engine.connect() as conn:
             df = pd.read_sql_table('sugestao_ia', con=conn)
@@ -117,17 +115,30 @@ def calcular_metricas(df):
         metricas['perc_sugestao'] = (
             metricas['com_sugestao'] / metricas['total_analisados'] * 100) if metricas['total_analisados'] > 0 else 0
 
-    # Situações
+    # Situações - Contabilizar pelos valores reais da coluna
     if 'situacao' in df.columns:
         situacoes = df['situacao'].value_counts()
-        metricas['falta_estoque'] = situacoes.get('falta de estoque', 0)
+
+        # Em Atendimento = 'enviar_pedido' (produtos que precisam ser enviados)
+        metricas['em_atendimento'] = situacoes.get('enviar_pedido', 0)
+
+        # Insuficiente = 'insuficiente' (produtos com estoque insuficiente)
         metricas['insuficiente'] = situacoes.get('insuficiente', 0)
-        metricas['em_atendimento'] = situacoes.get('em atendimento', 0)
+
+        # Falta CD = 'falta_cd' (produtos em falta no CD)
+        metricas['falta_estoque'] = situacoes.get('falta_cd', 0)
+
+        # Falta CD Total = falta_cd + insuficiente (tudo que não pode ser atendido)
+        metricas['falta_cd_total'] = metricas['falta_estoque'] + \
+            metricas['insuficiente']
+
+        # Aguardando Giro = 'aguardando_giro' (produtos aguardando movimento)
         metricas['aguardando_giro'] = situacoes.get('aguardando_giro', 0)
     else:
-        metricas['falta_estoque'] = 0
-        metricas['insuficiente'] = 0
         metricas['em_atendimento'] = 0
+        metricas['insuficiente'] = 0
+        metricas['falta_estoque'] = 0
+        metricas['falta_cd_total'] = 0
         metricas['aguardando_giro'] = 0
 
     # Comparativo Gerado vs Sugerido
@@ -337,6 +348,7 @@ def show_dashboard_online_page(engine, base_data_path=None):
     )
 
     st.title("📊 DASHBOARD - ANÁLISE DE SUGESTÕES IA")
+    st.info("🔄 Os dados são carregados automaticamente a cada atualização da página")
 
     # Tentar carregar do banco automaticamente
     df = None
@@ -345,18 +357,25 @@ def show_dashboard_online_page(engine, base_data_path=None):
         with st.spinner("Carregando dados do banco..."):
             df = carregar_dados_banco(engine)
 
-    # Se não conseguiu do banco, mostrar mensagem
+    # Se não conseguiu do banco, tentar carregar do arquivo local
     if df is None:
-        st.error("❌ Nenhum dado disponível no banco de dados. Por favor, configure a conexão com o banco ou faça uma importação na seção de Admin.")
-        st.stop()
+        if base_data_path:
+            with st.spinner("Carregando arquivo local..."):
+                df = carregar_dados_parquet(base_data_path)
 
-    # Se carregou do banco com sucesso, mostrar opção de recarregar
-    if st.button("🔄 Recarregar Dados", type="secondary"):
-        st.cache_data.clear()
-        st.rerun()
+        if df is None:
+            st.error(
+                "❌ Nenhum dado disponível. Configure o banco de dados ou um arquivo local.")
+            st.stop()
 
     # Calcular métricas
     metricas = calcular_metricas(df)
+
+    # Debug: Mostrar valores reais da coluna situacao
+    if 'situacao' in df.columns:
+        with st.expander("🔍 Debug - Valores da Coluna Situação"):
+            st.write("Contagem de situações no parquet:")
+            st.dataframe(df['situacao'].value_counts())
 
     # Data da análise
     data_analise = (
@@ -369,35 +388,41 @@ def show_dashboard_online_page(engine, base_data_path=None):
     # ==============================================================================
     # SEÇÃO 1: VISÃO GERAL
     # ==============================================================================
-    st.header("📈 Visão Geral")
+    st.header("📊 Visão Geral")
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         st.metric(
             "Total Analisados",
             f"{metricas['total_analisados']:,}",
-            f"Com sugestão: {metricas['com_sugestao']:,}"
+            delta=f"Com sugestão: {metricas['com_sugestao']:,}",
+            delta_color="normal"
         )
 
     with col2:
         st.metric(
             "Em Atendimento",
             f"{metricas['em_atendimento']:,}",
-            f"{metricas['em_atendimento']/max(metricas['com_sugestao'], 1)*100:.1f}%"
+            delta=f"↑ {(metricas['em_atendimento']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
+            delta_color="normal",
+            help="Produtos que precisam ser enviados (enviar_pedido)"
         )
 
     with col3:
         st.metric(
             "Insuficiente",
             f"{metricas['insuficiente']:,}",
-            f"{metricas['insuficiente']/max(metricas['com_sugestao'], 1)*100:.1f}%"
+            delta=f"↑ {(metricas['insuficiente']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
+            delta_color="normal"
         )
 
     with col4:
         st.metric(
             "Falta Estoque",
-            f"{metricas['falta_estoque']:,}",
-            f"{metricas['falta_estoque']/max(metricas['com_sugestao'], 1)*100:.1f}%"
+            f"{metricas['falta_cd_total']:,}",
+            delta=f"↑ {(metricas['falta_cd_total']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
+            delta_color="normal",
+            help="Total em falta ou insuficiente no CD"
         )
 
     st.markdown("---")
