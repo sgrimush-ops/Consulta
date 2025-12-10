@@ -42,9 +42,8 @@ def setup_css():
 # =========================================================
 # CARREGAMENTO DE DADOS
 # =========================================================
-@st.cache_data
 def carregar_dados_parquet(base_path):
-    """Carrega dados do sugestao_ia.parquet do diretório de dados"""
+    """Carrega dados do sugestao_ia.parquet do diretório de dados (sem cache para atualização automática)"""
     arquivo = os.path.join(base_path, 'sugestao_ia.parquet')
 
     if not os.path.exists(arquivo):
@@ -60,9 +59,8 @@ def carregar_dados_parquet(base_path):
         return None
 
 
-@st.cache_data
 def carregar_dados_banco(_engine):
-    """Carrega dados da tabela sugestao_ia do banco de dados"""
+    """Carrega dados da tabela sugestao_ia do banco de dados (sem cache para atualização automática)"""
     try:
         with _engine.connect() as conn:
             df = pd.read_sql_table('sugestao_ia', con=conn)
@@ -424,6 +422,7 @@ def show_dashboard_online_page(engine, base_data_path=None):
     setup_css()
 
     st.title("📊 Dashboard Sugestões IA")
+    st.info("🔄 Os dados são carregados automaticamente a cada atualização da página")
     st.markdown("---")
 
     # Tentar carregar do banco automaticamente
@@ -433,30 +432,16 @@ def show_dashboard_online_page(engine, base_data_path=None):
         with st.spinner("Carregando dados do banco..."):
             df = carregar_dados_banco(engine)
 
-    # Se não conseguiu do banco, oferecer opção de arquivo local
+    # Se não conseguiu do banco, tentar carregar do arquivo local
     if df is None:
-        st.info("ℹ️ Para carregar dados do arquivo local, use o formulário abaixo:")
-
-        if base_data_path and st.button("Carregar do Arquivo Local", type="primary"):
+        if base_data_path:
             with st.spinner("Carregando arquivo local..."):
                 df = carregar_dados_parquet(base_data_path)
-        else:
+
+        if df is None:
             st.warning(
                 "⚠️ Nenhum dado disponível. Configure o banco de dados ou um arquivo local.")
             st.stop()
-    else:
-        # Se carregou do banco com sucesso, mostrar opção de recarregar
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Recarregar do Banco", type="secondary"):
-                st.cache_data.clear()
-                st.rerun()
-        with col2:
-            if base_data_path and st.button("📁 Carregar do Arquivo Local", type="secondary"):
-                with st.spinner("Carregando arquivo local..."):
-                    df = carregar_dados_parquet(base_data_path)
-                    if df is not None:
-                        st.rerun()
 
     # Calcular métricas
     metricas = calcular_metricas(df)
