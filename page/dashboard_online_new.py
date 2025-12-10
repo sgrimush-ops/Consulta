@@ -94,35 +94,31 @@ def calcular_metricas(df):
         metricas['perc_sugestao'] = (
             metricas['com_sugestao'] / metricas['total_analisados'] * 100) if metricas['total_analisados'] > 0 else 0
 
-    # Situações
+    # Situações - Contabilizar pelos valores reais da coluna
     if 'situacao' in df.columns:
         situacoes = df['situacao'].value_counts()
 
-        # Em Atendimento = produtos com sugestão IA (caixas sugeridas + pendentes)
-        if 'sugestao_caixa' in df.columns and 'sugestao_pendente' in df.columns:
-            df_com_sugestao = df[(df['sugestao_caixa'].fillna(0) > 0) | (
-                df['sugestao_pendente'].fillna(0) > 0)]
-            metricas['em_atendimento'] = len(df_com_sugestao)
-        else:
-            metricas['em_atendimento'] = situacoes.get(
-                'em atendimento', 0) + situacoes.get('enviar_pedido', 0)
+        # Em Atendimento = 'enviar_pedido' (produtos que precisam ser enviados)
+        metricas['em_atendimento'] = situacoes.get('enviar_pedido', 0)
 
-        # Falta Estoque = tudo que foi pedido mas está em falta ou insuficiente no CD
-        metricas['falta_estoque'] = situacoes.get(
-            'falta de estoque', 0) + situacoes.get('falta_cd', 0)
+        # Insuficiente = 'insuficiente' (produtos com estoque insuficiente)
         metricas['insuficiente'] = situacoes.get('insuficiente', 0)
 
-        # Falta CD = falta_estoque + insuficiente (tudo que foi pedido mas não pode ser atendido)
+        # Falta CD = 'falta_cd' (produtos em falta no CD)
+        metricas['falta_estoque'] = situacoes.get('falta_cd', 0)
+
+        # Falta CD Total = falta_cd + insuficiente (tudo que não pode ser atendido)
         metricas['falta_cd_total'] = metricas['falta_estoque'] + \
             metricas['insuficiente']
 
+        # Aguardando Giro = 'aguardando_giro' (produtos aguardando movimento)
         metricas['aguardando_giro'] = situacoes.get('aguardando_giro', 0)
     else:
-        metricas['falta_estoque'] = 0
-        metricas['insuficiente'] = 0
         metricas['em_atendimento'] = 0
-        metricas['aguardando_giro'] = 0
+        metricas['insuficiente'] = 0
+        metricas['falta_estoque'] = 0
         metricas['falta_cd_total'] = 0
+        metricas['aguardando_giro'] = 0
 
     # Comparativo Gerado vs Sugerido
     if 'gerado' in df.columns and 'sugestao' in df.columns:
@@ -439,12 +435,18 @@ def show_dashboard_online_page(engine, base_data_path=None):
                 df = carregar_dados_parquet(base_data_path)
 
         if df is None:
-            st.warning(
-                "⚠️ Nenhum dado disponível. Configure o banco de dados ou um arquivo local.")
+            st.error(
+                "❌ Nenhum dado disponível. Configure o banco de dados ou um arquivo local.")
             st.stop()
 
     # Calcular métricas
     metricas = calcular_metricas(df)
+
+    # Debug: Mostrar valores reais da coluna situacao
+    if 'situacao' in df.columns:
+        with st.expander("🔍 Debug - Valores da Coluna Situação"):
+            st.write("Contagem de situações no parquet:")
+            st.dataframe(df['situacao'].value_counts())
 
     # SEÇÃO: VISÃO GERAL
     st.header("📊 Visão Geral")
@@ -465,7 +467,7 @@ def show_dashboard_online_page(engine, base_data_path=None):
             f"{metricas['em_atendimento']:,}",
             delta=f"↑ {(metricas['em_atendimento']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
             delta_color="normal",
-            help="Produtos com sugestão IA (caixas sugeridas + pendentes)"
+            help="Produtos que precisam ser enviados (enviar_pedido)"
         )
 
     with col3:
@@ -482,7 +484,7 @@ def show_dashboard_online_page(engine, base_data_path=None):
             f"{metricas['falta_cd_total']:,}",
             delta=f"↑ {(metricas['falta_cd_total']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
             delta_color="normal",
-            help="Total pedido mas em falta ou insuficiente no CD"
+            help="Total em falta ou insuficiente no CD"
         )
 
     st.markdown("---")
