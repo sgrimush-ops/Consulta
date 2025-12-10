@@ -99,17 +99,32 @@ def calcular_metricas(df):
     # Situações
     if 'situacao' in df.columns:
         situacoes = df['situacao'].value_counts()
+
+        # Em Atendimento = produtos com sugestão IA (caixas sugeridas + pendentes)
+        if 'sugestao_caixa' in df.columns and 'sugestao_pendente' in df.columns:
+            df_com_sugestao = df[(df['sugestao_caixa'].fillna(0) > 0) | (
+                df['sugestao_pendente'].fillna(0) > 0)]
+            metricas['em_atendimento'] = len(df_com_sugestao)
+        else:
+            metricas['em_atendimento'] = situacoes.get(
+                'em atendimento', 0) + situacoes.get('enviar_pedido', 0)
+
+        # Falta Estoque = tudo que foi pedido mas está em falta ou insuficiente no CD
         metricas['falta_estoque'] = situacoes.get(
             'falta de estoque', 0) + situacoes.get('falta_cd', 0)
         metricas['insuficiente'] = situacoes.get('insuficiente', 0)
-        metricas['em_atendimento'] = situacoes.get(
-            'em atendimento', 0) + situacoes.get('enviar_pedido', 0)
+
+        # Falta CD = falta_estoque + insuficiente (tudo que foi pedido mas não pode ser atendido)
+        metricas['falta_cd_total'] = metricas['falta_estoque'] + \
+            metricas['insuficiente']
+
         metricas['aguardando_giro'] = situacoes.get('aguardando_giro', 0)
     else:
         metricas['falta_estoque'] = 0
         metricas['insuficiente'] = 0
         metricas['em_atendimento'] = 0
         metricas['aguardando_giro'] = 0
+        metricas['falta_cd_total'] = 0
 
     # Comparativo Gerado vs Sugerido
     if 'gerado' in df.columns and 'sugestao' in df.columns:
@@ -446,14 +461,44 @@ def show_dashboard_online_page(engine, base_data_path=None):
     # Calcular métricas
     metricas = calcular_metricas(df)
 
-    # Header com info geral
-    col1, col2, col3 = st.columns(3)
+    # SEÇÃO: VISÃO GERAL
+    st.header("📊 Visão Geral")
+
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-        st.metric("Total de Produtos", f"{metricas['total_analisados']:,}")
+        st.metric(
+            "Total Analisados",
+            f"{metricas['total_analisados']:,}",
+            delta=f"Com sugestão: {metricas['com_sugestao']:,}",
+            delta_color="normal"
+        )
+
     with col2:
-        st.metric("Com Sugestão", f"{metricas['com_sugestao']:,}")
+        st.metric(
+            "Em Atendimento",
+            f"{metricas['em_atendimento']:,}",
+            delta=f"↑ {(metricas['em_atendimento']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
+            delta_color="normal",
+            help="Produtos com sugestão IA (caixas sugeridas + pendentes)"
+        )
+
     with col3:
-        st.metric("Data Análise", metricas['data_analise'])
+        st.metric(
+            "Insuficiente",
+            f"{metricas['insuficiente']:,}",
+            delta=f"↑ {(metricas['insuficiente']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
+            delta_color="normal"
+        )
+
+    with col4:
+        st.metric(
+            "Falta Estoque",
+            f"{metricas['falta_cd_total']:,}",
+            delta=f"↑ {(metricas['falta_cd_total']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
+            delta_color="normal",
+            help="Total pedido mas em falta ou insuficiente no CD"
+        )
 
     st.markdown("---")
 
