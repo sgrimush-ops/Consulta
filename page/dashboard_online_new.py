@@ -99,9 +99,11 @@ def calcular_metricas(df):
     # Situações
     if 'situacao' in df.columns:
         situacoes = df['situacao'].value_counts()
-        metricas['falta_estoque'] = situacoes.get('falta de estoque', 0)
+        metricas['falta_estoque'] = situacoes.get(
+            'falta de estoque', 0) + situacoes.get('falta_cd', 0)
         metricas['insuficiente'] = situacoes.get('insuficiente', 0)
-        metricas['em_atendimento'] = situacoes.get('em atendimento', 0)
+        metricas['em_atendimento'] = situacoes.get(
+            'em atendimento', 0) + situacoes.get('enviar_pedido', 0)
         metricas['aguardando_giro'] = situacoes.get('aguardando_giro', 0)
     else:
         metricas['falta_estoque'] = 0
