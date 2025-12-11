@@ -69,7 +69,7 @@ def check_fornecedor_login(engine, username, password):
 
 def show_main_menu():
     """Exibe o menu principal de seleção de perfil."""
-    st.title("Menu de acesso Bakizi")
+    st.title("Menu de acesso Baklizi")
     st.markdown("""
     Informe se é funcionário da empresa ou se é fornecedor/promotor.
     Caso não tenha acesso, deve solicitar ao administrador do site.
