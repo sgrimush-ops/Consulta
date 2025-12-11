@@ -98,6 +98,14 @@ def show_admin_uploads_page(engine):
             st.write("Amostra dos dados de Sugestões IA (`sugestao_ia`):")
             st.dataframe(df_sugestao.head())
 
+            # Mostrar informações sobre os dados
+            if 'data_analise' in df_sugestao.columns:
+                data_analise = pd.to_datetime(
+                    df_sugestao['data_analise']).max()
+                st.info(
+                    f"📅 Data de análise dos dados: {data_analise.strftime('%d/%m/%Y')}")
+            st.info(f"📊 Total de linhas: {len(df_sugestao):,}")
+
             if st.button("Salvar Sugestões IA no Banco de Dados", type="primary", key="save_sugestao"):
                 with st.spinner("Salvando dados de Sugestões IA... Isso pode levar alguns minutos."):
                     try:
@@ -105,6 +113,8 @@ def show_admin_uploads_page(engine):
                             'sugestao_ia', con=engine, if_exists='replace', index=False)
                         st.success(
                             "Arquivo de Sugestões IA salvo com sucesso no banco de dados!")
+                        st.info(
+                            "💡 Agora vá até o Dashboard e clique em 'Recarregar Dados' para ver as atualizações!")
                         st.balloons()
                     except SQLAlchemyError as e:
                         st.error(

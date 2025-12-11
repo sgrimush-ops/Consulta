@@ -159,24 +159,54 @@ def show_pedidos_cd_page(engine, base_data_path):
     ]
 
     # --- Formulário de Busca ---
+    st.markdown("### 🔍 Selecione o tipo de código para buscar:")
+
     with st.form("search_form"):
-        code_input = st.text_input(
-            "Digite o Código Interno ou EAN do produto:")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            code_interno = st.text_input(
+                "Código Interno (máx 7 dígitos):",
+                placeholder="Ex: 1234567",
+                max_chars=7,
+                key="codigo_interno_pedido"
+            )
+
+        with col2:
+            code_ean = st.text_input(
+                "Código EAN (máx 14 dígitos):",
+                placeholder="Ex: 12345678901234",
+                max_chars=14,
+                key="codigo_ean_pedido"
+            )
+
         submitted = st.form_submit_button("Buscar Produto")
-        if submitted and code_input:
+
+        if submitted:
             st.session_state.searched_item = None  # Limpa busca anterior
             st.session_state.pedido_details = {}
 
-            with st.spinner("Buscando..."):
-                product_df = search_product_by_code(engine, code_input)
-                if not product_df.empty:
-                    st.session_state.searched_item = (
-                        product_df.iloc[0].to_dict()
-                    )
-                else:
-                    st.warning(
-                        "Produto não encontrado no banco (mix_produtos)."
-                    )
+            # Validar que apenas um campo foi preenchido
+            if code_interno and code_ean:
+                st.warning(
+                    "⚠️ Por favor, use apenas um tipo de código por vez. "
+                    "Limpe um dos campos."
+                )
+            elif code_interno or code_ean:
+                code_input = code_ean if code_ean else code_interno
+
+                with st.spinner("Buscando..."):
+                    product_df = search_product_by_code(engine, code_input)
+                    if not product_df.empty:
+                        st.session_state.searched_item = (
+                            product_df.iloc[0].to_dict()
+                        )
+                    else:
+                        st.warning(
+                            "Produto não encontrado no banco (mix_produtos)."
+                        )
+            else:
+                st.info("Digite um código para buscar o produto.")
 
     # --- Exibição do Produto e Pedido ---
     if st.session_state.searched_item:

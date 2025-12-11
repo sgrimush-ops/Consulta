@@ -83,7 +83,15 @@ def carregar_dados_banco(_engine):
     try:
         with _engine.connect() as conn:
             df = pd.read_sql_table('sugestao_ia', con=conn)
-            st.success(f"✓ Dados carregados do banco: {len(df)} linhas")
+
+            # Mostrar informações sobre a data dos dados
+            if 'data_analise' in df.columns:
+                data_mais_recente = pd.to_datetime(df['data_analise']).max()
+                st.success(
+                    f"✓ Dados carregados do banco: {len(df)} linhas | Data mais recente: {data_mais_recente.strftime('%d/%m/%Y')}")
+            else:
+                st.success(f"✓ Dados carregados do banco: {len(df)} linhas")
+
             return df
     except Exception as e:
         st.warning(f"⚠️ Não foi possível carregar do banco: {e}")
@@ -348,7 +356,16 @@ def show_dashboard_online_page(engine, base_data_path=None):
     )
 
     st.title("📊 DASHBOARD - ANÁLISE DE SUGESTÕES IA")
-    st.info("🔄 Os dados são carregados automaticamente a cada atualização da página")
+
+    # Botão para forçar atualização
+    col_titulo1, col_titulo2 = st.columns([3, 1])
+    with col_titulo1:
+        st.info(
+            "🔄 Os dados são carregados automaticamente a cada atualização da página")
+    with col_titulo2:
+        if st.button("🔄 Recarregar Dados", type="primary"):
+            st.cache_data.clear()
+            st.rerun()
 
     # Tentar carregar do banco automaticamente
     df = None
