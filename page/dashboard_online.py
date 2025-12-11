@@ -424,14 +424,44 @@ def show_dashboard_online_page(engine, base_data_path=None):
                            f"{formato_encontrado}")
                 st.write(f"**Total de registros na Loja 5:** {len(loja5)}")
 
-                loja5_com_estoque = loja5[loja5['dias_cobertura_atual'] > 0]
+                loja5_com_estoque = loja5[
+                    loja5['dias_cobertura_atual'] > 0]
                 st.write(
                     f"**Registros com dias_cobertura_atual > 0:** "
                     f"{len(loja5_com_estoque)}")
                 st.write(
                     f"**Média calculada:** "
                     f"{loja5_com_estoque['dias_cobertura_atual'].mean():.1f} dias")
-
+                
+                # Distribuição estatística
+                st.write("**Distribuição Estatística:**")
+                stats_col1, stats_col2, stats_col3, stats_col4 = st.columns(4)
+                with stats_col1:
+                    st.metric("Mínimo",
+                             f"{loja5_com_estoque['dias_cobertura_atual'].min():.1f}d")
+                with stats_col2:
+                    st.metric("Máximo",
+                             f"{loja5_com_estoque['dias_cobertura_atual'].max():.1f}d")
+                with stats_col3:
+                    st.metric("Mediana",
+                             f"{loja5_com_estoque['dias_cobertura_atual'].median():.1f}d")
+                with stats_col4:
+                    st.metric("Desvio Padrão",
+                             f"{loja5_com_estoque['dias_cobertura_atual'].std():.1f}d")
+                
+                # Produtos com maior giro (culpados)
+                st.write("**Top 10 Produtos com Maior Giro (dias_cobertura_atual):**")
+                top_produtos = loja5_com_estoque.nlargest(
+                    10, 'dias_cobertura_atual')[
+                    ['codigo_interno', 'descricao',
+                     'dias_cobertura_atual', 'estoque_total_loja',
+                     'venda_media_dia']
+                    if 'estoque_total_loja' in loja5.columns else
+                    ['codigo_interno', 'descricao',
+                     'dias_cobertura_atual', 'venda_media_dia']
+                ]
+                st.dataframe(top_produtos)
+                
                 # Mostrar comparação com todas as lojas
                 st.write("**Comparação com todas as lojas:**")
                 comparacao = []
