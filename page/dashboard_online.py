@@ -394,6 +394,46 @@ def show_dashboard_online_page(engine, base_data_path=None):
             st.write("Contagem de situações no parquet:")
             st.dataframe(df['situacao'].value_counts())
 
+    # Debug: Análise da Loja 5
+    if 'loja' in df.columns and 'dias_cobertura_atual' in df.columns:
+        with st.expander("🔍 Debug - Análise Detalhada da Loja 5 (Giro Discrepante)"):
+            loja5 = df[df['loja'] == '005']
+            st.write(f"**Total de registros na Loja 5:** {len(loja5)}")
+
+            if len(loja5) > 0:
+                st.write("**Distribuição de dias_cobertura_atual:**")
+                st.dataframe(loja5['dias_cobertura_atual'].describe())
+
+                loja5_com_estoque = loja5[loja5['dias_cobertura_atual'] > 0]
+                st.write(
+                    f"**Registros com dias_cobertura_atual > 0:** {len(loja5_com_estoque)}")
+                st.write(
+                    f"**Média calculada:** {loja5_com_estoque['dias_cobertura_atual'].mean():.1f} dias")
+
+                # Mostrar comparação com outras lojas
+                st.write("**Comparação com todas as lojas:**")
+                comparacao = []
+                for loja in sorted(df['loja'].unique()):
+                    loja_data = df[df['loja'] == loja]
+                    loja_data_com = loja_data[loja_data['dias_cobertura_atual'] > 0]
+                    if len(loja_data_com) > 0:
+                        media = loja_data_com['dias_cobertura_atual'].mean()
+                        comparacao.append({
+                            'Loja': str(loja),
+                            'Giro Médio (dias)': round(media, 1),
+                            'Registros': len(loja_data_com)
+                        })
+                df_comp = pd.DataFrame(comparacao)
+                st.dataframe(df_comp)
+
+                # Amostra dos dados da Loja 5
+                st.write("**Amostra dos dados da Loja 5:**")
+                st.dataframe(
+                    loja5[[col for col in ['codigo_interno', 'descricao', 'loja',
+                           'dias_cobertura_atual', 'estoque_total_loja', 'venda_media_dia']
+                           if col in loja5.columns]].head(20)
+                )
+
     # Data da análise
     data_analise = (
         pd.to_datetime(df['data_analise'].iloc[0]).strftime('%d/%m/%Y')
