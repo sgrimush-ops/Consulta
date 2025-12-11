@@ -396,26 +396,49 @@ def show_dashboard_online_page(engine, base_data_path=None):
 
     # Debug: Análise da Loja 5
     if 'loja' in df.columns and 'dias_cobertura_atual' in df.columns:
-        with st.expander("🔍 Debug - Análise Detalhada da Loja 5 (Giro Discrepante)"):
-            loja5 = df[df['loja'] == '005']
-            st.write(f"**Total de registros na Loja 5:** {len(loja5)}")
+        with st.expander("🔍 Debug - Análise Detalhada da Loja 5"):
+            st.write("**Tipo de dados da coluna loja:**", df['loja'].dtype)
+            st.write("**Valores únicos de loja (primeiros 20):**",
+                     sorted(df['loja'].unique())[:20])
 
-            if len(loja5) > 0:
-                st.write("**Distribuição de dias_cobertura_atual:**")
-                st.dataframe(loja5['dias_cobertura_atual'].describe())
+            # Tentar encontrar Loja 5 em diferentes formatos
+            loja5_candidates = [
+                df[df['loja'] == 5],
+                df[df['loja'] == '5'],
+                df[df['loja'] == '005'],
+                df[df['loja'].astype(str) == '5'],
+            ]
+
+            loja5 = None
+            formato_encontrado = None
+            for idx, candidate in enumerate(loja5_candidates):
+                if len(candidate) > 0:
+                    loja5 = candidate
+                    formatos = ['==5', "=='5'", "=='005'",
+                                ".astype(str)=='5'"]
+                    formato_encontrado = formatos[idx]
+                    break
+
+            if loja5 is not None:
+                st.success(f"✅ Loja 5 encontrada com formato: "
+                           f"{formato_encontrado}")
+                st.write(f"**Total de registros na Loja 5:** {len(loja5)}")
 
                 loja5_com_estoque = loja5[loja5['dias_cobertura_atual'] > 0]
                 st.write(
-                    f"**Registros com dias_cobertura_atual > 0:** {len(loja5_com_estoque)}")
+                    f"**Registros com dias_cobertura_atual > 0:** "
+                    f"{len(loja5_com_estoque)}")
                 st.write(
-                    f"**Média calculada:** {loja5_com_estoque['dias_cobertura_atual'].mean():.1f} dias")
+                    f"**Média calculada:** "
+                    f"{loja5_com_estoque['dias_cobertura_atual'].mean():.1f} dias")
 
-                # Mostrar comparação com outras lojas
+                # Mostrar comparação com todas as lojas
                 st.write("**Comparação com todas as lojas:**")
                 comparacao = []
                 for loja in sorted(df['loja'].unique()):
                     loja_data = df[df['loja'] == loja]
-                    loja_data_com = loja_data[loja_data['dias_cobertura_atual'] > 0]
+                    loja_data_com = loja_data[
+                        loja_data['dias_cobertura_atual'] > 0]
                     if len(loja_data_com) > 0:
                         media = loja_data_com['dias_cobertura_atual'].mean()
                         comparacao.append({
@@ -423,16 +446,20 @@ def show_dashboard_online_page(engine, base_data_path=None):
                             'Giro Médio (dias)': round(media, 1),
                             'Registros': len(loja_data_com)
                         })
-                df_comp = pd.DataFrame(comparacao)
+                df_comp = pd.DataFrame(comparacao).sort_values(
+                    'Giro Médio (dias)', ascending=False)
                 st.dataframe(df_comp)
 
                 # Amostra dos dados da Loja 5
                 st.write("**Amostra dos dados da Loja 5:**")
-                st.dataframe(
-                    loja5[[col for col in ['codigo_interno', 'descricao', 'loja',
-                           'dias_cobertura_atual', 'estoque_total_loja', 'venda_media_dia']
-                           if col in loja5.columns]].head(20)
-                )
+                cols_display = [col for col in
+                                ['codigo_interno', 'descricao', 'loja',
+                                 'dias_cobertura_atual', 'estoque_total_loja',
+                                 'venda_media_dia']
+                                if col in loja5.columns]
+                st.dataframe(loja5[cols_display].head(20))
+            else:
+                st.error("❌ Loja 5 não encontrada em nenhum formato!")
 
     # Data da análise
     data_analise = (
