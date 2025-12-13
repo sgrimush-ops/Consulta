@@ -74,9 +74,10 @@ def show_main_menu():
     Informe se é funcionário da empresa ou se é fornecedor/promotor.
     Caso não tenha acesso, deve solicitar ao administrador do site.
     
-    **Contatos (WhatsApp):**
-    - Rafael: 55 991578276
-    - Alessandro: 55 996308388
+    **Horário de digitação de pedidos:**
+    - Segunda a Sexta: 08:00 - 18:00
+    - Sábado: 08:00 - 12:00
+    - Pedidos fora deste horário serão processados no próximo dia útil.
     """)
     col1, col2 = st.columns(2)
     if col1.button("Sou Funcionário (Baklizi)", use_container_width=True):
