@@ -49,8 +49,13 @@ def get_user_status_df(engine):
     df_users.loc[recente_mask, 'Cor'] = "orange"
     df_users.loc[recente_mask, 'Status_Desc'] = "Offline (<24h)"
 
-    # Online (somente se status_logado == LOGADO)
-    online_mask = df_users['status_logado'] == 'LOGADO'
+    # Online (status_logado == LOGADO E último acesso < 30 segundos)
+    # Considera online apenas se teve atividade recente
+    # (menos de 30 segundos)
+    online_mask = (
+        (df_users['status_logado'] == 'LOGADO') &
+        (df_users['Tempo_Segundos'] < 30)
+    )
     df_users.loc[online_mask, 'Sort_Key'] = 1
     df_users.loc[online_mask, 'Cor'] = "green"
     df_users.loc[online_mask, 'Status_Desc'] = "Online"
@@ -87,7 +92,8 @@ def show_status_page(engine, base_data_path):
     """Cria a interface da página de status."""
     st.title("📊 Status dos Usuários Ativos")
     st.markdown(
-        "Usuário é considerado **Online** apenas se estiver logado agora. "
+        "Usuário é considerado **Online** apenas se estiver logado agora "
+        "e teve atividade nos últimos 30 segundos. "
         "Caso contrário, exibimos há quanto tempo saiu.")
 
     # Auto refresh a cada 5s enquanto nesta tela

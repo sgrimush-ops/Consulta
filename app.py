@@ -97,6 +97,37 @@ def update_user_status(username, status):
         pass
 
 
+def update_user_last_access(username):
+    """Atualiza o último acesso do usuário sem mudar o status"""
+    try:
+        current_time = datetime.now()
+        query = text(
+            "UPDATE users SET ultimo_acesso = :time "
+            "WHERE username = :username")
+        with engine.begin() as conn:
+            conn.execute(query, {
+                "time": current_time,
+                "username": username.lower()
+            })
+    except Exception:
+        pass
+
+
+def cleanup_inactive_users():
+    """Marca usuários como DESLOGADO se inativos por 30+ segundos"""
+    try:
+        query = text("""
+            UPDATE users
+            SET status_logado = 'DESLOGADO'
+            WHERE status_logado = 'LOGADO'
+            AND ultimo_acesso < NOW() - INTERVAL '30 seconds'
+        """)
+        with engine.begin() as conn:
+            conn.execute(query)
+    except Exception:
+        pass
+
+
 def create_db_tables(engine):
     # Esta função agora aceita 1 argumento (engine)
     try:
@@ -215,6 +246,10 @@ def main_app():
         login_page(engine)
 
     # --- ÁREA LOGADA ---
+    # Limpa usuários inativos e atualiza o último acesso do usuário atual
+    cleanup_inactive_users()
+    update_user_last_access(st.session_state["username"])
+
     st.sidebar.success(f"Logado: {st.session_state['username']}")
     if st.sidebar.button("Logout"):
         update_user_status(st.session_state["username"], "DESLOGADO")
