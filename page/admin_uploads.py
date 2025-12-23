@@ -49,39 +49,12 @@ def show_admin_uploads_page(engine):
 
     st.markdown("---")
 
-    # --- UPLOAD HISTÓRICO DE SOLICITAÇÕES ---
-    st.subheader("2. Upload do Arquivo de Histórico de Solicitações")
-    uploaded_historico = st.file_uploader(
-        "Selecione o arquivo `historico.parquet`",
-        type="parquet",
-        key="hist_uploader"
+    # --- HISTÓRICO DE SOLICITAÇÕES (sem upload) ---
+    st.subheader("2. Histórico de Solicitações")
+    st.info(
+        "O projeto não depende mais do arquivo `historico.parquet`. "
+        "O histórico exibido nas páginas é derivado automaticamente da tabela `pedidos_consolidados`."
     )
-
-    if uploaded_historico is not None:
-        try:
-            df_historico = pd.read_parquet(uploaded_historico)
-            st.write("Amostra dos dados do Histórico (`historico_solicitacoes`):")
-            st.dataframe(df_historico.head())
-
-            if st.button("Salvar Histórico no Banco de Dados", type="primary", key="save_historico"):
-                with st.spinner("Salvando dados do Histórico... Isso pode levar alguns minutos."):
-                    try:
-                        df_historico.to_sql(
-                            'historico_solicitacoes', con=engine, if_exists='replace', index=False)
-                        st.success(
-                            "Arquivo de Histórico de Solicitações salvo com sucesso no banco de dados!")
-                        st.balloons()
-                    except SQLAlchemyError as e:
-                        st.error(
-                            f"Erro de banco de dados ao salvar o Histórico: {e}")
-                    except Exception as e:
-                        st.error(
-                            f"Ocorreu um erro inesperado ao salvar o Histórico: {e}")
-
-        except Exception as e:
-            st.error(
-                f"Ocorreu um erro ao processar o arquivo `historico.parquet`: {e}")
-
     st.markdown("---")
 
     # --- UPLOAD SUGESTÕES IA ---
