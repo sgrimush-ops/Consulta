@@ -83,120 +83,14 @@ def search_product_by_code(engine, code):
 
 
 def get_product_history(engine, code):
-    """Busca histórico derivado de `pedidos_consolidados` para o produto.
-
-    Remove a dependência da tabela `historico_solicitacoes` e reconstrói
-    uma visão de histórico a partir dos pedidos salvos, expandindo as colunas
-    por loja (loja_XXX) em linhas.
-    """
-    pedidos_code_col = resolve_pedidos_codigo_col(engine)
-    pedidos_desc_col = resolve_pedidos_descricao_col(engine)
-    pedidos_emb_col = resolve_pedidos_emb_col(engine)
-
-    base_cols = [
-        pedidos_code_col,
-        pedidos_desc_col,
-        "codigo_ean",
-        pedidos_emb_col,
-        "data_pedido",
-        "usuario_pedido",
-        "status_item",
-        "status_aprovacao",
-        "total_cx",
-    ]
-
-    # Monta SELECT tolerante: algumas colunas podem não existir
-    select_cols_sql = ", ".join(
-        [c for c in base_cols]
-    )
+    """Busca o histórico de solicitações de um produto."""
     query = text(
-        f"""
-        SELECT {select_cols_sql}, *
-        FROM pedidos_consolidados
-        WHERE CAST({pedidos_code_col} AS TEXT) = :code
-        ORDER BY data_pedido DESC
-        """
+        "SELECT * FROM historico_solicitacoes "
+        "WHERE CAST(codigo_interno AS TEXT) = :code"
     )
-
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"code": str(code)})
-
-    if df.empty:
-        return df
-
-    # Detecta colunas de lojas
-    loja_cols = [c for c in df.columns if c.startswith("loja_")]
-    if not loja_cols:
-        # Sem colunas de loja: retorna visão compacta do consolidado
-        # com nomes normalizados.
-        out = df.copy()
-        # Normaliza nomes para a UI
-        if pedidos_code_col != "codigo_interno" and pedidos_code_col in out.columns:
-            out = out.rename(columns={pedidos_code_col: "codigo_interno"})
-        if pedidos_desc_col != "descricao" and pedidos_desc_col in out.columns:
-            out = out.rename(columns={pedidos_desc_col: "descricao"})
-        if pedidos_emb_col != "embalagem" and pedidos_emb_col in out.columns:
-            out = out.rename(columns={pedidos_emb_col: "embalagem"})
-        return out[
-            [c for c in [
-                "codigo_interno",
-                "descricao",
-                "data_pedido",
-                "status_aprovacao",
-                "total_cx",
-            ] if c in out.columns]
-        ]
-
-    # Expande por loja
-    id_cols = [c for c in [
-        pedidos_code_col,
-        pedidos_desc_col,
-        "data_pedido",
-        "status_aprovacao",
-        "total_cx",
-    ] if c in df.columns]
-
-    df_melt = df.melt(
-        id_vars=id_cols,
-        value_vars=loja_cols,
-        var_name="loja",
-        value_name="pedido_do_dia_cx",
-    )
-
-    # Limpa e normaliza
-    df_melt["loja"] = df_melt["loja"].str.replace("loja_", "", regex=False)
-    # Mantém apenas pedidos > 0
-    try:
-        df_melt["pedido_do_dia_cx"] = pd.to_numeric(
-            df_melt["pedido_do_dia_cx"]).fillna(0).astype(int)
-    except Exception:
-        pass
-    df_melt = df_melt[df_melt["pedido_do_dia_cx"] > 0]
-
-    # Renomeia colunas resolvidas para nomes esperados
-    rename_map = {}
-    if pedidos_code_col in df_melt.columns and pedidos_code_col != "codigo_interno":
-        rename_map[pedidos_code_col] = "codigo_interno"
-    if pedidos_desc_col in df_melt.columns and pedidos_desc_col != "descricao":
-        rename_map[pedidos_desc_col] = "descricao"
-    df_out = df_melt.rename(columns=rename_map)
-
-    # Ordena por data mais recente
-    if "data_pedido" in df.columns:
-        df_out = df_out.sort_values(by=["data_pedido"], ascending=False)
-
-    # Seleção final de colunas para a UI
-    final_cols = [c for c in [
-        "codigo_interno",
-        "descricao",
-        "loja",
-        "pedido_do_dia_cx",
-        "status_aprovacao",
-        "total_cx",
-        "data_pedido",
-    ] if c in df_out.columns]
-
-    return df_out[final_cols]
+    return df
 
 
 def get_future_offers(engine, code):
@@ -639,5 +533,3 @@ def show_pedidos_cd_page(engine, base_data_path):
                 else:
                     st.warning(
                         "Por favor, digite uma mensagem antes de enviar.")
-
-
