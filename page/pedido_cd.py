@@ -36,8 +36,7 @@ def create_new_ticket(engine, username, assunto, mensagem):
             """
             )
             result = conn.execute(
-                query_ticket, {"username": username,
-                               "assunto": assunto, "now": now}
+                query_ticket, {"username": username, "assunto": assunto, "now": now}
             )
             new_ticket_id = result.scalar_one()
 
@@ -83,14 +82,77 @@ def search_product_by_code(engine, code):
 
 
 def get_product_history(engine, code):
-    """Busca o histórico de solicitações de um produto."""
-    query = text(
-        "SELECT * FROM historico_solicitacoes "
-        "WHERE CAST(codigo_interno AS TEXT) = :code"
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"code": str(code)})
-    return df
+    """
+    Busca o histórico de solicitações de um produto.
+
+    OBS: historico_solicitacoes removido — agora derivamos o histórico a partir da
+    tabela pedidos_consolidados, agregando as colunas loja_XXX por produto.
+    Retorna um DataFrame compatível com a UI; se não for possível obter dados,
+    retorna DataFrame vazio (o código da UI já cria o placeholder).
+    """
+    try:
+        # Lista de lojas esperada pela UI (mantida para compatibilidade)
+        LISTA_LOJAS_GLOBAL = [
+            "001",
+            "002",
+            "003",
+            "004",
+            "005",
+            "006",
+            "007",
+            "008",
+            "011",
+            "012",
+            "013",
+            "014",
+            "017",
+            "018",
+        ]
+
+        # Resolve nomes de colunas na tabela pedidos_consolidados (se houver customização)
+        pedidos_code_col = resolve_pedidos_codigo_col(engine)
+        pedidos_desc_col = resolve_pedidos_descricao_col(engine)
+
+        # Cria expressão de soma por loja (SUM(COALESCE(loja_x,0)) AS loja_x)
+        soma_lojas = ", ".join(
+            [f"SUM(COALESCE(loja_{l}, 0)) AS loja_{l}" for l in LISTA_LOJAS_GLOBAL]
+        )
+
+        # Monta query que agrega por produto (e descrição se disponível)
+        # Usa CAST(...) AS TEXT para permitir comparação com string
+        desc_select = f", {pedidos_desc_col} AS descricao" if pedidos_desc_col else ", '' AS descricao"
+        group_by = f"{pedidos_code_col}, {pedidos_desc_col}" if pedidos_desc_col else pedidos_code_col
+
+        query = text(
+            f"""
+            SELECT
+                {pedidos_code_col} AS codigo_interno
+                {desc_select},
+                {soma_lojas}
+            FROM pedidos_consolidados
+            WHERE CAST({pedidos_code_col} AS TEXT) = :code
+            GROUP BY {group_by}
+            """
+        )
+
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={"code": str(code)})
+
+        # Se por algum motivo a query retornar linhas mas sem as colunas de loja,
+        # garantimos que as colunas esperadas existam (preenchendo com zeros).
+        if not df.empty:
+            for l in LISTA_LOJAS_GLOBAL:
+                col_name = f"loja_{l}"
+                if col_name not in df.columns:
+                    df[col_name] = 0
+            # Reordena colunas para manter a consistência com a UI
+            cols_order = ["codigo_interno", "descricao"] + [f"loja_{l}" for l in LISTA_LOJAS_GLOBAL]
+            df = df[[c for c in cols_order if c in df.columns]]
+        return df
+    except Exception:
+        # Em caso de qualquer erro (tabela inexistente, coluna com nome diferente, permissões, etc.)
+        # retornamos DataFrame vazio — a UI irá exibir o placeholder como antes.
+        return pd.DataFrame()
 
 
 def get_future_offers(engine, code):
@@ -105,8 +167,7 @@ def get_future_offers(engine, code):
     """
     )
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={
-                         "code": str(code), "today": today})
+        df = pd.read_sql(query, conn, params={"code": str(code), "today": today})
     return df
 
 
@@ -131,8 +192,7 @@ def save_pedido_consolidado(engine, pedido_df):
 
 def show_pedidos_cd_page(engine, base_data_path):
     st.title("📝 Pedidos via CD (Mix Ativo)")
-    st.markdown(
-        "Busque pelo Código Interno ou EAN para fazer um pedido do mix ativo.")
+    st.markdown("Busque pelo Código Interno ou EAN para fazer um pedido do mix ativo.")
 
     # Inicializa o estado da sessão para o item pesquisado
     if "searched_item" not in st.session_state:
@@ -242,36 +302,18 @@ def show_pedidos_cd_page(engine, base_data_path):
             estoque_val = int(estoque_val)
         col4.metric("Estoque CD (Cx)", str(estoque_val))
 
-        # Abas com informações adicionais
-        tab1, tab2 = st.tabs(["Histórico de Solicitações", "Ofertas Futuras"])
-        with tab1:
-            history_df = get_product_history(engine, codigo_produto)
-            if not history_df.empty:
-                st.dataframe(history_df, use_container_width=True)
-            else:
-                st.info(
-                    "Este produto não possui histórico de pedidos. "
-                    "Você pode ser o primeiro a solicitar!"
-                )
-                # Cria um DataFrame vazio com a estrutura esperada para a UI
-                lojas_cols = [f"loja_{loja}" for loja in LISTA_LOJAS_GLOBAL]
-                placeholder_cols = ["codigo_interno", "descricao"] + lojas_cols
-                placeholder_df = pd.DataFrame(columns=placeholder_cols)
-                placeholder_df.loc[0] = [
-                    codigo_produto,
-                    item.get(mix_desc_col, "N/A"),
-                ] + [
-                    0
-                ] * len(lojas_cols)
-                st.dataframe(placeholder_df, hide_index=True,
-                             use_container_width=True)
-
-        with tab2:
+        # Informações de Ofertas (apenas se produto estiver mapeado)
+        # Consideramos 'mapeado' se houver um código de mix (codigo_produto não vazio)
+        if codigo_produto:
             offers_df = get_future_offers(engine, codigo_produto)
             if not offers_df.empty:
+                st.markdown("### Ofertas Futuras")
                 st.dataframe(offers_df, use_container_width=True)
             else:
                 st.info("Nenhuma oferta futura cadastrada para este item.")
+        else:
+            # Produto não mapeado — não exibimos histórico nem ofertas
+            pass
 
         st.markdown("---")
         st.subheader("Digite as quantidades por loja (em caixas):")
