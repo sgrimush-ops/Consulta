@@ -6,24 +6,52 @@ Este repositório contém a aplicação (Streamlit) e scripts de migração/roti
 
 ```
 ProjetoBak/
-├── app.py                      # Aplicação principal Streamlit
-├── main.py                     # Ponto de entrada da aplicação
-├── requirements.txt            # Dependências Python
-├── page/                       # Módulos de páginas da aplicação
-│   ├── admin_fornecedor.py
-│   ├── upload_ofertas.py
+├── app.py                          # Aplicação principal Streamlit
+├── main.py                         # Ponto de entrada da aplicação
+├── requirements.txt                # Dependências Python (incluindo pyzbar)
+├── README.md                       # Documentação principal
+├── ProjetoPY.code-workspace        # Configuração do workspace
+├── page/                           # Módulos de páginas da aplicação
+│   ├── home.py                     # Página inicial
+│   ├── consulta_cd.py              # Consulta de estoque e mix
+│   ├── pedido_cd.py                # Pedidos por código (com scanner 📱)
+│   ├── gestao_promo.py             # Gestão de pedidos promocionais
+│   ├── aprovacao_pedidos.py        # Aprovação de pedidos (admin)
+│   ├── upload_ofertas.py           # Upload de ofertas (mkt/admin)
+│   ├── ver_ofertas.py              # Visualização de ofertas
+│   ├── admin_uploads.py            # Gerenciamento de uploads (admin)
+│   ├── admin_maint.py              # Administração de usuários
+│   ├── status_usuarios.py          # Status de usuários online
+│   ├── dashboard_online.py         # Dashboard de análises
+│   ├── contato.py                  # Sistema de chamados
+│   ├── mudar_senha.py              # Alteração de senha
 │   └── ...
-├── migrations/                 # Scripts de migração do banco de dados
+├── migrations/                     # Scripts de migração do banco de dados
 │   ├── 001_safe_add_columns.sql
 │   ├── 002_direct_rename.sql
 │   └── run_migration_safe.sh
-├── scripts/                    # Scripts de manutenção e limpeza
+├── scripts/                        # Scripts de manutenção e limpeza
+│   ├── test_barcode_scanner.py     # Teste de instalação do scanner
 │   ├── cleanup_old_ofertas.py
-│   └── deploy_migrations_and_cleanup.sh
-└── tools/                      # Ferramentas auxiliares e diagnóstico
-    ├── diagnose_ofertas.py
+│   ├── cleanup_old_pedidos_aprovados.py
+│   ├── deploy_migrations_and_cleanup.sh
+│   └── smoke_test.py
+├── tools/                          # Ferramentas auxiliares e diagnóstico
+│   ├── diagnose_ofertas.py
+│   ├── check_and_fix_ofertas.py
+│   ├── find_and_fix_db.py
+│   └── backups/
+└── doc/                            # Documentação completa
+    ├── README_PRINCIPAL.md
+    ├── SCANNER_CODIGO_BARRAS.md    # Guia do scanner de código de barras
+    ├── CHANGELOG.md                # Histórico de versões
+    ├── README_TOOLS.md
+    ├── README_MIGRATIONS.md
+    ├── COMO_OBTER_DATABASE_URL.md
     ├── CORRECAO_OFERTAS.md
-    └── backups/
+    ├── SOLUCAO_RAPIDA.md
+    ├── SOLUCAO_DASHBOARD_NAO_ATUALIZA.md
+    └── RELATORIO_CALCULOS.md
 ```
 
 ## Rotina diária: limpeza de ofertas antigas
@@ -65,6 +93,32 @@ Criação de índice não bloqueante (opcional):
 - `codigo_interno` (canônico)
 - `descricao` (nome do produto)
 - `codigo_ean` (EAN)
+
+## 📱 Nova Funcionalidade: Scanner de Código de Barras
+
+### Página: Pedido por Código (CD)
+Agora os usuários podem escanear códigos EAN diretamente com a câmera do dispositivo móvel:
+
+**Funcionalidades:**
+- 📷 Captura de imagem via câmera (frontal ou traseira)
+- 🔍 Leitura automática de códigos EAN-13, EAN-8, UPC
+- ✅ Busca automática do produto após escaneamento
+- ⌨️ Opção de digitação manual continua disponível
+
+**Dependências:**
+- `pyzbar==0.1.9` - Biblioteca de leitura de códigos de barras
+- `Pillow` (já incluída) - Processamento de imagem
+
+**Teste:**
+```bash
+python scripts/test_barcode_scanner.py
+```
+
+**Benefícios:**
+- Elimina erros de digitação de códigos longos (13-14 dígitos)
+- Agiliza processo de pedidos em estoque
+- Otimizado para uso móvel (tablets/smartphones)
+- Funciona em ambientes com boa iluminação
 
 ## 🛠️ Ferramentas de Diagnóstico
 
