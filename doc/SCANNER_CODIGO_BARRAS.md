@@ -127,6 +127,16 @@ pip install -r requirements.txt
 pip install -r requirements.txt
 ```
 
+### 🚀 Deploy em Produção (Render/Cloud)
+
+Para habilitar o scanner em servidores de produção, veja:
+**[INSTALAR_SCANNER_RENDER.md](INSTALAR_SCANNER_RENDER.md)** - Guia completo de instalação
+
+**Resumo rápido:**
+1. Criar arquivo `apt-packages` na raiz com conteúdo: `libzbar0`
+2. Fazer commit e push
+3. Render instalará automaticamente no próximo deploy
+
 ### Teste de Instalação
 
 ```bash

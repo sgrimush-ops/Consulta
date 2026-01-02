@@ -8,6 +8,7 @@ Toda a documentação do projeto está armazenada na pasta [`doc/`](./doc/):
 
 - **[README_PRINCIPAL.md](./doc/README_PRINCIPAL.md)** - Documentação principal do projeto
 - **[SCANNER_CODIGO_BARRAS.md](./doc/SCANNER_CODIGO_BARRAS.md)** - Guia técnico do scanner de código de barras
+- **[INSTALAR_SCANNER_RENDER.md](./doc/INSTALAR_SCANNER_RENDER.md)** - Como habilitar scanner no Render
 - **[CHANGELOG.md](./doc/CHANGELOG.md)** - Histórico de atualizações e versões
 - **[SOLUCAO_RAPIDA.md](./doc/SOLUCAO_RAPIDA.md)** - Soluções rápidas e troubleshooting
 - **[COMO_OBTER_DATABASE_URL.md](./doc/COMO_OBTER_DATABASE_URL.md)** - Guia para configurar DATABASE_URL
