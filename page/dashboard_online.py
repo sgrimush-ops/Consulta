@@ -127,14 +127,15 @@ def calcular_metricas(df):
     if 'situacao' in df.columns:
         situacoes = df['situacao'].value_counts()
 
-        # Em Atendimento = 'enviar_pedido' (produtos que precisam ser enviados)
-        metricas['em_atendimento'] = situacoes.get('enviar_pedido', 0)
+        # Em Atendimento = 'em atendimento' (produtos que precisam ser enviados)
+        # Também aceita 'enviar_pedido' por compatibilidade
+        metricas['em_atendimento'] = situacoes.get('em atendimento', 0) + situacoes.get('enviar_pedido', 0)
 
         # Insuficiente = 'insuficiente' (produtos com estoque insuficiente)
         metricas['insuficiente'] = situacoes.get('insuficiente', 0)
 
-        # Falta CD = 'falta_cd' (produtos em falta no CD)
-        metricas['falta_estoque'] = situacoes.get('falta_cd', 0)
+        # Falta CD = 'falta_cd' ou 'falta de estoque' (produtos em falta no CD)
+        metricas['falta_estoque'] = situacoes.get('falta_cd', 0) + situacoes.get('falta de estoque', 0)
 
         # Falta CD Total = falta_cd + insuficiente (tudo que não pode ser atendido)
         metricas['falta_cd_total'] = metricas['falta_estoque'] + \
@@ -416,7 +417,7 @@ def show_dashboard_online_page(engine, base_data_path=None):
             f"{metricas['em_atendimento']:,}",
             delta=f"↑ {(metricas['em_atendimento']/metricas['total_analisados']*100) if metricas['total_analisados'] > 0 else 0:.1f}%",
             delta_color="normal",
-            help="Produtos que precisam ser enviados (enviar_pedido)"
+            help="Produtos que precisam ser enviados (situacao: 'em atendimento' ou 'enviar_pedido')"
         )
 
     with col3:
