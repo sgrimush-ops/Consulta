@@ -265,62 +265,92 @@ def show_pedidos_cd_page(engine, base_data_path):
     # --- Formulário de Busca ---
     st.markdown("### 🔍 Selecione o tipo de código para buscar:")
 
-    # Scanner de câmera (apenas se biblioteca estiver disponível)
-    if BARCODE_SCANNER_AVAILABLE:
-        with st.expander("📷 Escanear Código de Barras com a Câmera", expanded=False):
-            st.info("💡 Clique no botão abaixo para ativar a câmera e escanear o código EAN")
-            
-            # Inicializa estado do scanner
-            if "scanner_active" not in st.session_state:
-                st.session_state.scanner_active = False
-            
-            # Botão para ativar/desativar scanner
-            if st.button("📸 Ativar Câmera para Scanner" if not st.session_state.scanner_active else "❌ Fechar Câmera"):
+    # Scanner de câmera - SEMPRE mostra, mas com funcionalidades diferentes
+    with st.expander("📷 Escanear/Fotografar Código de Barras", expanded=False):
+        st.info(
+            "💡 **Use a câmera para capturar o código de barras**\n\n"
+            "- Tire uma foto clara do código EAN\n"
+            "- Após capturar, digite o código que aparece na embalagem\n"
+            "- A foto serve como referência visual"
+        )
+        
+        # Mostra status da detecção automática
+        if BARCODE_SCANNER_AVAILABLE:
+            st.success("✅ Detecção automática de código: **Ativada**")
+        else:
+            st.warning(
+                "⚠️ Detecção automática: **Desativada**\n\n"
+                "Você pode tirar foto do código e digitá-lo manualmente abaixo."
+            )
+        
+        # Inicializa estado do scanner
+        if "scanner_active" not in st.session_state:
+            st.session_state.scanner_active = False
+        
+        # Botão para ativar/desativar câmera
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.button(
+                "📸 Abrir Câmera" if not st.session_state.scanner_active 
+                else "❌ Fechar Câmera"
+            ):
                 st.session_state.scanner_active = not st.session_state.scanner_active
                 st.rerun()
+        
+        # Mostra câmera se ativada
+        if st.session_state.scanner_active:
+            st.markdown("---")
+            camera_image = st.camera_input(
+                "📸 Posicione o código de barras no centro da imagem",
+                key="barcode_scanner"
+            )
             
-            # Mostra câmera se ativada
-            if st.session_state.scanner_active:
-                camera_image = st.camera_input(
-                    "Posicione o código de barras no centro da imagem",
-                    key="barcode_scanner"
-                )
+            if camera_image is not None:
+                # Mostra a imagem capturada
+                col_img, col_info = st.columns([1, 1])
                 
-                if camera_image is not None:
-                    with st.spinner("🔍 Processando código de barras..."):
-                        image = Image.open(camera_image)
-                        scanned_code = scan_barcode_from_image(image)
-                        
-                        if scanned_code:
-                            st.success(f"✅ Código lido: **{scanned_code}**")
-                            st.session_state.scanner_active = False
+                with col_img:
+                    st.image(camera_image, caption="Código capturado", width=200)
+                
+                with col_info:
+                    if BARCODE_SCANNER_AVAILABLE:
+                        # Tenta detectar automaticamente
+                        with st.spinner("🔍 Detectando código..."):
+                            image = Image.open(camera_image)
+                            scanned_code = scan_barcode_from_image(image)
                             
-                            # Busca automática com o código escaneado
-                            with st.spinner("Buscando produto..."):
-                                product_df = search_product_by_code(
-                                    engine, scanned_code
-                                )
-                                if not product_df.empty:
-                                    st.session_state.searched_item = (
-                                        product_df.iloc[0].to_dict()
+                            if scanned_code:
+                                st.success(f"✅ Código detectado: **{scanned_code}**")
+                                st.session_state.scanner_active = False
+                                
+                                # Busca automática
+                                with st.spinner("Buscando produto..."):
+                                    product_df = search_product_by_code(
+                                        engine, scanned_code
                                     )
-                                    st.session_state.pedido_details = {}
-                                    st.rerun()
-                                else:
-                                    st.warning("⚠️ Produto não encontrado no banco.")
-                        else:
-                            st.error(
-                                "❌ Código não detectado. Verifique a iluminação "
-                                "e tente novamente."
-                            )
+                                    if not product_df.empty:
+                                        st.session_state.searched_item = (
+                                            product_df.iloc[0].to_dict()
+                                        )
+                                        st.session_state.pedido_details = {}
+                                        st.rerun()
+                                    else:
+                                        st.warning("⚠️ Produto não encontrado.")
+                            else:
+                                st.info(
+                                    "ℹ️ Código não detectado automaticamente.\n\n"
+                                    "Digite o código manualmente abaixo."
+                                )
+                    else:
+                        # Sem detecção automática - mostra instruções
+                        st.info(
+                            "📝 **Digite o código manualmente**\n\n"
+                            "1. Olhe o código EAN na imagem acima\n"
+                            "2. Digite no campo abaixo\n"
+                            "3. Clique em 'Buscar Produto'"
+                        )
         
         st.markdown("---")
-    else:
-        # Informa que scanner não está disponível
-        st.info(
-            "ℹ️ **Scanner de código de barras não disponível** neste ambiente. "
-            "Use a digitação manual abaixo."
-        )
     
     st.markdown("### ⌨️ Digite o código manualmente:")
 
