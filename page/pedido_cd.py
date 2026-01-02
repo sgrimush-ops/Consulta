@@ -12,8 +12,16 @@ from page import (
     has_table_column,
 )
 from datetime import datetime, date
-from PIL import Image
-from pyzbar.pyzbar import decode
+
+# Importação opcional do scanner de código de barras
+BARCODE_SCANNER_AVAILABLE = False
+try:
+    from PIL import Image
+    from pyzbar.pyzbar import decode
+    BARCODE_SCANNER_AVAILABLE = True
+except (ImportError, OSError):
+    # pyzbar ou libzbar não disponível - scanner desabilitado
+    pass
 
 # --- Funções de Chamado (Copiado de contato.py) ---
 
@@ -247,36 +255,38 @@ def show_pedidos_cd_page(engine, base_data_path):
     # --- Formulário de Busca ---
     st.markdown("### 🔍 Selecione o tipo de código para buscar:")
 
-    # Scanner de câmera (fora do formulário para não resetar a câmera)
-    st.markdown("#### 📷 Escanear Código de Barras")
-    col_camera1, col_camera2 = st.columns([3, 1])
+    # Scanner de câmera (apenas se biblioteca estiver disponível)
+    if BARCODE_SCANNER_AVAILABLE:
+        st.markdown("#### 📷 Escanear Código de Barras")
+        col_camera1, col_camera2 = st.columns([3, 1])
+        
+        with col_camera1:
+            camera_image = st.camera_input("Posicione o código de barras na câmera", key="barcode_scanner")
+        
+        with col_camera2:
+            st.markdown("<br>", unsafe_allow_html=True)  # Espaçamento
+            if camera_image is not None:
+                with st.spinner("Processando..."):
+                    image = Image.open(camera_image)
+                    scanned_code = scan_barcode_from_image(image)
+                    
+                    if scanned_code:
+                        st.success(f"✅ Código lido: {scanned_code}")
+                        # Busca automática com o código escaneado
+                        with st.spinner("Buscando produto..."):
+                            product_df = search_product_by_code(engine, scanned_code)
+                            if not product_df.empty:
+                                st.session_state.searched_item = product_df.iloc[0].to_dict()
+                                st.session_state.pedido_details = {}
+                                st.rerun()
+                            else:
+                                st.warning("Produto não encontrado no banco.")
+                    else:
+                        st.error("❌ Nenhum código de barras detectado. Tente novamente.")
+        
+        st.markdown("---")
     
-    with col_camera1:
-        camera_image = st.camera_input("Posicione o código de barras na câmera", key="barcode_scanner")
-    
-    with col_camera2:
-        st.markdown("<br>", unsafe_allow_html=True)  # Espaçamento
-        if camera_image is not None:
-            with st.spinner("Processando..."):
-                image = Image.open(camera_image)
-                scanned_code = scan_barcode_from_image(image)
-                
-                if scanned_code:
-                    st.success(f"✅ Código lido: {scanned_code}")
-                    # Busca automática com o código escaneado
-                    with st.spinner("Buscando produto..."):
-                        product_df = search_product_by_code(engine, scanned_code)
-                        if not product_df.empty:
-                            st.session_state.searched_item = product_df.iloc[0].to_dict()
-                            st.session_state.pedido_details = {}
-                            st.rerun()
-                        else:
-                            st.warning("Produto não encontrado no banco.")
-                else:
-                    st.error("❌ Nenhum código de barras detectado. Tente novamente.")
-    
-    st.markdown("---")
-    st.markdown("#### ⌨️ Ou digite manualmente:")
+    st.markdown("#### ⌨️ Digite o código:")
 
     with st.form("search_form"):
         col1, col2 = st.columns(2)
