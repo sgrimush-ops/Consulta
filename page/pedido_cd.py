@@ -13,41 +13,7 @@ from page import (
 )
 from datetime import datetime, date
 
-# Importação opcional do scanner de código de barras
-BARCODE_SCANNER_AVAILABLE = False
-try:
-    from PIL import Image
-    from pyzbar.pyzbar import decode
-    BARCODE_SCANNER_AVAILABLE = True
-except (ImportError, OSError):
-    # pyzbar ou libzbar não disponível - scanner desabilitado
-    pass
-
 # --- Funções de Chamado (Copiado de contato.py) ---
-
-
-def scan_barcode_from_image(image):
-    """
-    Lê código de barras de uma imagem capturada pela câmera.
-    
-    Args:
-        image: Imagem PIL capturada pelo st.camera_input()
-    
-    Returns:
-        str: Código de barras lido ou None se não encontrado
-    """
-    try:
-        # Decodifica códigos de barras da imagem
-        decoded_objects = decode(image)
-        
-        if decoded_objects:
-            # Pega o primeiro código encontrado
-            barcode_data = decoded_objects[0].data.decode('utf-8')
-            return barcode_data
-        return None
-    except Exception as e:
-        st.error(f"Erro ao processar imagem: {e}")
-        return None
 
 
 def create_new_ticket(engine, username, assunto, mensagem):
@@ -227,16 +193,6 @@ def save_pedido_consolidado(engine, pedido_df):
 def show_pedidos_cd_page(engine, base_data_path):
     st.title("📝 Pedidos via CD (Mix Ativo)")
     st.markdown("Busque pelo Código Interno ou EAN para fazer um pedido do mix ativo.")
-    
-    # Debug: Mostra status do scanner (apenas em desenvolvimento)
-    if st.session_state.get("role") == "admin":
-        if BARCODE_SCANNER_AVAILABLE:
-            st.success("✅ Scanner de código de barras: Disponível")
-        else:
-            st.warning(
-                "⚠️ Scanner de código de barras: Indisponível "
-                "(biblioteca libzbar não encontrada)"
-            )
 
     # Inicializa o estado da sessão para o item pesquisado
     if "searched_item" not in st.session_state:
@@ -263,96 +219,7 @@ def show_pedidos_cd_page(engine, base_data_path):
     ]
 
     # --- Formulário de Busca ---
-    st.markdown("### 🔍 Selecione o tipo de código para buscar:")
-
-    # Scanner de câmera - SEMPRE mostra, mas com funcionalidades diferentes
-    with st.expander("📷 Escanear/Fotografar Código de Barras", expanded=False):
-        st.info(
-            "💡 **Use a câmera para capturar o código de barras**\n\n"
-            "- Tire uma foto clara do código EAN\n"
-            "- Após capturar, digite o código que aparece na embalagem\n"
-            "- A foto serve como referência visual"
-        )
-        
-        # Mostra status da detecção automática
-        if BARCODE_SCANNER_AVAILABLE:
-            st.success("✅ Detecção automática de código: **Ativada**")
-        else:
-            st.warning(
-                "⚠️ Detecção automática: **Desativada**\n\n"
-                "Você pode tirar foto do código e digitá-lo manualmente abaixo."
-            )
-        
-        # Inicializa estado do scanner
-        if "scanner_active" not in st.session_state:
-            st.session_state.scanner_active = False
-        
-        # Botão para ativar/desativar câmera
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            if st.button(
-                "📸 Abrir Câmera" if not st.session_state.scanner_active 
-                else "❌ Fechar Câmera"
-            ):
-                st.session_state.scanner_active = not st.session_state.scanner_active
-                st.rerun()
-        
-        # Mostra câmera se ativada
-        if st.session_state.scanner_active:
-            st.markdown("---")
-            camera_image = st.camera_input(
-                "📸 Posicione o código de barras no centro da imagem",
-                key="barcode_scanner"
-            )
-            
-            if camera_image is not None:
-                # Mostra a imagem capturada
-                col_img, col_info = st.columns([1, 1])
-                
-                with col_img:
-                    st.image(camera_image, caption="Código capturado", width=200)
-                
-                with col_info:
-                    if BARCODE_SCANNER_AVAILABLE:
-                        # Tenta detectar automaticamente
-                        with st.spinner("🔍 Detectando código..."):
-                            image = Image.open(camera_image)
-                            scanned_code = scan_barcode_from_image(image)
-                            
-                            if scanned_code:
-                                st.success(f"✅ Código detectado: **{scanned_code}**")
-                                st.session_state.scanner_active = False
-                                
-                                # Busca automática
-                                with st.spinner("Buscando produto..."):
-                                    product_df = search_product_by_code(
-                                        engine, scanned_code
-                                    )
-                                    if not product_df.empty:
-                                        st.session_state.searched_item = (
-                                            product_df.iloc[0].to_dict()
-                                        )
-                                        st.session_state.pedido_details = {}
-                                        st.rerun()
-                                    else:
-                                        st.warning("⚠️ Produto não encontrado.")
-                            else:
-                                st.info(
-                                    "ℹ️ Código não detectado automaticamente.\n\n"
-                                    "Digite o código manualmente abaixo."
-                                )
-                    else:
-                        # Sem detecção automática - mostra instruções
-                        st.info(
-                            "📝 **Digite o código manualmente**\n\n"
-                            "1. Olhe o código EAN na imagem acima\n"
-                            "2. Digite no campo abaixo\n"
-                            "3. Clique em 'Buscar Produto'"
-                        )
-        
-        st.markdown("---")
-    
-    st.markdown("### ⌨️ Digite o código manualmente:")
+    st.markdown("### 🔍 Digite o código do produto:")
 
     with st.form("search_form"):
         col1, col2 = st.columns(2)

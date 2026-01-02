@@ -4,13 +4,6 @@ Esta pasta contém scripts de manutenção, diagnóstico e ferramentas auxiliare
 
 ## 📁 Conteúdo
 
-### Scripts de Teste e Validação
-
-- **`test_barcode_scanner.py`** (scripts/) - Script de teste do scanner de código de barras
-  - Verifica instalação do pyzbar
-  - Valida dependências de imagem
-  - Confirma prontidão do sistema
-
 ### Scripts de Diagnóstico e Correção
 
 - **`diagnose_ofertas.py`** - Script principal de diagnóstico e correção automática da tabela ofertas
@@ -35,13 +28,6 @@ Esta pasta contém scripts de manutenção, diagnóstico e ferramentas auxiliare
 - `main.py.bak` - Backup de arquivos anteriores
 
 ## 🚀 Uso Rápido
-
-### Testar Scanner de Código de Barras
-
-```bash
-# Na raiz do projeto
-python scripts/test_barcode_scanner.py
-```
 
 ### Corrigir problemas com a tabela ofertas
 

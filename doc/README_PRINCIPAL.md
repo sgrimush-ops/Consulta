@@ -8,13 +8,13 @@ Este repositório contém a aplicação (Streamlit) e scripts de migração/roti
 ProjetoBak/
 ├── app.py                          # Aplicação principal Streamlit
 ├── main.py                         # Ponto de entrada da aplicação
-├── requirements.txt                # Dependências Python (incluindo pyzbar)
+├── requirements.txt                # Dependências Python
 ├── README.md                       # Documentação principal
 ├── ProjetoPY.code-workspace        # Configuração do workspace
 ├── page/                           # Módulos de páginas da aplicação
 │   ├── home.py                     # Página inicial
 │   ├── consulta_cd.py              # Consulta de estoque e mix
-│   ├── pedido_cd.py                # Pedidos por código (com scanner 📱)
+│   ├── pedido_cd.py                # Pedidos por código (EAN/interno)
 │   ├── gestao_promo.py             # Gestão de pedidos promocionais
 │   ├── aprovacao_pedidos.py        # Aprovação de pedidos (admin)
 │   ├── upload_ofertas.py           # Upload de ofertas (mkt/admin)
@@ -94,33 +94,7 @@ Criação de índice não bloqueante (opcional):
 - `descricao` (nome do produto)
 - `codigo_ean` (EAN)
 
-## 📱 Nova Funcionalidade: Scanner de Código de Barras
-
-### Página: Pedido por Código (CD)
-Agora os usuários podem escanear códigos EAN diretamente com a câmera do dispositivo móvel:
-
-**Funcionalidades:**
-- 📷 Captura de imagem via câmera (frontal ou traseira)
-- 🔍 Leitura automática de códigos EAN-13, EAN-8, UPC
-- ✅ Busca automática do produto após escaneamento
-- ⌨️ Opção de digitação manual continua disponível
-
-**Dependências:**
-- `pyzbar==0.1.9` - Biblioteca de leitura de códigos de barras
-- `Pillow` (já incluída) - Processamento de imagem
-
-**Teste:**
-```bash
-python scripts/test_barcode_scanner.py
-```
-
-**Benefícios:**
-- Elimina erros de digitação de códigos longos (13-14 dígitos)
-- Agiliza processo de pedidos em estoque
-- Otimizado para uso móvel (tablets/smartphones)
-- Funciona em ambientes com boa iluminação
-
-## 🛠️ Ferramentas de Diagnóstico
+## ️ Ferramentas de Diagnóstico
 
 Se encontrar erros relacionados a colunas do banco de dados (ex: "column codigo_interno does not exist"):
 
