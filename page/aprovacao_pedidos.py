@@ -53,6 +53,14 @@ def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
                 .astype(int)
             )
 
+    # Formata estoque_cd
+    if "estoque_cd" in df.columns:
+        df["estoque_cd"] = (
+            pd.to_numeric(df["estoque_cd"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
+
     # Garante que o código seja numérico para cruzamento com ofertas
     if "codigo_interno" in df.columns:
         df["codigo_interno"] = (
@@ -147,18 +155,20 @@ def get_pedidos_para_aprovacao(
         query = text(
             f"""
             SELECT
-                id AS id_pedido,
-                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
-                usuario_pedido,
-                {p_code} AS codigo_interno,
-                {p_desc} AS descricao,
-                {p_emb} AS embalagem,
-                {lojas_sql},
-                total_cx,
-                status_item,
-                status_aprovacao
-            FROM pedidos_consolidados
-            WHERE data_pedido BETWEEN :start_str AND :end_str
+                p.id AS id_pedido,
+                TO_CHAR(p.data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
+                p.usuario_pedido,
+                p.{p_code} AS codigo_interno,
+                p.{p_desc} AS descricao,
+                p.{p_emb} AS embalagem,
+                COALESCE(m.estoque_cd, 0) AS estoque_cd,
+                p.{lojas_sql},
+                p.total_cx,
+                p.status_item,
+                p.status_aprovacao
+            FROM pedidos_consolidados p
+            LEFT JOIN mix_produtos m ON CAST(p.{p_code} AS TEXT) = CAST(m.codigo_interno AS TEXT)
+            WHERE p.data_pedido BETWEEN :start_str AND :end_str
         """
         )
 
@@ -195,18 +205,20 @@ def get_pedidos_aprovados_download(engine) -> pd.DataFrame:
         query = text(
             f"""
             SELECT
-                id AS id_pedido,
-                TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
-                usuario_pedido,
-                {p_code} AS codigo_interno,
-                {p_desc} AS descricao,
-                {p_emb} AS embalagem,
-                {lojas_sql},
-                total_cx,
-                status_item
-            FROM pedidos_consolidados
-            WHERE status_aprovacao = 'Aprovado'
-            ORDER BY data_pedido ASC
+                p.id AS id_pedido,
+                TO_CHAR(p.data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
+                p.usuario_pedido,
+                p.{p_code} AS codigo_interno,
+                p.{p_desc} AS descricao,
+                p.{p_emb} AS embalagem,
+                COALESCE(m.estoque_cd, 0) AS estoque_cd,
+                p.{lojas_sql},
+                p.total_cx,
+                p.status_item
+            FROM pedidos_consolidados p
+            LEFT JOIN mix_produtos m ON CAST(p.{p_code} AS TEXT) = CAST(m.codigo_interno AS TEXT)
+            WHERE p.status_aprovacao = 'Aprovado'
+            ORDER BY p.data_pedido ASC
         """
         )
         df_pedidos = pd.read_sql_query(query, con=engine)
@@ -368,6 +380,7 @@ def show_aprovacao_page(engine, base_data_path):
             "inicio_oferta",
             "fim_oferta",
             "embalagem",
+            "estoque_cd",
             "status_item",
             "status_aprovacao",
         ]
@@ -407,6 +420,9 @@ def show_aprovacao_page(engine, base_data_path):
             ),
             "embalagem": st.column_config.NumberColumn(
                 "Emb. (Un/Cx)", disabled=True, format="%d"
+            ),
+            "estoque_cd": st.column_config.NumberColumn(
+                "Estoque CD (Cx)", disabled=True, format="%d"
             ),
             "status_item": st.column_config.TextColumn(
                 "Status Mix", disabled=True
