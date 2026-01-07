@@ -343,110 +343,162 @@ def show_pedidos_cd_page(engine, base_data_path):
 
             if st.form_submit_button("Enviar para Aprovação"):
                 if total_cx > 0:
-                    # Busca embalagem do item
-                    emb_val = item.get(mix_emb_col, 0)
-                    if pd.isna(emb_val) or emb_val is None:
-                        emb_val = 0
+                    # Verifica se o estoque CD está zerado
+                    if estoque_val == 0:
+                        # Marca que precisa confirmar produto zerado
+                        st.session_state.pedido_details = {
+                            "pedido_inputs": pedido_inputs,
+                            "total_cx": total_cx,
+                            "codigo_produto": codigo_produto,
+                            "item": item,
+                            "aguardando_confirmacao": True
+                        }
+                        st.warning("⚠️ Este produto está ZERADO no CD!")
+                        st.rerun()
                     else:
-                        emb_val = int(emb_val)
-
-                    pedido_data = {
-                        "codigo_interno": [codigo_produto],
-                        "descricao": [item.get(mix_desc_col, "N/A")],
-                        "codigo_ean": [item.get("codigo_ean", "N/A")],
-                        "embalagem": [emb_val],
-                        "data_pedido": [datetime.now()],
-                        "usuario_pedido": [
-                            st.session_state.get("username", "unknown")
-                        ],
-                        "status_item": ["Pendente"],
-                        "status_aprovacao": ["Pendente"],
-                        "total_cx": [total_cx],
-                    }
-                    for loja in LISTA_LOJAS_GLOBAL:
-                        col_name = f"loja_{loja}"
-                        pedido_data[col_name] = [pedido_inputs.get(loja, 0)]
-
-                    df_to_save = pd.DataFrame(pedido_data)
-
-                    # Ajusta colunas para a tabela real de pedidos_consolidados
-                    pedidos_code_col = resolve_pedidos_codigo_col(engine)
-                    pedidos_desc_col = resolve_pedidos_descricao_col(engine)
-                    pedidos_emb_col = resolve_pedidos_emb_col(engine)
-
-                    rename_map = {}
-                    if pedidos_code_col != "codigo_interno":
-                        rename_map["codigo_interno"] = pedidos_code_col
-                    if pedidos_desc_col != "descricao":
-                        rename_map["descricao"] = pedidos_desc_col
-                    if pedidos_emb_col != "embalagem":
-                        rename_map["embalagem"] = pedidos_emb_col
-
-                    df_real = df_to_save.rename(columns=rename_map)
-
-                    # Compatibilidade: se a tabela exigir coluna 'codigo'
-                    # (NOT NULL), popular com o mesmo valor do código real.
-                    try:
-                        if has_table_column(
-                            engine, "pedidos_consolidados", "codigo"
-                        ) and "codigo" not in df_real.columns:
-                            code_col = (
-                                pedidos_code_col
-                                if pedidos_code_col in df_real.columns
-                                else "codigo_interno"
-                            )
-                            if code_col in df_real.columns:
-                                df_real["codigo"] = df_real[code_col]
-                    except Exception:
-                        # Não bloquear salvamento em caso de detecção falhar
-                        pass
-
-                    # Compat: colunas legadas de descrição
-                    # Ex.: produto/nome_produto NOT NULL
-                    try:
-                        # Coluna fonte para descrição no DataFrame
-                        desc_source = None
-                        for cand in [
-                            pedidos_desc_col,
-                            "descricao",
-                            "produto",
-                            "nome_produto",
-                        ]:
-                            if cand and cand in df_real.columns:
-                                desc_source = cand
-                                break
-
-                        if desc_source:
-                            for legacy_col in [
-                                "produto",
-                                "nome_produto",
-                                "descricao",
-                            ]:
-                                if (
-                                    has_table_column(
-                                        engine,
-                                        "pedidos_consolidados",
-                                        legacy_col,
-                                    )
-                                    and legacy_col not in df_real.columns
-                                ):
-                                    df_real[legacy_col] = df_real[desc_source]
-                    except Exception:
-                        pass
-
-                    if save_pedido_consolidado(engine, df_real):
-                        st.success(
-                            "Pedido enviado com sucesso para aprovação!"
-                        )
-                        # Limpa para nova busca
-                        st.session_state.searched_item = None
-                        st.session_state.pedido_details = {}
+                        # Estoque disponível, processa normalmente
+                        st.session_state.pedido_details = {
+                            "pedido_inputs": pedido_inputs,
+                            "total_cx": total_cx,
+                            "codigo_produto": codigo_produto,
+                            "item": item,
+                            "confirmar_pedido": True
+                        }
                         st.rerun()
                 else:
                     st.warning(
                         "Nenhuma quantidade foi digitada. "
                         "O pedido não foi enviado."
                     )
+
+        # --- Confirmação para produto zerado no CD ---
+        if st.session_state.pedido_details.get("aguardando_confirmacao", False):
+            st.markdown("---")
+            st.warning("### ⚠️ Confirmação Necessária")
+            st.markdown("**Deseja mesmo solicitar o produto ZERADO no CD?**")
+            
+            col_sim, col_nao = st.columns(2)
+            
+            with col_sim:
+                if st.button("✅ Sim, confirmar pedido", use_container_width=True, type="primary"):
+                    # Usuario confirmou, processa o pedido
+                    st.session_state.pedido_details["confirmar_pedido"] = True
+                    st.session_state.pedido_details["aguardando_confirmacao"] = False
+                    st.rerun()
+            
+            with col_nao:
+                if st.button("❌ Não, cancelar", use_container_width=True):
+                    # Limpa o pedido
+                    st.session_state.pedido_details = {}
+                    st.info("Pedido cancelado. Digite novamente as quantidades se desejar.")
+                    st.rerun()
+
+        # --- Processamento do pedido confirmado ---
+        if st.session_state.pedido_details.get("confirmar_pedido", False):
+            pedido_inputs = st.session_state.pedido_details["pedido_inputs"]
+            total_cx = st.session_state.pedido_details["total_cx"]
+            codigo_produto = st.session_state.pedido_details["codigo_produto"]
+            item = st.session_state.pedido_details["item"]
+
+            # Busca embalagem do item
+            emb_val = item.get(mix_emb_col, 0)
+            if pd.isna(emb_val) or emb_val is None:
+                emb_val = 0
+            else:
+                emb_val = int(emb_val)
+
+            pedido_data = {
+                "codigo_interno": [codigo_produto],
+                "descricao": [item.get(mix_desc_col, "N/A")],
+                "codigo_ean": [item.get("codigo_ean", "N/A")],
+                "embalagem": [emb_val],
+                "data_pedido": [datetime.now()],
+                "usuario_pedido": [
+                    st.session_state.get("username", "unknown")
+                ],
+                "status_item": ["Pendente"],
+                "status_aprovacao": ["Pendente"],
+                "total_cx": [total_cx],
+            }
+            for loja in LISTA_LOJAS_GLOBAL:
+                col_name = f"loja_{loja}"
+                pedido_data[col_name] = [pedido_inputs.get(loja, 0)]
+
+            df_to_save = pd.DataFrame(pedido_data)
+
+            # Ajusta colunas para a tabela real de pedidos_consolidados
+            pedidos_code_col = resolve_pedidos_codigo_col(engine)
+            pedidos_desc_col = resolve_pedidos_descricao_col(engine)
+            pedidos_emb_col = resolve_pedidos_emb_col(engine)
+
+            rename_map = {}
+            if pedidos_code_col != "codigo_interno":
+                rename_map["codigo_interno"] = pedidos_code_col
+            if pedidos_desc_col != "descricao":
+                rename_map["descricao"] = pedidos_desc_col
+            if pedidos_emb_col != "embalagem":
+                rename_map["embalagem"] = pedidos_emb_col
+
+            df_real = df_to_save.rename(columns=rename_map)
+
+            # Compatibilidade: se a tabela exigir coluna 'codigo'
+            # (NOT NULL), popular com o mesmo valor do código real.
+            try:
+                if has_table_column(
+                    engine, "pedidos_consolidados", "codigo"
+                ) and "codigo" not in df_real.columns:
+                    code_col = (
+                        pedidos_code_col
+                        if pedidos_code_col in df_real.columns
+                        else "codigo_interno"
+                    )
+                    if code_col in df_real.columns:
+                        df_real["codigo"] = df_real[code_col]
+            except Exception:
+                # Não bloquear salvamento em caso de detecção falhar
+                pass
+
+            # Compat: colunas legadas de descrição
+            # Ex.: produto/nome_produto NOT NULL
+            try:
+                # Coluna fonte para descrição no DataFrame
+                desc_source = None
+                for cand in [
+                    pedidos_desc_col,
+                    "descricao",
+                    "produto",
+                    "nome_produto",
+                ]:
+                    if cand and cand in df_real.columns:
+                        desc_source = cand
+                        break
+
+                if desc_source:
+                    for legacy_col in [
+                        "produto",
+                        "nome_produto",
+                        "descricao",
+                    ]:
+                        if (
+                            has_table_column(
+                                engine,
+                                "pedidos_consolidados",
+                                legacy_col,
+                            )
+                            and legacy_col not in df_real.columns
+                        ):
+                            df_real[legacy_col] = df_real[desc_source]
+            except Exception:
+                pass
+
+            if save_pedido_consolidado(engine, df_real):
+                st.success(
+                    "✅ Pedido enviado com sucesso para aprovação!"
+                )
+                # Limpa para nova busca
+                st.session_state.searched_item = None
+                st.session_state.pedido_details = {}
+                st.rerun()
 
     # --- Meus Pedidos Pendentes ---
     st.markdown("---")
