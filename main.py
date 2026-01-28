@@ -72,12 +72,9 @@ def show_main_menu():
     st.title("Menu de acesso Baklizi")
     st.markdown("""
     Informe se é funcionário da empresa ou se é fornecedor/promotor.
-    Caso não tenha acesso, deve solicitar ao administrador do site.
     
-    **Horário de digitação de pedidos:**
-    - Segunda a Sexta: 08:00 - 18:00
-    - Sábado: 08:00 - 12:00
-    - Pedidos fora deste horário serão processados no próximo dia útil.
+    ***ATENÇÃO: MUNDANÇA DE SISTEMA, ESTE APLICATIVO VAI ENTRAR EM MANUTENÇÃO***.
+    
     """)
     col1, col2 = st.columns(2)
     if col1.button("Sou Funcionário (Baklizi)", use_container_width=True):
