@@ -142,6 +142,41 @@ def create_db_tables(engine):
     # Esta função agora aceita 1 argumento (engine)
     try:
         with engine.begin() as conn:
+            # Tabela de produtos customizados (PRIORIDADE MÁXIMA)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS produtos_custom (
+                    cod_consinco INTEGER PRIMARY KEY,
+                    descricao TEXT NOT NULL,
+                    transicao INTEGER,
+                    embalagem INTEGER NOT NULL CHECK (embalagem > 0),
+                    status_mix CHAR(1) NOT NULL CHECK (status_mix IN ('A', 'S')),
+                    data_criacao TIMESTAMP NOT NULL DEFAULT NOW(),
+                    data_alteracao TIMESTAMP,
+                    usuario_criacao TEXT NOT NULL,
+                    usuario_alteracao TEXT
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_produtos_custom_status 
+                ON produtos_custom(status_mix);
+                
+                COMMENT ON TABLE produtos_custom IS 
+                'CRÍTICO: Produtos customizados que sobrescrevem o parquet. NUNCA deletar!';
+            """))
+            
+            # Tabela de auditoria para produtos (backup automático)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS produtos_custom_audit (
+                    id SERIAL PRIMARY KEY,
+                    operacao VARCHAR(10) NOT NULL,
+                    cod_consinco INTEGER NOT NULL,
+                    descricao_old TEXT,
+                    embalagem_old INTEGER,
+                    status_mix_old CHAR(1),
+                    data_operacao TIMESTAMP NOT NULL DEFAULT NOW(),
+                    usuario_operacao TEXT
+                );
+            """))
+            
             # ... comandos CREATE TABLE (os comandos estão OK)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
