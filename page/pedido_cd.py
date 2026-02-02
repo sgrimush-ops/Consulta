@@ -1,27 +1,17 @@
 import streamlit as st
 import pandas as pd
+import os
 from sqlalchemy import text
-from page import (
-    resolve_ofertas_codigo_col,
-    resolve_mix_codigo_col,
-    resolve_mix_descricao_col,
-    resolve_mix_emb_col,
-    resolve_pedidos_codigo_col,
-    resolve_pedidos_descricao_col,
-    resolve_pedidos_emb_col,
-    has_table_column,
-)
 from datetime import datetime, date
 
-# --- Funções de Chamado (Copiado de contato.py) ---
+# --- Funções de Chamado ---
 
 
 def create_new_ticket(engine, username, assunto, mensagem):
     """Cria um novo ticket e a primeira mensagem."""
     now = datetime.now()
     try:
-        with engine.begin() as conn:  # Inicia uma transação
-            # 1. Cria o chamado
+        with engine.begin() as conn:
             query_ticket = text(
                 """
                 INSERT INTO contato_chamados (
@@ -40,7 +30,6 @@ def create_new_ticket(engine, username, assunto, mensagem):
             )
             new_ticket_id = result.scalar_one()
 
-            # 2. Insere a primeira mensagem
             query_msg = text(
                 """
                 INSERT INTO contato_mensagens (
@@ -63,300 +52,257 @@ def create_new_ticket(engine, username, assunto, mensagem):
         return False, f"Erro ao criar chamado: {e}"
 
 
-# --- Funções de Banco de Dados ---
+# --- Funções de Carregamento de Dados ---
 
 
-def search_product_by_code(engine, code):
-    """Busca um produto na tabela 'mix_produtos' pelo código interno ou EAN."""
-    code_col = resolve_mix_codigo_col(engine)
-    query = text(
-        f"""
-        SELECT * FROM mix_produtos
-        WHERE CAST({code_col} AS TEXT) = :code
-           OR CAST(codigo_ean AS TEXT) = :code
-    """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"code": str(code)})
-    return df
-
-
-def get_product_history(engine, code):
-    """
-    Busca o histórico de solicitações de um produto.
-
-    OBS: historico_solicitacoes removido — agora derivamos o histórico a partir da
-    tabela pedidos_consolidados, agregando as colunas loja_XXX por produto.
-    Retorna um DataFrame compatível com a UI; se não for possível obter dados,
-    retorna DataFrame vazio (o código da UI já cria o placeholder).
-    """
+def load_products_from_parquet():
+    """Carrega produtos do arquivo parquet."""
+    parquet_path = os.path.join("bdados", "con5cod.parquet")
+    
+    if not os.path.exists(parquet_path):
+        return pd.DataFrame()
+    
     try:
-        # Lista de lojas esperada pela UI (mantida para compatibilidade)
-        LISTA_LOJAS_GLOBAL = [
-            "001",
-            "002",
-            "003",
-            "004",
-            "005",
-            "006",
-            "007",
-            "008",
-            "011",
-            "012",
-            "013",
-            "014",
-            "017",
-            "018",
-        ]
-
-        # Resolve nomes de colunas na tabela pedidos_consolidados (se houver customização)
-        pedidos_code_col = resolve_pedidos_codigo_col(engine)
-        pedidos_desc_col = resolve_pedidos_descricao_col(engine)
-
-        # Cria expressão de soma por loja (SUM(COALESCE(loja_x,0)) AS loja_x)
-        soma_lojas = ", ".join(
-            [f"SUM(COALESCE(loja_{l}, 0)) AS loja_{l}" for l in LISTA_LOJAS_GLOBAL]
-        )
-
-        # Monta query que agrega por produto (e descrição se disponível)
-        # Usa CAST(...) AS TEXT para permitir comparação com string
-        desc_select = f", {pedidos_desc_col} AS descricao" if pedidos_desc_col else ", '' AS descricao"
-        group_by = f"{pedidos_code_col}, {pedidos_desc_col}" if pedidos_desc_col else pedidos_code_col
-
-        query = text(
-            f"""
-            SELECT
-                {pedidos_code_col} AS codigo_interno
-                {desc_select},
-                {soma_lojas}
-            FROM pedidos_consolidados
-            WHERE CAST({pedidos_code_col} AS TEXT) = :code
-            GROUP BY {group_by}
-            """
-        )
-
-        with engine.connect() as conn:
-            df = pd.read_sql(query, conn, params={"code": str(code)})
-
-        # Se por algum motivo a query retornar linhas mas sem as colunas de loja,
-        # garantimos que as colunas esperadas existam (preenchendo com zeros).
-        if not df.empty:
-            for l in LISTA_LOJAS_GLOBAL:
-                col_name = f"loja_{l}"
-                if col_name not in df.columns:
-                    df[col_name] = 0
-            # Reordena colunas para manter a consistência com a UI
-            cols_order = ["codigo_interno", "descricao"] + [f"loja_{l}" for l in LISTA_LOJAS_GLOBAL]
-            df = df[[c for c in cols_order if c in df.columns]]
+        df = pd.read_parquet(parquet_path)
+        # Garantir que cod_consinco é inteiro
+        df['cod_consinco'] = df['cod_consinco'].astype(int)
         return df
-    except Exception:
-        # Em caso de qualquer erro (tabela inexistente, coluna com nome diferente, permissões, etc.)
-        # retornamos DataFrame vazio — a UI irá exibir o placeholder como antes.
+    except Exception as e:
+        st.error(f"Erro ao carregar produtos: {e}")
         return pd.DataFrame()
 
 
-def get_future_offers(engine, code):
-    """Busca ofertas futuras para um produto."""
-    today = date.today()
-    ofertas_col = resolve_ofertas_codigo_col(engine)
-    query = text(
-        f"""
-        SELECT oferta, data_inicio, data_final FROM ofertas
-        WHERE CAST({ofertas_col} AS TEXT) = :code AND data_final >= :today
-        ORDER BY data_inicio
+def search_product(df_produtos, search_term, search_type='codigo'):
     """
-    )
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"code": str(code), "today": today})
-    return df
+    Busca produto por código ou descrição.
+    
+    Args:
+        df_produtos: DataFrame com produtos
+        search_term: Termo de busca
+        search_type: 'codigo' ou 'descricao'
+    
+    Returns:
+        DataFrame com resultados da busca
+    """
+    if df_produtos.empty:
+        return pd.DataFrame()
+    
+    if search_type == 'codigo':
+        try:
+            cod = int(search_term)
+            # Busca por cod_consinco ou transicao
+            result = df_produtos[
+                (df_produtos['cod_consinco'] == cod) |
+                (df_produtos['transicao'] == cod)
+            ]
+            return result
+        except ValueError:
+            return pd.DataFrame()
+    else:  # descrição
+        # Busca case-insensitive na descrição
+        mask = df_produtos['descricao'].str.contains(
+            search_term, case=False, na=False
+        )
+        return df_produtos[mask]
 
 
-def save_pedido_consolidado(engine, pedido_df):
-    """Salva os dados do pedido na tabela de consolidados."""
+def save_pedido_consolidado(engine, df_pedido):
+    """Salva pedido no banco de dados."""
     try:
         with engine.begin() as conn:
-            pedido_df.to_sql(
+            df_pedido.to_sql(
                 "pedidos_consolidados",
-                con=conn,
+                conn,
                 if_exists="append",
                 index=False,
+                method="multi",
             )
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar o pedido: {e}")
+        st.error(f"Erro ao salvar pedido: {e}")
         return False
 
 
-# --- Lógica da Página ---
+# --- Página Principal ---
 
 
 def show_pedidos_cd_page(engine, base_data_path):
-    st.title("📝 Pedidos via CD (Mix Ativo)")
-    st.markdown("Busque pelo Código Interno ou EAN para fazer um pedido do mix ativo.")
-
-    # Inicializa o estado da sessão para o item pesquisado
+    """Página de pedidos por código usando arquivo parquet."""
+    
+    st.title("📦 Pedido por Código (CD)")
+    st.markdown("Sistema de pedidos baseado no novo código Consinco")
+    
+    # Inicializar session_state
     if "searched_item" not in st.session_state:
         st.session_state.searched_item = None
     if "pedido_details" not in st.session_state:
         st.session_state.pedido_details = {}
-
-    # Definindo a lista global de lojas que será usada para salvar o pedido
+    if "search_results" not in st.session_state:
+        st.session_state.search_results = None
+    
+    # Lista de lojas
     LISTA_LOJAS_GLOBAL = [
-        "001",
-        "002",
-        "003",
-        "004",
-        "005",
-        "006",
-        "007",
-        "008",
-        "011",
-        "012",
-        "013",
-        "014",
-        "017",
-        "018",
+        "001", "002", "003", "004", "005", "006",
+        "007", "008", "011", "012", "013", "014", "017", "018"
     ]
-
+    
+    # Carregar produtos
+    df_produtos = load_products_from_parquet()
+    
+    if df_produtos.empty:
+        st.error("❌ Não foi possível carregar a base de produtos!")
+        st.info("Verifique se o arquivo bdados/con5cod.parquet existe.")
+        return
+    
+    # Estatísticas do mix
+    total_produtos = len(df_produtos)
+    produtos_ativos = len(df_produtos[df_produtos['Mix'] == 'A'])
+    produtos_suspensos = len(df_produtos[df_produtos['Mix'] == 'S'])
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total de Produtos", total_produtos)
+    col2.metric("Produtos Ativos", produtos_ativos)
+    col3.metric("Produtos Suspensos", produtos_suspensos)
+    
+    st.markdown("---")
+    
     # --- Formulário de Busca ---
-    st.markdown("### 🔍 Digite o código do produto:")
-
+    st.markdown("### 🔍 Buscar Produto")
+    
     with st.form("search_form"):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            code_interno = st.text_input(
-                "Código Interno (máx 7 dígitos):",
-                placeholder="Ex: 1234567",
-                max_chars=7,
-                key="codigo_interno_pedido"
+        search_type = st.radio(
+            "Tipo de busca:",
+            ["Por Código", "Por Descrição"],
+            horizontal=True
+        )
+        
+        if search_type == "Por Código":
+            search_term = st.text_input(
+                "Digite o código Consinco ou código de transição:",
+                placeholder="Ex: 10480",
+                max_chars=10
             )
-
-        with col2:
-            code_ean = st.text_input(
-                "Código EAN (máx 14 dígitos):",
-                placeholder="Ex: 12345678901234",
-                max_chars=14,
-                key="codigo_ean_pedido"
+        else:
+            search_term = st.text_input(
+                "Digite parte da descrição do produto:",
+                placeholder="Ex: CERVEJA"
             )
-
-        submitted = st.form_submit_button("Buscar Produto")
-
-        if submitted:
-            st.session_state.searched_item = None  # Limpa busca anterior
+        
+        submitted = st.form_submit_button("🔍 Buscar")
+        
+        if submitted and search_term:
+            st.session_state.searched_item = None
             st.session_state.pedido_details = {}
-
-            # Validar que apenas um campo foi preenchido
-            if code_interno and code_ean:
-                st.warning(
-                    "⚠️ Por favor, use apenas um tipo de código por vez. "
-                    "Limpe um dos campos."
-                )
-            elif code_interno or code_ean:
-                code_input = code_ean if code_ean else code_interno
-
-                with st.spinner("Buscando..."):
-                    product_df = search_product_by_code(engine, code_input)
-                    if not product_df.empty:
-                        st.session_state.searched_item = (
-                            product_df.iloc[0].to_dict()
-                        )
-                    else:
-                        st.warning(
-                            "Produto não encontrado no banco (mix_produtos)."
-                        )
+            
+            search_mode = 'codigo' if search_type == "Por Código" else 'descricao'
+            results = search_product(df_produtos, search_term, search_mode)
+            
+            if not results.empty:
+                if len(results) == 1:
+                    # Apenas um resultado, seleciona automaticamente
+                    st.session_state.searched_item = results.iloc[0].to_dict()
+                    st.session_state.search_results = None
+                else:
+                    # Múltiplos resultados, armazena para seleção
+                    st.session_state.search_results = results
+                    st.session_state.searched_item = None
             else:
-                st.info("Digite um código para buscar o produto.")
-
+                st.warning("❌ Nenhum produto encontrado com esse critério.")
+                st.session_state.search_results = None
+    
+    # --- Seleção de Múltiplos Resultados ---
+    if st.session_state.search_results is not None and not st.session_state.search_results.empty:
+        st.markdown("### 📋 Resultados da Busca")
+        st.info(f"Encontrados {len(st.session_state.search_results)} produtos. Selecione um:")
+        
+        results_display = st.session_state.search_results.copy()
+        results_display['Status'] = results_display['Mix'].map({'A': 'Ativo', 'S': 'Suspenso'})
+        results_display = results_display[['cod_consinco', 'descricao', 'transicao', 'Status', 'Emb']]
+        results_display.columns = ['Código Consinco', 'Descrição', 'Cód. Transição', 'Status', 'Embalagem']
+        
+        # Usar selectbox para seleção
+        selected_idx = st.selectbox(
+            "Escolha o produto:",
+            range(len(results_display)),
+            format_func=lambda i: f"{results_display.iloc[i]['Código Consinco']} - {results_display.iloc[i]['Descrição']}"
+        )
+        
+        if st.button("✅ Confirmar Seleção"):
+            st.session_state.searched_item = st.session_state.search_results.iloc[selected_idx].to_dict()
+            st.session_state.search_results = None
+            st.rerun()
+    
     # --- Exibição do Produto e Pedido ---
     if st.session_state.searched_item:
         item = st.session_state.searched_item
-        mix_code_col = resolve_mix_codigo_col(engine)
-        mix_desc_col = resolve_mix_descricao_col(engine)
-        mix_emb_col = resolve_mix_emb_col(engine)
-        codigo_produto = str(item.get(mix_code_col, ""))
-
+        codigo_produto = int(item['cod_consinco'])
+        status_mix = item['Mix']
+        
         st.markdown("---")
-        st.subheader(f"Produto Encontrado: {item.get(mix_desc_col, 'N/A')}")
+        st.subheader(f"Produto Selecionado: {item['descricao']}")
+        
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Código Interno", codigo_produto)
-        col2.metric("EAN", str(item.get("codigo_ean", "N/A")))
-
-        # Embalagem (Un/Cx)
-        emb_val = (
-            item.get(mix_emb_col)
-            if mix_emb_col
-            else item.get("embalagem")
-        )
-        if pd.isna(emb_val) or emb_val is None:
-            emb_val = "N/A"
+        col1.metric("Código Consinco", codigo_produto)
+        col2.metric("Cód. Transição", item['transicao'])
+        col3.metric("Emb. (Un/Cx)", int(item['Emb']))
+        
+        # Indicador de status
+        if status_mix == 'A':
+            col4.success("✅ ATIVO no Mix")
         else:
-            emb_val = int(emb_val)
-        col3.metric("Emb. (Un/Cx)", str(emb_val))
-
-        # Estoque CD (em caixas)
-        estoque_val = item.get("estoque_cd", 0)
-        if pd.isna(estoque_val) or estoque_val is None:
-            estoque_val = 0
-        else:
-            estoque_val = int(estoque_val)
-        col4.metric("Estoque CD (Cx)", str(estoque_val))
-
-        # Informações de Ofertas (apenas se produto estiver mapeado)
-        # Consideramos 'mapeado' se houver um código de mix (codigo_produto não vazio)
-        if codigo_produto:
-            offers_df = get_future_offers(engine, codigo_produto)
-            if not offers_df.empty:
-                st.markdown("### Ofertas Futuras")
-                st.dataframe(offers_df, use_container_width=True)
-            else:
-                st.info("Nenhuma oferta futura cadastrada para este item.")
-        else:
-            # Produto não mapeado — não exibimos histórico nem ofertas
-            pass
-
+            col4.warning("⚠️ SUSPENSO no Mix")
+        
         st.markdown("---")
         st.subheader("Digite as quantidades por loja (em caixas):")
-
-        # --- Formulário de Pedido ---
+        
+        # Verificar lojas de acesso do usuário
         lojas_acesso = st.session_state.get("lojas_acesso", [])
         if not lojas_acesso:
-            st.error(
-                "Você não tem lojas associadas ao seu perfil. "
-                "Contate um administrador."
-            )
+            st.error("Você não tem lojas associadas ao seu perfil. Contate um administrador.")
             return
-
+        
+        # --- Formulário de Pedido ---
         with st.form("pedido_form"):
             pedido_inputs = {}
-            for loja in lojas_acesso:
-                pedido_inputs[loja] = st.number_input(
-                    f"Loja {loja}",
-                    min_value=0,
-                    step=1,
-                    # Chave única para evitar conflitos
-                    key=f"loja_{loja}_{codigo_produto}",
-                )
-
+            
+            # Organizar em 3 colunas
+            cols_per_row = 3
+            cols = st.columns(cols_per_row)
+            
+            for idx, loja in enumerate(lojas_acesso):
+                col_idx = idx % cols_per_row
+                with cols[col_idx]:
+                    pedido_inputs[loja] = st.number_input(
+                        f"Loja {loja}",
+                        min_value=0,
+                        step=1,
+                        key=f"loja_{loja}_{codigo_produto}"
+                    )
+            
+            st.markdown("---")
             total_cx = sum(pedido_inputs.values())
-            st.metric("Total de Caixas", total_cx)
-
-            if st.form_submit_button("Enviar para Aprovação"):
+            total_un = total_cx * int(item['Emb'])
+            
+            col_total1, col_total2 = st.columns(2)
+            col_total1.metric("Total de Caixas", total_cx)
+            col_total2.metric("Total de Unidades", total_un)
+            
+            submitted_pedido = st.form_submit_button("📤 Enviar para Aprovação", type="primary")
+            
+            if submitted_pedido:
                 if total_cx > 0:
-                    # Verifica se o estoque CD está zerado
-                    if estoque_val == 0:
-                        # Marca que precisa confirmar produto zerado
+                    # Verificar se produto está suspenso
+                    if status_mix == 'S':
                         st.session_state.pedido_details = {
                             "pedido_inputs": pedido_inputs,
                             "total_cx": total_cx,
                             "codigo_produto": codigo_produto,
                             "item": item,
-                            "aguardando_confirmacao": True
+                            "aguardando_confirmacao_suspenso": True
                         }
-                        st.warning("⚠️ Este produto está ZERADO no CD!")
                         st.rerun()
                     else:
-                        # Estoque disponível, processa normalmente
+                        # Produto ativo, processa diretamente
                         st.session_state.pedido_details = {
                             "pedido_inputs": pedido_inputs,
                             "total_cx": total_cx,
@@ -366,157 +312,78 @@ def show_pedidos_cd_page(engine, base_data_path):
                         }
                         st.rerun()
                 else:
-                    st.warning(
-                        "Nenhuma quantidade foi digitada. "
-                        "O pedido não foi enviado."
-                    )
-
-        # --- Confirmação para produto zerado no CD ---
-        if st.session_state.pedido_details.get("aguardando_confirmacao", False):
+                    st.warning("Nenhuma quantidade foi digitada. O pedido não foi enviado.")
+        
+        # --- Confirmação para produto SUSPENSO ---
+        if st.session_state.pedido_details.get("aguardando_confirmacao_suspenso", False):
             st.markdown("---")
-            st.warning("### ⚠️ Confirmação Necessária")
-            st.markdown("**Deseja mesmo solicitar o produto ZERADO no CD?**")
+            st.warning("### ⚠️ ATENÇÃO: Produto SUSPENSO no Mix")
+            st.markdown(
+                "**Este produto está marcado como SUSPENSO no sistema.**\n\n"
+                "Isso significa que ele pode não fazer mais parte do mix regular.\n\n"
+                "Deseja mesmo continuar com o pedido?"
+            )
             
             col_sim, col_nao = st.columns(2)
             
             with col_sim:
                 if st.button("✅ Sim, confirmar pedido", use_container_width=True, type="primary"):
-                    # Usuario confirmou, processa o pedido
                     st.session_state.pedido_details["confirmar_pedido"] = True
-                    st.session_state.pedido_details["aguardando_confirmacao"] = False
+                    st.session_state.pedido_details["aguardando_confirmacao_suspenso"] = False
                     st.rerun()
             
             with col_nao:
                 if st.button("❌ Não, cancelar", use_container_width=True):
-                    # Limpa o pedido
                     st.session_state.pedido_details = {}
-                    st.info("Pedido cancelado. Digite novamente as quantidades se desejar.")
+                    st.info("Pedido cancelado.")
                     st.rerun()
-
+        
         # --- Processamento do pedido confirmado ---
         if st.session_state.pedido_details.get("confirmar_pedido", False):
             pedido_inputs = st.session_state.pedido_details["pedido_inputs"]
             total_cx = st.session_state.pedido_details["total_cx"]
             codigo_produto = st.session_state.pedido_details["codigo_produto"]
             item = st.session_state.pedido_details["item"]
-
-            # Busca embalagem do item
-            emb_val = item.get(mix_emb_col, 0)
-            if pd.isna(emb_val) or emb_val is None:
-                emb_val = 0
-            else:
-                emb_val = int(emb_val)
-
+            
             pedido_data = {
                 "codigo_interno": [codigo_produto],
-                "descricao": [item.get(mix_desc_col, "N/A")],
-                "codigo_ean": [item.get("codigo_ean", "N/A")],
-                "embalagem": [emb_val],
+                "descricao": [item['descricao']],
+                "codigo_ean": [item['transicao']],  # Usando transição como referência
+                "embalagem": [int(item['Emb'])],
                 "data_pedido": [datetime.now()],
-                "usuario_pedido": [
-                    st.session_state.get("username", "unknown")
-                ],
+                "usuario_pedido": [st.session_state.get("username", "unknown")],
                 "status_item": ["Pendente"],
                 "status_aprovacao": ["Pendente"],
                 "total_cx": [total_cx],
             }
+            
+            # Adicionar quantidades por loja
             for loja in LISTA_LOJAS_GLOBAL:
-                col_name = f"loja_{loja}"
-                pedido_data[col_name] = [pedido_inputs.get(loja, 0)]
-
+                pedido_data[f"loja_{loja}"] = [pedido_inputs.get(loja, 0)]
+            
             df_to_save = pd.DataFrame(pedido_data)
-
-            # Ajusta colunas para a tabela real de pedidos_consolidados
-            pedidos_code_col = resolve_pedidos_codigo_col(engine)
-            pedidos_desc_col = resolve_pedidos_descricao_col(engine)
-            pedidos_emb_col = resolve_pedidos_emb_col(engine)
-
-            rename_map = {}
-            if pedidos_code_col != "codigo_interno":
-                rename_map["codigo_interno"] = pedidos_code_col
-            if pedidos_desc_col != "descricao":
-                rename_map["descricao"] = pedidos_desc_col
-            if pedidos_emb_col != "embalagem":
-                rename_map["embalagem"] = pedidos_emb_col
-
-            df_real = df_to_save.rename(columns=rename_map)
-
-            # Compatibilidade: se a tabela exigir coluna 'codigo'
-            # (NOT NULL), popular com o mesmo valor do código real.
-            try:
-                if has_table_column(
-                    engine, "pedidos_consolidados", "codigo"
-                ) and "codigo" not in df_real.columns:
-                    code_col = (
-                        pedidos_code_col
-                        if pedidos_code_col in df_real.columns
-                        else "codigo_interno"
-                    )
-                    if code_col in df_real.columns:
-                        df_real["codigo"] = df_real[code_col]
-            except Exception:
-                # Não bloquear salvamento em caso de detecção falhar
-                pass
-
-            # Compat: colunas legadas de descrição
-            # Ex.: produto/nome_produto NOT NULL
-            try:
-                # Coluna fonte para descrição no DataFrame
-                desc_source = None
-                for cand in [
-                    pedidos_desc_col,
-                    "descricao",
-                    "produto",
-                    "nome_produto",
-                ]:
-                    if cand and cand in df_real.columns:
-                        desc_source = cand
-                        break
-
-                if desc_source:
-                    for legacy_col in [
-                        "produto",
-                        "nome_produto",
-                        "descricao",
-                    ]:
-                        if (
-                            has_table_column(
-                                engine,
-                                "pedidos_consolidados",
-                                legacy_col,
-                            )
-                            and legacy_col not in df_real.columns
-                        ):
-                            df_real[legacy_col] = df_real[desc_source]
-            except Exception:
-                pass
-
-            if save_pedido_consolidado(engine, df_real):
-                st.success(
-                    "✅ Pedido enviado com sucesso para aprovação!"
-                )
-                # Limpa para nova busca
+            
+            if save_pedido_consolidado(engine, df_to_save):
+                st.success("✅ Pedido enviado com sucesso para aprovação!")
+                # Limpar para nova busca
                 st.session_state.searched_item = None
                 st.session_state.pedido_details = {}
+                st.session_state.search_results = None
                 st.rerun()
-
+    
     # --- Meus Pedidos Pendentes ---
     st.markdown("---")
     st.subheader("📋 Meus Pedidos Pendentes (Aguardando Aprovação)")
-
+    
     username = st.session_state.get("username", "unknown")
     try:
-        p_code = resolve_pedidos_codigo_col(engine)
-        p_desc = resolve_pedidos_descricao_col(engine)
-        p_emb = resolve_pedidos_emb_col(engine)
-
         query_pendentes = text(
-            f"""
+            """
             SELECT
                 id,
-                {p_code} AS codigo_interno,
-                {p_desc} AS descricao,
-                {p_emb} AS embalagem,
+                codigo_interno,
+                descricao,
+                embalagem,
                 total_cx,
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido,
                 status_aprovacao
@@ -527,26 +394,23 @@ def show_pedidos_cd_page(engine, base_data_path):
             LIMIT 50
             """
         )
-
+        
         with engine.connect() as conn:
             df_pendentes = pd.read_sql(
                 query_pendentes, conn, params={"username": username}
             )
-
+        
         if not df_pendentes.empty:
-            st.info(
-                f"Você tem {len(df_pendentes)} pedido(s) aguardando aprovação."
-            )
-
-            # Adiciona checkbox para exclusão
+            st.info(f"Você tem {len(df_pendentes)} pedido(s) aguardando aprovação.")
+            
             df_pendentes["Excluir"] = False
-
+            
             df_editado = st.data_editor(
                 df_pendentes,
                 column_config={
                     "id": None,
-                    "codigo_interno": st.column_config.TextColumn(
-                        "Código", disabled=True
+                    "codigo_interno": st.column_config.NumberColumn(
+                        "Código Consinco", disabled=True, format="%d"
                     ),
                     "descricao": st.column_config.TextColumn(
                         "Produto", width="large", disabled=True
@@ -567,10 +431,10 @@ def show_pedidos_cd_page(engine, base_data_path):
                 },
                 hide_index=True,
                 use_container_width=True,
-                key="pendentes_cd",
+                key="pendentes_cd_v2",
             )
-
-            if st.button("🗑️ Excluir Selecionados", key="btn_excluir_cd"):
+            
+            if st.button("🗑️ Excluir Selecionados", key="btn_excluir_cd_v2"):
                 ids_excluir = df_editado[df_editado["Excluir"]]["id"].tolist()
                 if ids_excluir:
                     try:
@@ -587,9 +451,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                                 delete_q,
                                 {"ids": ids_excluir, "username": username},
                             )
-                        st.success(
-                            f"{len(ids_excluir)} pedido(s) excluído(s)!"
-                        )
+                        st.success(f"{len(ids_excluir)} pedido(s) excluído(s)!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao excluir pedidos: {e}")
@@ -599,19 +461,15 @@ def show_pedidos_cd_page(engine, base_data_path):
             st.info("Você não tem pedidos pendentes no momento.")
     except Exception as e:
         st.error(f"Erro ao buscar pedidos pendentes: {e}")
-
+    
     # --- Componente de Chamado ---
     st.markdown("---")
-    with st.expander(
-        "❔ Precisa de ajuda ou quer fazer uma observação? Abra um chamado."
-    ):
+    with st.expander("❔ Precisa de ajuda ou quer fazer uma observação? Abra um chamado."):
         with st.form("chamado_form_cd", clear_on_submit=True):
-            mensagem = st.text_area(
-                "Digite sua mensagem para o administrador:")
+            mensagem = st.text_area("Digite sua mensagem para o administrador:")
             if st.form_submit_button("Enviar Chamado"):
                 if mensagem:
                     username = st.session_state.get("username", "unknown")
-                    # Assunto padrão para identificar a origem
                     assunto = "Chamado via Tela de Pedido por Código"
                     success, message = create_new_ticket(
                         engine, username, assunto, mensagem
@@ -622,8 +480,6 @@ def show_pedidos_cd_page(engine, base_data_path):
                             "Você pode acompanhar na tela de Contato."
                         )
                     else:
-                        st.error(
-                            f"Não foi possível enviar o chamado: {message}")
+                        st.error(f"Não foi possível enviar o chamado: {message}")
                 else:
-                    st.warning(
-                        "Por favor, digite uma mensagem antes de enviar.")
+                    st.warning("Por favor, digite uma mensagem antes de enviar.")
