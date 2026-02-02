@@ -1,6 +1,24 @@
 import streamlit as st
 import pandas as pd
 import os
+from sqlalchemy import text
+
+
+def get_correcoes_embalagens(engine):
+    """Busca correções de embalagens do banco de dados."""
+    try:
+        query = text("""
+            SELECT cod_consinco, embalagem_corrigida
+            FROM produtos_correcoes
+        """)
+        
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn)
+        
+        return df
+    except Exception:
+        # Tabela não existe ou erro
+        return pd.DataFrame()
 
 
 def show_consulta_mix_page(engine, base_data_path):
@@ -20,6 +38,23 @@ def show_consulta_mix_page(engine, base_data_path):
     
     try:
         df_mix = pd.read_parquet(parquet_path)
+        
+        # Aplicar correções de embalagens do banco de dados
+        df_correcoes = get_correcoes_embalagens(engine)
+        if not df_correcoes.empty:
+            df_mix = df_mix.merge(
+                df_correcoes, 
+                on='cod_consinco', 
+                how='left'
+            )
+            # Usar embalagem corrigida se existir, senão usar original
+            df_mix['Emb_Original'] = df_mix['Emb']
+            df_mix['Emb'] = df_mix['embalagem_corrigida'].fillna(df_mix['Emb']).astype(int)
+            df_mix['Tem_Correcao'] = df_mix['embalagem_corrigida'].notna()
+            df_mix = df_mix.drop(columns=['embalagem_corrigida'])
+        else:
+            df_mix['Tem_Correcao'] = False
+            
     except Exception as e:
         st.error(f"Erro ao carregar arquivo de dados: {e}")
         st.stop()
@@ -72,7 +107,12 @@ def show_consulta_mix_page(engine, base_data_path):
                         st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
                     with col2:
                         st.info(f"**Status:** {'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}")
-                        st.info(f"**Embalagem:** {produto['Emb']} unidades")
+                        
+                        # Mostrar embalagem com indicador se foi corrigida
+                        emb_text = f"**Embalagem:** {produto['Emb']} unidades"
+                        if produto.get('Tem_Correcao', False):
+                            emb_text += f" ⚠️ (Original: {produto.get('Emb_Original', produto['Emb'])})"
+                        st.info(emb_text)
                     
                     # Exibir em formato de tabela também
                     st.markdown("### Detalhes Completos")

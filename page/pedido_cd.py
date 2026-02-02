@@ -55,8 +55,25 @@ def create_new_ticket(engine, username, assunto, mensagem):
 # --- Funções de Carregamento de Dados ---
 
 
-def load_products_from_parquet():
-    """Carrega produtos do arquivo parquet."""
+def get_correcoes_embalagens(engine):
+    """Busca correções de embalagens do banco de dados."""
+    try:
+        query = text("""
+            SELECT cod_consinco, embalagem_corrigida
+            FROM produtos_correcoes
+        """)
+        
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn)
+        
+        return df
+    except Exception:
+        # Tabela não existe ou erro
+        return pd.DataFrame()
+
+
+def load_products_from_parquet(engine=None):
+    """Carrega produtos do arquivo parquet e aplica correções do banco."""
     parquet_path = os.path.join("bdados", "con5cod.parquet")
     
     if not os.path.exists(parquet_path):
@@ -66,6 +83,21 @@ def load_products_from_parquet():
         df = pd.read_parquet(parquet_path)
         # Garantir que cod_consinco é inteiro
         df['cod_consinco'] = df['cod_consinco'].astype(int)
+        
+        # Aplicar correções de embalagens se engine disponível
+        if engine is not None:
+            df_correcoes = get_correcoes_embalagens(engine)
+            if not df_correcoes.empty:
+                # Mesclar correções
+                df = df.merge(
+                    df_correcoes, 
+                    on='cod_consinco', 
+                    how='left'
+                )
+                # Usar embalagem corrigida se existir, senão usar original
+                df['Emb'] = df['embalagem_corrigida'].fillna(df['Emb']).astype(int)
+                df = df.drop(columns=['embalagem_corrigida'])
+        
         return df
     except Exception as e:
         st.error(f"Erro ao carregar produtos: {e}")

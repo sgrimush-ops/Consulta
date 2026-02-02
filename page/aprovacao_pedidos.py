@@ -219,6 +219,22 @@ def show_aprovacao_page(engine, base_data_path):
     
     df_para_editar = df_pedidos[cols_exibicao].copy()
     
+    # Botões de seleção rápida
+    st.markdown("### ⚡ Seleção Rápida")
+    col_marcar, col_desmarcar = st.columns(2)
+    
+    with col_marcar:
+        if st.button("☑️ Marcar Todos", use_container_width=True):
+            df_para_editar["Selecionar"] = True
+            st.session_state.marcar_todos_trigger = True
+    
+    with col_desmarcar:
+        if st.button("⬜ Desmarcar Todos", use_container_width=True):
+            df_para_editar["Selecionar"] = False
+            st.session_state.desmarcar_todos_trigger = True
+    
+    st.markdown("---")
+    
     # Configuração do editor
     column_config = {
         "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
