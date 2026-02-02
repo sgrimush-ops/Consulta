@@ -348,8 +348,8 @@ def show_pedidos_cd_page(engine, base_data_path):
             pedido_data = {
                 "codigo_interno": [codigo_produto],
                 "descricao": [item['descricao']],
-                "codigo_ean": [item['transicao']],  # Usando transição como referência
-                "embalagem": [int(item['Emb'])],
+                "ean": [item['transicao']],  # Usando transição como referência
+                "embseparacao": [int(item['Emb'])],
                 "data_pedido": [datetime.now()],
                 "usuario_pedido": [st.session_state.get("username", "unknown")],
                 "status_item": ["Pendente"],
@@ -383,7 +383,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 id,
                 codigo_interno,
                 descricao,
-                embalagem,
+                embseparacao,
                 total_cx,
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido,
                 status_aprovacao
@@ -415,7 +415,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                     "descricao": st.column_config.TextColumn(
                         "Produto", width="large", disabled=True
                     ),
-                    "embalagem": st.column_config.NumberColumn(
+                    "embseparacao": st.column_config.NumberColumn(
                         "Emb. (Un/Cx)", disabled=True, format="%d"
                     ),
                     "total_cx": st.column_config.NumberColumn(

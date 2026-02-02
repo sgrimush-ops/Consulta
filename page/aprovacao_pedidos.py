@@ -18,7 +18,7 @@ COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
 
 def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
     """Formata tipos de dados e corrige valores numéricos."""
-    int_cols = COLUNAS_LOJAS_PEDIDO + ["total_cx", "embalagem", "codigo_interno"]
+    int_cols = COLUNAS_LOJAS_PEDIDO + ["total_cx", "embseparacao", "codigo_interno"]
     
     for col in int_cols:
         if col in df.columns:
@@ -72,7 +72,7 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
                 p.usuario_pedido,
                 p.codigo_interno,
                 p.descricao,
-                p.embalagem,
+                p.embseparacao,
                 p.{lojas_sql},
                 p.total_cx,
                 p.status_item,
@@ -210,7 +210,7 @@ def show_aprovacao_page(engine, base_data_path):
     # Preparar colunas para exibição
     cols_exibicao = [
         "Selecionar", "id_pedido", "data_pedido_str", "usuario_pedido",
-        "codigo_interno", "descricao", "Status Mix", "embalagem", "total_cx",
+        "codigo_interno", "descricao", "Status Mix", "embseparacao", "total_cx",
         "status_aprovacao"
     ] + COLUNAS_LOJAS_PEDIDO
     
@@ -228,7 +228,7 @@ def show_aprovacao_page(engine, base_data_path):
         "codigo_interno": st.column_config.NumberColumn("Cód. Consinco", disabled=True, format="%d"),
         "descricao": st.column_config.TextColumn("Produto", disabled=True, width="large"),
         "Status Mix": st.column_config.TextColumn("Mix", disabled=True, width="small"),
-        "embalagem": st.column_config.NumberColumn("Emb", disabled=True, format="%d"),
+        "embseparacao": st.column_config.NumberColumn("Emb", disabled=True, format="%d"),
         "total_cx": st.column_config.NumberColumn("Total CX", format="%d"),
         "status_aprovacao": st.column_config.TextColumn("Status", disabled=True, width="small"),
     }
@@ -297,7 +297,7 @@ def show_aprovacao_page(engine, base_data_path):
                     p.usuario_pedido,
                     p.codigo_interno,
                     p.descricao,
-                    p.embalagem,
+                    p.embseparacao,
                     p.{", p.".join(COLUNAS_LOJAS_PEDIDO)},
                     p.total_cx
                 FROM pedidos_consolidados p
