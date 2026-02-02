@@ -165,6 +165,25 @@ def check_product_exists(engine, cod_consinco):
         return False
 
 
+def check_product_exists_anywhere(engine, cod_consinco):
+    """Verifica se um código já existe em qualquer lugar (parquet ou banco)."""
+    # Verificar no banco custom
+    if check_product_exists(engine, cod_consinco):
+        return True, "Banco de dados"
+    
+    # Verificar no parquet
+    parquet_path = os.path.join("bdados", "con5cod.parquet")
+    if os.path.exists(parquet_path):
+        try:
+            df = pd.read_parquet(parquet_path)
+            if int(cod_consinco) in df['cod_consinco'].values:
+                return True, "Arquivo Parquet"
+        except Exception:
+            pass
+    
+    return False, None
+
+
 # ============================================================================
 # PÁGINA PRINCIPAL
 # ============================================================================
@@ -238,19 +257,25 @@ def show_admin_produtos_page(engine, base_data_path):
                     st.error("❌ Descrição é obrigatória!")
                 elif novo_cod <= 0:
                     st.error("❌ Código Consinco deve ser maior que zero!")
-                elif check_product_exists(engine, novo_cod):
-                    st.warning(f"⚠️ Produto com código {novo_cod} já existe no banco!")
                 else:
-                    # Salvar
-                    if save_product(
-                        engine, novo_cod, novo_desc.strip().upper(), 
-                        novo_trans if novo_trans > 0 else None,
-                        novo_emb, novo_status,
-                        st.session_state.get("username", "admin")
-                    ):
-                        st.success(f"✅ Produto {novo_cod} cadastrado com sucesso!")
-                        st.balloons()
-                        st.rerun()
+                    # Verificar se código já existe em qualquer lugar
+                    existe, origem = check_product_exists_anywhere(engine, novo_cod)
+                    
+                    if existe:
+                        st.error(f"❌ ERRO: Código {novo_cod} já existe em {origem}!")
+                        st.warning("⚠️ Para alterar este produto, use a aba **'Editar Produto'**.")
+                        st.info("💡 Se deseja substituir, exclua o produto antigo primeiro (se estiver no Banco).")
+                    else:
+                        # Salvar
+                        if save_product(
+                            engine, novo_cod, novo_desc.strip().upper(), 
+                            novo_trans if novo_trans > 0 else None,
+                            novo_emb, novo_status,
+                            st.session_state.get("username", "admin")
+                        ):
+                            st.success(f"✅ Produto {novo_cod} cadastrado com sucesso!")
+                            st.balloons()
+                            st.rerun()
     
     # ========================================================================
     # TAB 2: EDITAR PRODUTO
