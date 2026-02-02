@@ -5,7 +5,6 @@ Smoke tests automatizados para páginas Streamlit sem UI real.
 O teste stubba o módulo `streamlit`, importa as páginas e exercita:
 - Resolvers de colunas em `page/__init__.py`
 - Conversão de tipos em `aprovacao_pedidos.formatar_tipos_df`
-- Funções de limpeza em `ver_ofertas` (retornam 0 em ambientes sem DB)
 
 Uso:
   /workspaces/ProjetoBak/.venv/bin/python scripts/smoke_test.py
@@ -76,10 +75,8 @@ def main() -> int:
         modules = [
             "page.__init__",
             "page.home",
-            "page.consulta_cd",
-            "page.ver_ofertas",
+            "page.consulta_mix",
             "page.pedido_cd",
-            "page.gestao_promo",
             "page.aprovacao_pedidos",
         ]
 
@@ -128,16 +125,6 @@ def main() -> int:
         assert str(res["embalagem"].dtype) == "int64"
         assert str(res["codigo_interno"].dtype) == "int64"
         print("format_ok")
-
-        # Funções de limpeza em ver_ofertas: devem ser tolerantes (retornar 0)
-        from page.ver_ofertas import (
-            cleanup_old_ofertas,
-            cleanup_old_pedidos_aprovados,
-        )
-
-        assert isinstance(cleanup_old_ofertas(engine, 1), int)
-        assert isinstance(cleanup_old_pedidos_aprovados(engine, 7), int)
-        print("cleanup_ok")
 
         print("SMOKE_ALL_OK")
         return 0

@@ -1,6 +1,6 @@
-# ProjetoBak
+# ProjetoBak - Versão 2.0.0
 
-Este repositório contém a aplicação (Streamlit) e scripts de migração/rotina para gestão de promoções e pedidos.
+Sistema de gestão de produtos e pedidos com integração Consinco.
 
 ## 📁 Estrutura do Projeto
 
@@ -11,120 +11,120 @@ ProjetoBak/
 ├── requirements.txt                # Dependências Python
 ├── README.md                       # Documentação principal
 ├── ProjetoPY.code-workspace        # Configuração do workspace
+│
+├── bdados/                         # Base de dados
+│   └── con5cod.parquet            # Produtos Consinco (36k registros)
+│
 ├── page/                           # Módulos de páginas da aplicação
 │   ├── home.py                     # Página inicial
-│   ├── consulta_cd.py              # Consulta de estoque e mix
-│   ├── pedido_cd.py                # Pedidos por código (EAN/interno)
-│   ├── gestao_promo.py             # Gestão de pedidos promocionais
+│   ├── consulta_mix.py             # 🆕 Consulta de produtos (cod_consinco)
+│   ├── pedido_cd.py                # Pedidos por código
 │   ├── aprovacao_pedidos.py        # Aprovação de pedidos (admin)
-│   ├── upload_ofertas.py           # Upload de ofertas (mkt/admin)
-│   ├── ver_ofertas.py              # Visualização de ofertas
 │   ├── admin_uploads.py            # Gerenciamento de uploads (admin)
 │   ├── admin_maint.py              # Administração de usuários
 │   ├── status_usuarios.py          # Status de usuários online
-│   ├── dashboard_online.py         # Dashboard de análises
 │   ├── contato.py                  # Sistema de chamados
 │   ├── mudar_senha.py              # Alteração de senha
-│   └── ...
-├── migrations/                     # Scripts de migração do banco de dados
+│   ├── area_fornecedor.py          # Área de fornecedores
+│   ├── admin_fornecedor.py         # Admin de fornecedores
+│   └── contato_fornecedor.py       # Contato fornecedores
+│
+├── migrations/                     # Scripts de migração (legado)
 │   ├── 001_safe_add_columns.sql
 │   ├── 002_direct_rename.sql
 │   └── run_migration_safe.sh
-├── scripts/                        # Scripts de manutenção e limpeza
-│   ├── test_barcode_scanner.py     # Teste de instalação do scanner
-│   ├── cleanup_old_ofertas.py
-│   ├── cleanup_old_pedidos_aprovados.py
-│   ├── deploy_migrations_and_cleanup.sh
-│   └── smoke_test.py
-├── tools/                          # Ferramentas auxiliares e diagnóstico
-│   ├── diagnose_ofertas.py
-│   ├── check_and_fix_ofertas.py
-│   ├── find_and_fix_db.py
-│   └── backups/
+│
+├── scripts/                        # Scripts de manutenção
+│   └── smoke_test.py               # Testes automatizados
+│
+├── tools/                          # Ferramentas auxiliares
+│   ├── apply_migration.py          # Aplicar migrações
+│   └── find_and_fix_db.py          # Diagnóstico de BD
+│
 └── doc/                            # Documentação completa
-    ├── README_PRINCIPAL.md
-    ├── SCANNER_CODIGO_BARRAS.md    # Guia do scanner de código de barras
+    ├── README_PRINCIPAL.md         # Este arquivo
+    ├── ESTRUTURA_ATUALIZADA.md     # Estrutura detalhada v2.0
+    ├── MIGRACAO_CONSINCO.md        # Guia de migração
     ├── CHANGELOG.md                # Histórico de versões
-    ├── README_TOOLS.md
-    ├── README_MIGRATIONS.md
-    ├── COMO_OBTER_DATABASE_URL.md
-    ├── CORRECAO_OFERTAS.md
-    ├── SOLUCAO_RAPIDA.md
-    ├── SOLUCAO_DASHBOARD_NAO_ATUALIZA.md
-    └── RELATORIO_CALCULOS.md
+    ├── README_MIGRATIONS.md        # Guia de migrações
 ```
 
-## Rotina diária: limpeza de ofertas antigas
-Para manter o banco enxuto, delete ofertas com `data_final` mais antiga que 1 dia:
+---
 
-- Script: `scripts/cleanup_old_ofertas.py`
-- Requer: variável de ambiente `DATABASE_URL` (PostgreSQL)
-- Parâmetro opcional: `CLEANUP_OLDER_THAN_DAYS` (padrão: `1`)
+## 🚀 Funcionalidades Principais (v2.0.0)
 
-Execução manual:
+### 🔍 Consulta de Mix de Produtos
+- Busca por código Consinco
+- Busca por descrição
+- Filtros por embalagem e status
+- Exportação para CSV
+- Visualização de produtos ativos e suspensos
 
+### 📦 Sistema de Pedidos
+- Pedidos por código (CD)
+- Scanner de código de barras (mobile)
+- Aprovação de pedidos (admin)
+- Controle por loja
+
+### 👥 Gestão de Usuários
+- Múltiplos perfis (user, admin)
+- Controle de acesso por loja
+- Status online em tempo real
+- Sistema de chamados/suporte
+
+### 🗄️ Dados
+- Base Consinco: 36.063 produtos
+- Colunas: cod_consinco, descricao, transicao, Mix, Emb
+- Arquivo: `bdados/con5cod.parquet`
+
+---
+
+## 🔧 Comandos Úteis
+
+### Executar a aplicação:
 ```bash
-export DATABASE_URL='postgresql://user:pass@host:5432/dbname'
-# Opcional: export CLEANUP_OLDER_THAN_DAYS=1
-python scripts/cleanup_old_ofertas.py
+streamlit run main.py
 ```
 
-Agendamento via cron (exemplo às 03:00 todos os dias):
-
-```cron
-0 3 * * * /workspaces/ProjetoBak/.venv/bin/python /workspaces/ProjetoBak/scripts/cleanup_old_ofertas.py >> /var/log/cleanup_old_ofertas.log 2>&1
-0 3 * * * CLEANUP_PEDIDOS_DAYS=7 /workspaces/ProjetoBak/.venv/bin/python /workspaces/ProjetoBak/scripts/cleanup_old_pedidos_aprovados.py >> /var/log/cleanup_old_pedidos.log 2>&1
-```
-
-Observação: a página `ver_ofertas` também executa uma limpeza leve ao ser acessada, removendo ofertas com `data_final` > 1 dia no passado. O script acima garante a rotina mesmo sem acesso à página.
-
-## Migrações
-- Use `migrations/run_migration_safe.sh` com `DATABASE_URL` configurado para criar colunas canônicas (`codigo_interno`, `descricao`, `codigo_ean`) e validar.
-- `migrations/001_safe_add_columns.sql` e rollback correspondente.
-- `migrations/002_direct_rename.sql` (maior risco) e rollback para renomes diretos.
-
-Criação de índice não bloqueante (opcional):
-
+### Testes automatizados:
 ```bash
-./migrations/run_migration_safe.sh --concurrent
+python3 scripts/smoke_test.py
 ```
 
-## Convenções de colunas
-- `codigo_interno` (canônico)
-- `descricao` (nome do produto)
-- `codigo_ean` (EAN)
-
-## ️ Ferramentas de Diagnóstico
-
-Se encontrar erros relacionados a colunas do banco de dados (ex: "column codigo_interno does not exist"):
-
+### Verificar dados:
 ```bash
-# Script de diagnóstico e correção automática
-python3 tools/diagnose_ofertas.py
-
-# Ou usando o script bash (verifica dependências)
-./tools/fix_ofertas_quick.sh
+python3 -c "import pandas as pd; df = pd.read_parquet('bdados/con5cod.parquet'); print(df.info())"
 ```
 
-Consulte `tools/CORRECAO_OFERTAS.md` para documentação completa sobre resolução de problemas.
+---
 
-## Deploy (staging/produção)
-Script único para executar backup + migração segura (+ índice opcional) + limpeza de ofertas antigas:
+## 📚 Documentação Adicional
 
-```bash
-export DATABASE_URL='postgresql://user:pass@host:5432/dbname'
-# Com índice não bloqueante (após commit da migração):
-./scripts/deploy_migrations_and_cleanup.sh --concurrent --cleanup-days 1 --cleanup-pedidos-days 7
+- [CHANGELOG.md](CHANGELOG.md) - Histórico de versões
+- [MIGRACAO_CONSINCO.md](MIGRACAO_CONSINCO.md) - Guia de migração para v2.0
+- [ESTRUTURA_ATUALIZADA.md](ESTRUTURA_ATUALIZADA.md) - Estrutura detalhada
+- [README_MIGRATIONS.md](README_MIGRATIONS.md) - Guia de migrações de BD
+- [COMO_OBTER_DATABASE_URL.md](COMO_OBTER_DATABASE_URL.md) - Configuração do banco
 
-# Sem índice concorrente:
-./scripts/deploy_migrations_and_cleanup.sh --cleanup-days 1 --cleanup-pedidos-days 7
-```
+---
 
-Pré-requisitos no host:
-- `psql`, `pg_dump` (cliente PostgreSQL)
-- `python3` (para rodar o script de limpeza)
+## ⚠️ Funcionalidades Descontinuadas
 
-O script chama internamente:
-- `migrations/run_migration_safe.sh` (gera backup, executa a migração e validações)
-- `scripts/cleanup_old_ofertas.py` (remove ofertas com `data_final` mais antiga que X dias)
-- `scripts/cleanup_old_pedidos_aprovados.py` (remove pedidos aprovados com mais de N dias)
+As seguintes funcionalidades foram removidas na v2.0.0:
+- ❌ Sistema de ofertas (upload_ofertas, ver_ofertas)
+- ❌ Dashboard online
+- ❌ Gestão de promoções (legado)
+- ❌ Consulta antiga de estoque (consulta_cd)
+
+---
+
+## 🔄 Migrações (Legado)
+
+Os scripts de migração estão mantidos para referência histórica mas não são mais necessários para a operação atual do sistema.
+
+Para informações sobre migrações antigas, consulte [README_MIGRATIONS.md](README_MIGRATIONS.md).
+
+---
+
+**Versão:** 2.0.0  
+**Última Atualização:** 02/02/2026

@@ -1,5 +1,116 @@
 # Histórico de Atualizações - ProjetoBak
 
+## 📅 02/02/2026 - Versão 2.0.0 - REESTRUTURAÇÃO COMPLETA
+
+### 🔄 MUDANÇAS CRÍTICAS - BREAKING CHANGES
+
+#### Nova Estrutura de Códigos de Produto
+- **Código Principal:** Migrado para `cod_consinco` (sistema Consinco)
+- **Arquivo de Dados:** `bdados/con5cod.parquet`
+- **Estrutura de Colunas:**
+  - `cod_consinco` - Código principal do produto (novo)
+  - `descricao` - Descrição atualizada do produto
+  - `transicao` - Código antigo do sistema anterior (legado)
+  - `Mix` - Status do produto: A (Ativo) ou S (Suspenso)
+  - `Emb` - Quantidade da embalagem (essencial)
+
+### ✨ Novas Funcionalidades
+
+#### Nova Página: Consulta de Mix 🔍
+- **Arquivo:** `page/consulta_mix.py`
+- **Funcionalidades:**
+  - Busca por código Consinco
+  - Busca por descrição do produto
+  - Filtro automático de produtos ativos (Mix = A)
+  - Visualização de produtos suspensos
+  - Filtros por quantidade de embalagem
+  - Exportação para CSV
+  - Estatísticas do mix (ativos/suspensos)
+- **Acesso:** Disponível para todos os usuários logados
+
+### 🗑️ Páginas Removidas
+As seguintes páginas foram **completamente removidas** do sistema:
+- ❌ `page/consulta_cd.py` - Substituída por `consulta_mix.py`
+- ❌ `page/dashboard_online.py` - Funcionalidade descontinuada
+- ❌ `page/upload_ofertas.py` - Sistema de ofertas descontinuado
+- ❌ `page/gestao_promo.py` - Gestão de promoções descontinuada
+- ❌ `page/ver_ofertas.py` - Visualização de ofertas descontinuada
+
+### 🧹 Scripts e Ferramentas Removidos
+**Scripts obsoletos removidos:**
+- ❌ `scripts/cleanup_old_ofertas.py`
+- ❌ `scripts/cleanup_old_pedidos_aprovados.py`
+- ❌ `scripts/deploy_migrations_and_cleanup.sh`
+
+**Ferramentas obsoletas removidas:**
+- ❌ `tools/check_and_fix_ofertas.py`
+- ❌ `tools/diagnose_ofertas.py`
+- ❌ `tools/fix_ofertas_interactive.py`
+- ❌ `tools/fix_ofertas_now.py`
+- ❌ `tools/fix_ofertas_quick.sh`
+- ❌ `tools/fix_ofertas_streamlit.py`
+- ❌ Backups antigos de migração
+
+### 🆕 Nova Ferramenta Adicionada
+**Script de Limpeza do Banco de Dados:**
+- ✅ `tools/cleanup_database_v2.py` - Limpeza completa e segura do BD
+  - Remove dados obsoletos do sistema de ofertas
+  - Limpa pedidos aprovados antigos (configurável)
+  - Remove tabelas obsoletas
+  - Cria backup automático antes de modificar
+  - Modo dry-run para teste seguro
+  - Otimiza banco com VACUUM ANALYZE
+- ✅ `doc/GUIA_LIMPEZA_BD.md` - Documentação completa de uso
+
+**Documentação obsoleta removida:**
+- ❌ `doc/CORRECAO_OFERTAS.md`
+- ❌ `doc/SOLUCAO_DASHBOARD_NAO_ATUALIZA.md`
+- ❌ `doc/SOLUCAO_RAPIDA.md`
+- ❌ `doc/README_TOOLS.md`
+- ❌ `doc/RELATORIO_CALCULOS.md`
+
+### 🔧 Arquivos Modificados
+- `app.py` - Imports e menu atualizados
+- `scripts/smoke_test.py` - Testes atualizados
+- `doc/README_PRINCIPAL.md` - Documentação atualizada
+- Menu simplificado para refletir novas funcionalidades
+
+### 📝 Menu Atualizado
+
+#### Para Todos os Usuários:
+- Home
+- **Consulta de Mix** (NOVO)
+- Alterar Senha
+- Contato
+
+#### Para Usuários com Acesso a Lojas:
+- Pedido por Código (CD)
+
+#### Para Administradores:
+- Aprovação de Pedidos
+- Status do Usuário
+- Administração
+- Admin Uploads
+
+### ⚠️ Impactos e Migrações Necessárias
+
+#### Código de Produto
+- Todos os produtos agora devem usar `cod_consinco`
+- Código antigo disponível na coluna `transicao` para referência
+- **Ação Requerida:** Atualizar integrações e relatórios que usam códigos antigos
+
+#### Sistema de Ofertas
+- Funcionalidade de ofertas foi descontinuada
+- Tabela `ofertas` no banco de dados ainda existe mas não é mais usada
+- **Ação Requerida:** Migrar para novo sistema de promoções (se aplicável)
+
+#### Consulta de Estoque
+- Sistema de consulta de estoque foi substituído
+- Nova consulta foca apenas no mix de produtos
+- **Ação Requerida:** Revisar fluxos de trabalho que dependiam da consulta antiga
+
+---
+
 ## 📅 02/01/2026 - Versão 1.5.0
 
 ### ✨ Novas Funcionalidades

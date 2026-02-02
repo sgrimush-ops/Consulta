@@ -8,18 +8,14 @@ from sqlalchemy import create_engine, text
 
 # --- Importa as páginas ---
 from page.home import show_home_page
-from page.consulta_cd import show_consulta_cd_page
+from page.consulta_mix import show_consulta_mix_page
 from page.aprovacao_pedidos import show_aprovacao_page
 from page.status_usuarios import show_status_page
 from page.admin_maint import show_admin_page
 from page.mudar_senha import show_mudar_senha_page
 from page.contato import show_contato_page
-from page.upload_ofertas import show_upload_ofertas_page
-from page.ver_ofertas import show_ver_ofertas_page
 from page.admin_uploads import show_admin_uploads_page
 from page.pedido_cd import show_pedidos_cd_page
-from page.gestao_promo import show_gestao_promo_page
-from page.dashboard_online import show_dashboard_online_page
 
 # =========================================================
 # CONFIGURAÇÕES INICIAIS
@@ -267,23 +263,14 @@ def main_app():
     # Menu
     paginas = {
         "Home": lambda: show_home_page(engine, BASE_DATA_PATH),
-        # <-- ADICIONADO
-        "Consulta de Estoque e Mix (CD)": lambda: show_consulta_cd_page(engine, BASE_DATA_PATH),
-        "Ofertas Atuais": lambda: show_ver_ofertas_page(engine, BASE_DATA_PATH),
+        "Consulta de Mix": lambda: show_consulta_mix_page(engine, BASE_DATA_PATH),
         "Alterar Senha": lambda: show_mudar_senha_page(engine, BASE_DATA_PATH),
         "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH),
     }
 
     if st.session_state.get("lojas_acesso"):
-        # Adiciona as novas páginas de pedido no topo do sub-menu
-        paginas["Pedidos de Promoção"] = lambda: show_gestao_promo_page(
-            engine, BASE_DATA_PATH)
+        # Adiciona as páginas de pedido
         paginas["Pedido por Código (CD)"] = lambda: show_pedidos_cd_page(
-            engine, BASE_DATA_PATH)
-        # "Digitar Pedidos (Legado)" foi removido junto com o arquivo pedidos.py
-
-    if st.session_state.get("role") in ["mkt", "admin"]:
-        paginas["Upload Ofertas"] = lambda: show_upload_ofertas_page(
             engine, BASE_DATA_PATH)
 
     if st.session_state.get("role") == "admin":
@@ -293,10 +280,7 @@ def main_app():
             engine, BASE_DATA_PATH)
         paginas["Administração"] = lambda: show_admin_page(
             engine, BASE_DATA_PATH)
-        paginas["Admin Uploads"] = lambda: show_admin_uploads_page(
-            engine)  # <-- Adicionada a nova página
-        paginas["Dashboard"] = lambda: show_dashboard_online_page(
-            engine, BASE_DATA_PATH)
+        paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine)
 
     # Seletor de Página
     page_labels = list(paginas.keys())
