@@ -87,6 +87,10 @@ def show_consulta_mix_page(engine, base_data_path):
             df_mix["Mix"] = (
                 df_mix["Mix"].astype(str).str.strip().str.upper()
             )
+        if "transicao" in df_mix.columns:
+            df_mix["transicao"] = pd.to_numeric(
+                df_mix["transicao"], errors="coerce"
+            )
 
         # Aplicar correções de embalagens do banco de dados
         df_correcoes = get_correcoes_embalagens(engine)
@@ -147,9 +151,10 @@ def show_consulta_mix_page(engine, base_data_path):
         if codigo_busca:
             try:
                 codigo_int = int(codigo_busca)
-                resultado = df_mix_ativo[
-                    df_mix_ativo["cod_consinco"] == codigo_int
+                resultado_all = df_mix[
+                    df_mix["cod_consinco"] == codigo_int
                 ]
+                resultado = resultado_all[resultado_all["Mix"] == "A"]
                 
                 if not resultado.empty:
                     st.success(f"✅ Produto encontrado!")
@@ -177,15 +182,28 @@ def show_consulta_mix_page(engine, base_data_path):
                     df_display.columns = ['Código Consinco', 'Descrição', 'Código Transição', 'Status', 'Embalagem']
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
                 else:
-                    st.warning(f"⚠️ Produto com código {codigo_int} não encontrado no mix ativo.")
-                    
-                    # Verificar se existe mas está suspenso
-                    resultado_suspenso = df_mix[
-                        (df_mix["cod_consinco"] == codigo_int)
-                        & (df_mix["Mix"] == "S")
-                    ]
-                    if not resultado_suspenso.empty:
-                        st.info("ℹ️ Este produto existe mas está **SUSPENSO** no sistema.")
+                    if not resultado_all.empty:
+                        produto = resultado_all.iloc[0]
+                        status_raw = produto.get("Mix")
+                        if status_raw == "S":
+                            status_label = "Suspenso"
+                        elif status_raw == "A":
+                            status_label = "Ativo"
+                        else:
+                            status_label = "Indefinido"
+
+                        st.warning(
+                            "⚠️ Produto encontrado, mas não está ativo. "
+                            f"Status: {status_label}."
+                        )
+                        st.info(
+                            f"Origem: {produto.get('origem', 'N/A')}"
+                        )
+                    else:
+                        st.warning(
+                            "⚠️ Produto com código "
+                            f"{codigo_int} não encontrado."
+                        )
             except ValueError:
                 st.error("❌ Por favor, digite apenas números no código.")
 
@@ -198,9 +216,10 @@ def show_consulta_mix_page(engine, base_data_path):
         if codigo_transicao:
             try:
                 codigo_int = int(codigo_transicao)
-                resultado = df_mix_ativo[
-                    df_mix_ativo["transicao"] == codigo_int
+                resultado_all = df_mix[
+                    df_mix["transicao"] == codigo_int
                 ]
+                resultado = resultado_all[resultado_all["Mix"] == "A"]
 
                 if not resultado.empty:
                     st.success("✅ Produto encontrado!")
@@ -245,19 +264,27 @@ def show_consulta_mix_page(engine, base_data_path):
                         hide_index=True
                     )
                 else:
-                    st.warning(
-                        "⚠️ Produto com código de transição "
-                        f"{codigo_int} não encontrado no mix ativo."
-                    )
+                    if not resultado_all.empty:
+                        produto = resultado_all.iloc[0]
+                        status_raw = produto.get("Mix")
+                        if status_raw == "S":
+                            status_label = "Suspenso"
+                        elif status_raw == "A":
+                            status_label = "Ativo"
+                        else:
+                            status_label = "Indefinido"
 
-                    resultado_suspenso = df_mix[
-                        (df_mix["transicao"] == codigo_int)
-                        & (df_mix["Mix"] == "S")
-                    ]
-                    if not resultado_suspenso.empty:
+                        st.warning(
+                            "⚠️ Produto encontrado, mas não está ativo. "
+                            f"Status: {status_label}."
+                        )
                         st.info(
-                            "ℹ️ Este produto existe mas está "
-                            "**SUSPENSO** no sistema."
+                            f"Origem: {produto.get('origem', 'N/A')}"
+                        )
+                    else:
+                        st.warning(
+                            "⚠️ Produto com código de transição "
+                            f"{codigo_int} não encontrado."
                         )
             except ValueError:
                 st.error("❌ Por favor, digite apenas números no código.")
