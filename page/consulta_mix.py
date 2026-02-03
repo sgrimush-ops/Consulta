@@ -11,13 +11,28 @@ def get_correcoes_embalagens(engine):
             SELECT cod_consinco, embalagem_corrigida
             FROM produtos_correcoes
         """)
-        
+
         with engine.connect() as conn:
             df = pd.read_sql(query, conn)
-        
+
         return df
     except Exception:
         # Tabela não existe ou erro
+        return pd.DataFrame()
+
+
+def get_produtos_custom(engine):
+    """Busca produtos customizados do banco para sobrepor ao parquet."""
+    try:
+        query = text("""
+            SELECT cod_consinco, descricao, transicao,
+                   embalagem AS Emb, status_mix AS Mix
+            FROM produtos_custom
+        """)
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn)
+        return df
+    except Exception:
         return pd.DataFrame()
 
 
@@ -28,37 +43,65 @@ def show_consulta_mix_page(engine, base_data_path):
     """
     st.title("🔍 Consulta de Mix de Produtos")
     st.markdown("---")
-    
+
     # Carregar o arquivo parquet
     parquet_path = os.path.join("bdados", "con5cod.parquet")
-    
+
     if not os.path.exists(parquet_path):
         st.error(f"Arquivo de dados não encontrado: {parquet_path}")
         st.stop()
-    
+
     try:
         df_mix = pd.read_parquet(parquet_path)
-        
+        df_mix["origem"] = "Parquet"
+
+        # Sobrepor produtos customizados (quando existirem)
+        df_custom = get_produtos_custom(engine)
+        if not df_custom.empty:
+            df_custom["origem"] = "Banco"
+            if (
+                "Emb" not in df_custom.columns
+                and "embalagem" in df_custom.columns
+            ):
+                df_custom = df_custom.rename(columns={"embalagem": "Emb"})
+            if (
+                "Mix" not in df_custom.columns
+                and "status_mix" in df_custom.columns
+            ):
+                df_custom = df_custom.rename(columns={"status_mix": "Mix"})
+
+            # Remove do parquet os códigos que existem no banco
+            df_mix = df_mix[
+                ~df_mix["cod_consinco"].isin(df_custom["cod_consinco"])
+            ].copy()
+            df_mix = pd.concat([df_mix, df_custom], ignore_index=True)
+
         # Aplicar correções de embalagens do banco de dados
         df_correcoes = get_correcoes_embalagens(engine)
         if not df_correcoes.empty:
             df_mix = df_mix.merge(
-                df_correcoes, 
-                on='cod_consinco', 
-                how='left'
+                df_correcoes,
+                on="cod_consinco",
+                how="left"
             )
-            # Usar embalagem corrigida se existir, senão usar original
-            df_mix['Emb_Original'] = df_mix['Emb']
-            df_mix['Emb'] = df_mix['embalagem_corrigida'].fillna(df_mix['Emb']).astype(int)
-            df_mix['Tem_Correcao'] = df_mix['embalagem_corrigida'].notna()
-            df_mix = df_mix.drop(columns=['embalagem_corrigida'])
+            # Usar embalagem corrigida se existir (somente para Parquet)
+            df_mix["Emb_Original"] = df_mix["Emb"]
+            aplicar = (
+                df_mix["embalagem_corrigida"].notna()
+                & (df_mix["origem"] == "Parquet")
+            )
+            df_mix.loc[aplicar, "Emb"] = df_mix.loc[
+                aplicar, "embalagem_corrigida"
+            ]
+            df_mix["Tem_Correcao"] = aplicar
+            df_mix = df_mix.drop(columns=["embalagem_corrigida"])
         else:
-            df_mix['Tem_Correcao'] = False
-            
+            df_mix["Tem_Correcao"] = False
+
     except Exception as e:
         st.error(f"Erro ao carregar arquivo de dados: {e}")
         st.stop()
-    
+
     # Filtrar apenas produtos ativos
     df_mix_ativo = df_mix[df_mix['Mix'] == 'A'].copy()
     
