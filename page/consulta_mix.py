@@ -36,6 +36,18 @@ def get_produtos_custom(engine):
         return pd.DataFrame()
 
 
+def get_produto_custom_status(engine, cod_consinco):
+    """Busca o status_mix de um produto customizado específico."""
+    try:
+        query = text(
+            "SELECT status_mix FROM produtos_custom WHERE cod_consinco = :cod"
+        )
+        with engine.connect() as conn:
+            return conn.execute(query, {"cod": int(cod_consinco)}).scalar()
+    except Exception:
+        return None
+
+
 def show_consulta_mix_page(engine, base_data_path):
     """
     Página para consulta de produtos do mix ativo.
@@ -87,6 +99,16 @@ def show_consulta_mix_page(engine, base_data_path):
             df_mix["Mix"] = (
                 df_mix["Mix"].astype(str).str.strip().str.upper()
             )
+            df_mix.loc[
+                (df_mix["Mix"].isin(["NAN", "NONE", ""]))
+                & (df_mix["origem"] == "Banco"),
+                "Mix"
+            ] = "A"
+        if "Mix" in df_mix.columns:
+            df_mix.loc[
+                df_mix["Mix"].isin(["NAN", "NONE", ""]),
+                "Mix"
+            ] = None
         if "transicao" in df_mix.columns:
             df_mix["transicao"] = pd.to_numeric(
                 df_mix["transicao"], errors="coerce"
@@ -194,9 +216,27 @@ def show_consulta_mix_page(engine, base_data_path):
                     if not resultado_all.empty:
                         produto = resultado_all.iloc[0]
                         status_raw = produto.get("Mix")
-                        if status_raw == "S":
+                        status_norm = (
+                            str(status_raw).strip().upper()
+                            if pd.notna(status_raw)
+                            else None
+                        )
+                        if (
+                            status_norm not in ["A", "S"]
+                            and produto.get("origem") == "Banco"
+                        ):
+                            status_db = get_produto_custom_status(
+                                engine, produto.get("cod_consinco")
+                            )
+                            if status_db:
+                                status_norm = (
+                                    str(status_db).strip().upper()
+                                )
+                                produto["Mix"] = status_norm
+
+                        if status_norm == "S":
                             status_label = "Suspenso"
-                        elif status_raw == "A":
+                        elif status_norm == "A":
                             status_label = "Ativo"
                         else:
                             status_label = "Indefinido"
@@ -285,9 +325,27 @@ def show_consulta_mix_page(engine, base_data_path):
                     if not resultado_all.empty:
                         produto = resultado_all.iloc[0]
                         status_raw = produto.get("Mix")
-                        if status_raw == "S":
+                        status_norm = (
+                            str(status_raw).strip().upper()
+                            if pd.notna(status_raw)
+                            else None
+                        )
+                        if (
+                            status_norm not in ["A", "S"]
+                            and produto.get("origem") == "Banco"
+                        ):
+                            status_db = get_produto_custom_status(
+                                engine, produto.get("cod_consinco")
+                            )
+                            if status_db:
+                                status_norm = (
+                                    str(status_db).strip().upper()
+                                )
+                                produto["Mix"] = status_norm
+
+                        if status_norm == "S":
                             status_label = "Suspenso"
-                        elif status_raw == "A":
+                        elif status_norm == "A":
                             status_label = "Ativo"
                         else:
                             status_label = "Indefinido"
