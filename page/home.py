@@ -23,8 +23,7 @@ def show_home_page(engine, base_data_path):
 
     # --- Dicionário de Atalhos (Rótulo : Chave da Página no app.py) ---
     menu_options = {
-        "🔎 Consultar Estoque CD": "Consulta de Estoque e Mix (CD)",
-        "🛒 Ofertas Atuais": "Ofertas Atuais",
+        "🔎 Consulta de Mix": "Consulta de Mix",
         "📞 Contato / Chamados": "Contato",
         "🔐 Alterar Senha": "Alterar Senha",
     }
@@ -32,18 +31,15 @@ def show_home_page(engine, base_data_path):
     # Atalhos específicos por perfil
     if lojas_do_usuario:
         menu_options = {
-            "📝 Pedidos de Promoção": "Pedidos de Promoção",
             "🧾 Pedido por Código (CD)": "Pedido por Código (CD)",
             **menu_options,
         }
-
-    if role in ["admin", "mkt"]:
-        menu_options["🚀 Upload Ofertas"] = "Upload Ofertas"
 
     if role == "admin":
         menu_options["✅ Aprovação de Pedidos"] = "Aprovação de Pedidos"
         menu_options["👥 Status dos Usuários"] = "Status do Usuário"
         menu_options["⚙️ Administração"] = "Administração"
+        menu_options["🧰 Admin Produtos"] = "Admin Produtos"
         menu_options["📦 Admin Uploads"] = "Admin Uploads"
 
     # --- Renderização dos Botões em Grade ---

@@ -44,8 +44,25 @@ def load_all_products(engine):
     if os.path.exists(parquet_path):
         try:
             df_parquet = pd.read_parquet(parquet_path)
-            df_parquet['cod_consinco'] = df_parquet['cod_consinco'].astype(int)
-            df_parquet['origem'] = 'Parquet'
+            if "cod_consinco" in df_parquet.columns:
+                df_parquet["cod_consinco"] = pd.to_numeric(
+                    df_parquet["cod_consinco"], errors="coerce"
+                )
+                df_parquet = df_parquet.dropna(subset=["cod_consinco"]).copy()
+                df_parquet["cod_consinco"] = df_parquet[
+                    "cod_consinco"
+                ].astype(int)
+            if (
+                "Emb" not in df_parquet.columns
+                and "embalagem" in df_parquet.columns
+            ):
+                df_parquet = df_parquet.rename(columns={"embalagem": "Emb"})
+            if (
+                "Mix" not in df_parquet.columns
+                and "status_mix" in df_parquet.columns
+            ):
+                df_parquet = df_parquet.rename(columns={"status_mix": "Mix"})
+            df_parquet["origem"] = "Parquet"
         except Exception as e:
             st.error(f"Erro ao carregar parquet: {e}")
             df_parquet = pd.DataFrame()
@@ -312,6 +329,19 @@ def show_admin_produtos_page(engine, base_data_path):
             st.markdown("---")
             st.markdown("### 📝 Dados do Produto")
             
+            emb_raw = produto.get("Emb")
+            if pd.isna(emb_raw) or emb_raw is None:
+                st.warning(
+                    "⚠️ Embalagem ausente para este produto. "
+                    "Definindo padrão 1 para edição."
+                )
+                emb_default = 1
+            else:
+                emb_default = int(emb_raw)
+
+            mix_raw = produto.get("Mix")
+            mix_default = mix_raw if mix_raw in ["A", "S"] else "A"
+
             with st.form("form_editar_produto"):
                 st.info(f"**Código Consinco:** {produto['cod_consinco']} | **Origem:** {produto.get('origem', 'N/A')}")
                 
@@ -333,14 +363,14 @@ def show_admin_produtos_page(engine, base_data_path):
                 with col2:
                     edit_emb = st.number_input(
                         "Embalagem (un/cx) *",
-                        value=int(produto['Emb']),
+                        value=emb_default,
                         min_value=1,
                         step=1
                     )
                     edit_status = st.radio(
                         "Status no Mix *",
                         options=["A", "S"],
-                        index=0 if produto['Mix'] == "A" else 1,
+                        index=0 if mix_default == "A" else 1,
                         format_func=lambda x: "Ativo (A)" if x == "A" else "Suspenso (S)",
                         horizontal=True
                     )
