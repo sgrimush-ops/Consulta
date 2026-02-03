@@ -151,8 +151,17 @@ def show_consulta_mix_page(engine, base_data_path):
         if codigo_busca:
             try:
                 codigo_int = int(codigo_busca)
+                codigo_norm = str(codigo_int)
+                cod_series = (
+                    df_mix["cod_consinco"]
+                    .astype(str)
+                    .str.replace(r"\.0$", "", regex=True)
+                    .str.strip()
+                    .str.lstrip("0")
+                )
                 resultado_all = df_mix[
-                    df_mix["cod_consinco"] == codigo_int
+                    (df_mix["cod_consinco"] == codigo_int)
+                    | (cod_series == codigo_norm)
                 ]
                 resultado = resultado_all[resultado_all["Mix"] == "A"]
                 
@@ -216,8 +225,17 @@ def show_consulta_mix_page(engine, base_data_path):
         if codigo_transicao:
             try:
                 codigo_int = int(codigo_transicao)
+                codigo_norm = str(codigo_int)
+                trans_series = (
+                    df_mix["transicao"]
+                    .astype(str)
+                    .str.replace(r"\.0$", "", regex=True)
+                    .str.strip()
+                    .str.lstrip("0")
+                )
                 resultado_all = df_mix[
-                    df_mix["transicao"] == codigo_int
+                    (df_mix["transicao"] == codigo_int)
+                    | (trans_series == codigo_norm)
                 ]
                 resultado = resultado_all[resultado_all["Mix"] == "A"]
 
