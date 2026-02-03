@@ -76,6 +76,18 @@ def show_consulta_mix_page(engine, base_data_path):
             ].copy()
             df_mix = pd.concat([df_mix, df_custom], ignore_index=True)
 
+        # Normalizações básicas
+        if "cod_consinco" in df_mix.columns:
+            df_mix["cod_consinco"] = pd.to_numeric(
+                df_mix["cod_consinco"], errors="coerce"
+            )
+            df_mix = df_mix.dropna(subset=["cod_consinco"]).copy()
+            df_mix["cod_consinco"] = df_mix["cod_consinco"].astype(int)
+        if "Mix" in df_mix.columns:
+            df_mix["Mix"] = (
+                df_mix["Mix"].astype(str).str.strip().str.upper()
+            )
+
         # Aplicar correções de embalagens do banco de dados
         df_correcoes = get_correcoes_embalagens(engine)
         if not df_correcoes.empty:
@@ -103,7 +115,7 @@ def show_consulta_mix_page(engine, base_data_path):
         st.stop()
 
     # Filtrar apenas produtos ativos
-    df_mix_ativo = df_mix[df_mix['Mix'] == 'A'].copy()
+    df_mix_ativo = df_mix[df_mix["Mix"] == "A"].copy()
     
     # Exibir estatísticas
     col1, col2, col3 = st.columns(3)
@@ -121,7 +133,7 @@ def show_consulta_mix_page(engine, base_data_path):
     st.subheader("Buscar Produto")
     tipo_busca = st.radio(
         "Tipo de busca:",
-        ["Por Código Consinco", "Por Descrição"],
+        ["Por Código Consinco", "Por Código Transição", "Por Descrição"],
         horizontal=True
     )
     
@@ -135,7 +147,9 @@ def show_consulta_mix_page(engine, base_data_path):
         if codigo_busca:
             try:
                 codigo_int = int(codigo_busca)
-                resultado = df_mix_ativo[df_mix_ativo['cod_consinco'] == codigo_int]
+                resultado = df_mix_ativo[
+                    df_mix_ativo["cod_consinco"] == codigo_int
+                ]
                 
                 if not resultado.empty:
                     st.success(f"✅ Produto encontrado!")
@@ -166,9 +180,85 @@ def show_consulta_mix_page(engine, base_data_path):
                     st.warning(f"⚠️ Produto com código {codigo_int} não encontrado no mix ativo.")
                     
                     # Verificar se existe mas está suspenso
-                    resultado_suspenso = df_mix[(df_mix['cod_consinco'] == codigo_int) & (df_mix['Mix'] == 'S')]
+                    resultado_suspenso = df_mix[
+                        (df_mix["cod_consinco"] == codigo_int)
+                        & (df_mix["Mix"] == "S")
+                    ]
                     if not resultado_suspenso.empty:
                         st.info("ℹ️ Este produto existe mas está **SUSPENSO** no sistema.")
+            except ValueError:
+                st.error("❌ Por favor, digite apenas números no código.")
+
+    elif tipo_busca == "Por Código Transição":
+        codigo_transicao = st.text_input(
+            "Digite o código de transição:",
+            placeholder="Ex: 3612"
+        )
+
+        if codigo_transicao:
+            try:
+                codigo_int = int(codigo_transicao)
+                resultado = df_mix_ativo[
+                    df_mix_ativo["transicao"] == codigo_int
+                ]
+
+                if not resultado.empty:
+                    st.success("✅ Produto encontrado!")
+                    produto = resultado.iloc[0]
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.info(
+                            f"**Código Consinco:** {produto['cod_consinco']}"
+                        )
+                        st.info(f"**Descrição:** {produto['descricao']}")
+                        st.info(
+                            f"**Código Transição (Antigo):** {produto['transicao']}"
+                        )
+                    with col2:
+                        st.info(
+                            "**Status:** "
+                            f"{'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}"
+                        )
+                        emb_text = (
+                            f"**Embalagem:** {produto['Emb']} unidades"
+                        )
+                        if produto.get("Tem_Correcao", False):
+                            emb_text += (
+                                " ⚠️ (Original: "
+                                f"{produto.get('Emb_Original', produto['Emb'])})"
+                            )
+                        st.info(emb_text)
+
+                    st.markdown("### Detalhes Completos")
+                    df_display = resultado.copy()
+                    df_display.columns = [
+                        "Código Consinco",
+                        "Descrição",
+                        "Código Transição",
+                        "Status",
+                        "Embalagem"
+                    ]
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.warning(
+                        "⚠️ Produto com código de transição "
+                        f"{codigo_int} não encontrado no mix ativo."
+                    )
+
+                    resultado_suspenso = df_mix[
+                        (df_mix["transicao"] == codigo_int)
+                        & (df_mix["Mix"] == "S")
+                    ]
+                    if not resultado_suspenso.empty:
+                        st.info(
+                            "ℹ️ Este produto existe mas está "
+                            "**SUSPENSO** no sistema."
+                        )
             except ValueError:
                 st.error("❌ Por favor, digite apenas números no código.")
     
