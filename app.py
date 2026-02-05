@@ -12,7 +12,6 @@ from page.consulta_mix import show_consulta_mix_page
 from page.aprovacao_pedidos import show_aprovacao_page
 from page.status_usuarios import show_status_page
 from page.admin_maint import show_admin_page
-from page.admin_produtos import show_admin_produtos_page
 from page.mudar_senha import show_mudar_senha_page
 from page.contato import show_contato_page
 from page.admin_uploads import show_admin_uploads_page
@@ -329,8 +328,6 @@ def main_app():
         paginas["Status do Usuário"] = lambda: show_status_page(
             engine, BASE_DATA_PATH)
         paginas["Administração"] = lambda: show_admin_page(
-            engine, BASE_DATA_PATH)
-        paginas["Admin Produtos"] = lambda: show_admin_produtos_page(
             engine, BASE_DATA_PATH)
         paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine)
 

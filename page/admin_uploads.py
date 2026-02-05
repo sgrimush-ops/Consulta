@@ -23,6 +23,10 @@ def show_admin_uploads_page(engine):
             st.session_state.pop("con5cod_preview_hash", None)
             st.rerun()
 
+        if st.button("Limpar cache do mix"):
+            st.cache_data.clear()
+            st.success("Cache limpo. Reabra a pagina de mix para atualizar.")
+
     uploaded_file = st.file_uploader(
         "Selecione o arquivo `con5cod.parquet`",
         type="parquet",
@@ -62,6 +66,8 @@ def show_admin_uploads_page(engine):
                     destino = os.path.join("bdados", "con5cod.parquet")
                     with open(destino, "wb") as f:
                         f.write(uploaded_bytes)
+
+                    st.cache_data.clear()
 
                     st.success(
                         "Arquivo con5cod.parquet atualizado com sucesso!"
