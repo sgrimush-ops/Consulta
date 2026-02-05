@@ -1,4 +1,6 @@
 import os
+import io
+import hashlib
 import streamlit as st
 import pandas as pd
 
@@ -14,6 +16,13 @@ def show_admin_uploads_page(engine):
         "arquivo existente em `bdados/`.")
 
     st.subheader("Upload do Arquivo con5cod.parquet")
+    col_upload_actions, _ = st.columns([1, 3])
+    with col_upload_actions:
+        if st.button("Limpar upload / amostra"):
+            st.session_state.pop("con5cod_uploader", None)
+            st.session_state.pop("con5cod_preview_hash", None)
+            st.rerun()
+
     uploaded_file = st.file_uploader(
         "Selecione o arquivo `con5cod.parquet`",
         type="parquet",
@@ -22,8 +31,22 @@ def show_admin_uploads_page(engine):
 
     if uploaded_file is not None:
         try:
-            df_preview = pd.read_parquet(uploaded_file)
-            st.write("Amostra dos dados do arquivo:")
+            uploaded_bytes = uploaded_file.getvalue()
+            if not uploaded_bytes:
+                st.warning("Arquivo vazio. Verifique o upload e tente novamente.")
+                return
+
+            preview_hash = hashlib.sha256(uploaded_bytes).hexdigest()
+            st.session_state["con5cod_preview_hash"] = preview_hash
+
+            st.caption(
+                f"Arquivo carregado: {uploaded_file.name} | "
+                f"Tamanho: {len(uploaded_bytes):,} bytes | "
+                f"Hash: {preview_hash[:12]}"
+            )
+
+            df_preview = pd.read_parquet(io.BytesIO(uploaded_bytes))
+            st.write("Amostra dos dados do arquivo (upload atual):")
             st.dataframe(df_preview.head())
             st.info(f"📊 Total de linhas: {len(df_preview):,}")
 
@@ -37,11 +60,16 @@ def show_admin_uploads_page(engine):
                 ):
                     os.makedirs("bdados", exist_ok=True)
                     destino = os.path.join("bdados", "con5cod.parquet")
-                    uploaded_file.seek(0)
                     with open(destino, "wb") as f:
-                        f.write(uploaded_file.read())
+                        f.write(uploaded_bytes)
+
                     st.success(
                         "Arquivo con5cod.parquet atualizado com sucesso!"
+                    )
+
+                    st.caption(
+                        "Observacao: algumas telas podem sobrepor dados do "
+                        "parquet com registros do banco (produtos_custom)."
                     )
                     st.balloons()
         except Exception as e:
