@@ -73,7 +73,7 @@ def show_main_menu():
     st.markdown("""
     Informe se é funcionário da empresa ou se é fornecedor/promotor.
     
-    ***ATENÇÃO: MUNDANÇA DE SISTEMA, ESTE APLICATIVO VAI ENTRAR EM MANUTENÇÃO***.
+    ***ATENÇÃO: liberado pedidos de consumo, horário comercial, de seg a sex e sab de manhã***.
     
     """)
     col1, col2 = st.columns(2)
