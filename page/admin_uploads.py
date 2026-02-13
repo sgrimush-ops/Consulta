@@ -7,13 +7,14 @@ import pandas as pd
 
 def show_admin_uploads_page(engine):
     """
-    Cria a interface para upload do arquivo base con5cod.parquet.
+    Cria a interface para upload dos arquivos
+    con5cod.parquet e consumo.parquet.
     """
     st.title("⚙️ Administração de Uploads de Base")
     st.markdown(
-        "Faça o upload do arquivo `con5cod.parquet` para atualizar a base de "
-        "produtos. **Atenção:** o arquivo enviado substituirá completamente o "
-        "arquivo existente em `bdados/`.")
+        "Faça o upload dos arquivos `con5cod.parquet` (base local) e "
+        "`consumo.parquet` (carga no banco)."
+    )
 
     st.subheader("Upload do Arquivo con5cod.parquet")
     col_upload_actions, _ = st.columns([1, 3])
@@ -37,7 +38,9 @@ def show_admin_uploads_page(engine):
         try:
             uploaded_bytes = uploaded_file.getvalue()
             if not uploaded_bytes:
-                st.warning("Arquivo vazio. Verifique o upload e tente novamente.")
+                st.warning(
+                    "Arquivo vazio. Verifique o upload e tente novamente."
+                )
                 return
 
             preview_hash = hashlib.sha256(uploaded_bytes).hexdigest()
@@ -81,5 +84,76 @@ def show_admin_uploads_page(engine):
         except Exception as e:
             st.error(
                 "Ocorreu um erro ao processar o arquivo `con5cod.parquet`: "
+                f"{e}"
+            )
+
+    st.divider()
+    st.subheader("Upload do Arquivo consumo.parquet para Banco de Dados")
+
+    col_consumo_actions, _ = st.columns([1, 3])
+    with col_consumo_actions:
+        if st.button("Limpar upload consumo", key="clear_consumo_upload"):
+            st.session_state.pop("consumo_uploader", None)
+            st.session_state.pop("consumo_preview_hash", None)
+            st.rerun()
+
+    uploaded_consumo = st.file_uploader(
+        "Selecione o arquivo `consumo.parquet`",
+        type="parquet",
+        key="consumo_uploader"
+    )
+
+    if uploaded_consumo is not None:
+        try:
+            consumo_bytes = uploaded_consumo.getvalue()
+            if not consumo_bytes:
+                st.warning(
+                    "Arquivo de consumo vazio. Verifique o upload e tente "
+                    "novamente."
+                )
+                return
+
+            consumo_hash = hashlib.sha256(consumo_bytes).hexdigest()
+            st.session_state["consumo_preview_hash"] = consumo_hash
+
+            st.caption(
+                f"Arquivo carregado: {uploaded_consumo.name} | "
+                f"Tamanho: {len(consumo_bytes):,} bytes | "
+                f"Hash: {consumo_hash[:12]}"
+            )
+
+            df_consumo = pd.read_parquet(io.BytesIO(consumo_bytes))
+            st.write("Amostra dos dados de consumo (upload atual):")
+            st.dataframe(df_consumo.head())
+            st.info(f"📊 Total de linhas: {len(df_consumo):,}")
+
+            if st.button(
+                "Salvar consumo no banco",
+                type="primary",
+                key="save_consumo_db"
+            ):
+                with st.spinner(
+                    "Enviando consumo para o banco... Isso pode levar alguns "
+                    "minutos."
+                ):
+                    with engine.begin() as conn:
+                        df_consumo.to_sql(
+                            "consumo",
+                            conn,
+                            if_exists="replace",
+                            index=False,
+                            method="multi",
+                            chunksize=5000
+                        )
+
+                    st.cache_data.clear()
+                    st.success(
+                        "Tabela `consumo` atualizada com sucesso no banco "
+                        "de dados!"
+                    )
+                    st.balloons()
+        except Exception as e:
+            st.error(
+                "Ocorreu um erro ao processar o arquivo `consumo.parquet`: "
                 f"{e}"
             )

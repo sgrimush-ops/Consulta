@@ -31,6 +31,7 @@ def show_home_page(engine, base_data_path):
     # Atalhos específicos por perfil
     if lojas_do_usuario:
         menu_options = {
+            "🧾 Pedido de Consumo": "Pedido de Consumo",
             "🧾 Pedido por Código (CD)": "Pedido por Código (CD)",
             **menu_options,
         }

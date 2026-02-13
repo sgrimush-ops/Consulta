@@ -57,7 +57,13 @@ def get_product_info(df_produtos, codigo):
     return None
 
 
-def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool) -> pd.DataFrame:
+def get_pedidos_para_aprovacao(
+    engine,
+    date_start,
+    date_end,
+    only_pending: bool,
+    origem_filtro: str = "Todas",
+) -> pd.DataFrame:
     """Busca pedidos para aprovação."""
     try:
         start_str = datetime.combine(date_start, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
@@ -75,6 +81,10 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
                 p.embseparacao,
                 p.{lojas_sql},
                 p.total_cx,
+                COALESCE(
+                    p.origem_pedido,
+                    'Pedido por Código (CD)'
+                ) AS origem_pedido,
                 p.status_item,
                 p.status_aprovacao
             FROM pedidos_consolidados p
@@ -86,6 +96,19 @@ def get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending: bool)
         
         if only_pending:
             query = text(str(query) + " AND status_aprovacao = 'Pendente'")
+
+        if origem_filtro == "Pedido de Consumo":
+            query = text(
+                str(query)
+                + " AND COALESCE(origem_pedido, 'Pedido por Código (CD)') "
+                + "= 'Pedido de Consumo'"
+            )
+        elif origem_filtro == "Pedido por Código (CD)":
+            query = text(
+                str(query)
+                + " AND COALESCE(origem_pedido, 'Pedido por Código (CD)') "
+                + "= 'Pedido por Código (CD)'"
+            )
         
         query = text(str(query) + " ORDER BY data_pedido ASC")
         
@@ -167,7 +190,7 @@ def show_aprovacao_page(engine, base_data_path):
     
     # --- Filtros ---
     st.markdown("### 🔍 Filtros")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         date_start = st.date_input(
@@ -185,9 +208,23 @@ def show_aprovacao_page(engine, base_data_path):
     
     with col3:
         only_pending = st.checkbox("Apenas Pendentes", value=True)
+
+    with col4:
+        origem_filtro = st.selectbox(
+            "Origem:",
+            ["Todas", "Pedido de Consumo", "Pedido por Código (CD)"],
+            index=0,
+            key="origem_filtro_aprov",
+        )
     
     # Buscar pedidos
-    df_pedidos = get_pedidos_para_aprovacao(engine, date_start, date_end, only_pending)
+    df_pedidos = get_pedidos_para_aprovacao(
+        engine,
+        date_start,
+        date_end,
+        only_pending,
+        origem_filtro,
+    )
     
     if df_pedidos.empty:
         st.info("Nenhum pedido encontrado no período selecionado.")
@@ -206,11 +243,24 @@ def show_aprovacao_page(engine, base_data_path):
     
     # Adicionar checkbox para seleção
     df_pedidos.insert(0, "Selecionar", False)
+
+    # Marcador visual de origem
+    if "origem_pedido" in df_pedidos.columns:
+        df_pedidos["Origem"] = df_pedidos["origem_pedido"].apply(
+            lambda origem: (
+                "🛒 Pedido de Consumo"
+                if str(origem) == "Pedido de Consumo"
+                else "📦 Pedido por Código (CD)"
+            )
+        )
+    else:
+        df_pedidos["Origem"] = "📦 Pedido por Código (CD)"
     
     # Preparar colunas para exibição
     cols_exibicao = [
         "Selecionar", "id_pedido", "data_pedido_str", "usuario_pedido",
-        "codigo_interno", "descricao", "Status Mix", "embseparacao", "total_cx",
+        "Origem", "codigo_interno", "descricao", "Status Mix",
+        "embseparacao", "total_cx",
         "status_aprovacao"
     ] + COLUNAS_LOJAS_PEDIDO
     
@@ -241,6 +291,11 @@ def show_aprovacao_page(engine, base_data_path):
         "id_pedido": None,  # Ocultar
         "data_pedido_str": st.column_config.TextColumn("Data/Hora", disabled=True),
         "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True, width="small"),
+        "Origem": st.column_config.TextColumn(
+            "Origem",
+            disabled=True,
+            width="medium"
+        ),
         "codigo_interno": st.column_config.NumberColumn("Cód. Consinco", disabled=True, format="%d"),
         "descricao": st.column_config.TextColumn("Produto", disabled=True, width="large"),
         "Status Mix": st.column_config.TextColumn("Mix", disabled=True, width="small"),

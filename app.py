@@ -16,6 +16,7 @@ from page.mudar_senha import show_mudar_senha_page
 from page.contato import show_contato_page
 from page.admin_uploads import show_admin_uploads_page
 from page.pedido_cd import show_pedidos_cd_page
+from page.pedido_consumo import show_pedido_consumo_page
 
 # =========================================================
 # CONFIGURAÇÕES INICIAIS
@@ -208,6 +209,11 @@ def create_db_tables(engine):
             """))
 
             conn.execute(text("""
+                ALTER TABLE pedidos_consolidados
+                ADD COLUMN IF NOT EXISTS origem_pedido TEXT
+            """))
+
+            conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS contato_chamados (
                     id SERIAL PRIMARY KEY,
                     usuario_username TEXT REFERENCES users(username),
@@ -319,6 +325,8 @@ def main_app():
 
     if st.session_state.get("lojas_acesso"):
         # Adiciona as páginas de pedido
+        paginas["Pedido de Consumo"] = lambda: show_pedido_consumo_page(
+            engine, BASE_DATA_PATH)
         paginas["Pedido por Código (CD)"] = lambda: show_pedidos_cd_page(
             engine, BASE_DATA_PATH)
 
