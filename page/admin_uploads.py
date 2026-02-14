@@ -136,6 +136,11 @@ def show_admin_uploads_page(engine):
                     "Enviando consumo para o banco... Isso pode levar alguns "
                     "minutos."
                 ):
+                    os.makedirs("bdados", exist_ok=True)
+                    consumo_destino = os.path.join("bdados", "consumo.parquet")
+                    with open(consumo_destino, "wb") as f:
+                        f.write(consumo_bytes)
+
                     with engine.begin() as conn:
                         df_consumo.to_sql(
                             "consumo",

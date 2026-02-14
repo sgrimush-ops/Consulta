@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+import os
 from datetime import datetime
 
 
@@ -65,14 +66,63 @@ def _find_column(df, candidates):
     return None
 
 
+def _load_consumo_parquet():
+    parquet_path = os.path.join("bdados", "consumo.parquet")
+    if not os.path.exists(parquet_path):
+        return None
+
+    try:
+        return pd.read_parquet(parquet_path)
+    except Exception as e:
+        st.error(f"Erro ao ler consumo.parquet local: {e}")
+        return None
+
+
 def load_products_from_consumo_table(engine):
     """Carrega produtos exclusivamente da tabela consumo no banco."""
-    try:
-        with engine.connect() as conn:
-            df = pd.read_sql(text("SELECT * FROM consumo"), conn)
-    except Exception as e:
-        st.error(f"Erro ao carregar tabela consumo: {e}")
-        return pd.DataFrame()
+    inspector = inspect(engine)
+    consumo_schema = None
+    if inspector.has_table("consumo"):
+        consumo_schema = None
+    else:
+        for schema in inspector.get_schema_names():
+            if schema in ("information_schema", "pg_catalog"):
+                continue
+            if inspector.has_table("consumo", schema=schema):
+                consumo_schema = schema
+                break
+
+    if consumo_schema is None and not inspector.has_table("consumo"):
+        df = _load_consumo_parquet()
+        if df is None:
+            st.error(
+                "Tabela `consumo` nao encontrada no banco e "
+                "consumo.parquet local inexistente. "
+                "Carregue o arquivo em Admin Uploads."
+            )
+            return pd.DataFrame()
+        st.warning(
+            "Tabela `consumo` nao encontrada no banco. "
+            "Usando consumo.parquet local."
+        )
+    else:
+        try:
+            with engine.connect() as conn:
+                if consumo_schema:
+                    query = text(f'SELECT * FROM "{consumo_schema}".consumo')
+                else:
+                    query = text("SELECT * FROM consumo")
+                df = pd.read_sql(query, conn)
+        except Exception as e:
+            df = _load_consumo_parquet()
+            if df is not None:
+                st.warning(
+                    "Falha ao ler tabela consumo no banco. "
+                    "Usando consumo.parquet local."
+                )
+            else:
+                st.error(f"Erro ao carregar tabela consumo: {e}")
+                return pd.DataFrame()
 
     if df.empty:
         return pd.DataFrame()
