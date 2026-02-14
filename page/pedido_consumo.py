@@ -129,9 +129,17 @@ def load_products_from_consumo_table(engine):
 
     col_cod = _find_column(
         df,
-        ["cod_consinco", "codigo_consinco", "codigo_interno"],
+        [
+            "cod_consinco",
+            "codigo_consinco",
+            "codigo_interno",
+            "codigo",
+        ],
     )
-    col_desc = _find_column(df, ["descricao", "descrição"])
+    col_desc = _find_column(
+        df,
+        ["descricao", "descrição", "descricao sw", "descricao_sw"],
+    )
     col_desc_consinco = _find_column(
         df,
         [
