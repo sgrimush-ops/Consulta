@@ -17,7 +17,7 @@ def get_user_status_df(engine):
     try:
         # MUDANÇA: Usando 'engine' e 'text()'
         query = text(
-            "SELECT username, ultimo_acesso, status_logado FROM users")
+            "SELECT username, cargo, ultimo_acesso, status_logado FROM users")
         df_users = pd.read_sql_query(query, con=engine)
     except Exception as e:
         st.error(f"Erro ao carregar usuários: {e}")
@@ -108,10 +108,11 @@ def show_status_page(engine, base_data_path):
 
     # --- NOVO DISPLAY COM CORES ---
     # Cabeçalho da Tabela
-    col1, col2, col3 = st.columns([1.5, 2, 1.5])
+    col1, col2, col3, col4 = st.columns([1.5, 1.5, 2, 1.5])
     col1.markdown("**Usuário**")
-    col2.markdown("**Último Acesso**")
-    col3.markdown("**Status**")
+    col2.markdown("**Cargo**")
+    col3.markdown("**Último Acesso**")
+    col4.markdown("**Status**")
 
     st.markdown("<hr style='margin-top:0px; margin-bottom:10px;'>",
                 unsafe_allow_html=True)
@@ -127,19 +128,23 @@ def show_status_page(engine, base_data_path):
                 else row['Tempo_Formatado']
             )
 
-            col1_disp, col2_disp, col3_disp = st.columns([1.5, 2, 1.5])
+            col1_disp, col2_disp, col3_disp, col4_disp = st.columns([1.5, 1.5, 2, 1.5])
+            cargo = row.get('cargo') or ""
 
             # Aplica a cor usando HTML/Markdown
             col1_disp.markdown(
                 f"<span style='color: {cor};'>{row['username']}</span>",
                 unsafe_allow_html=True)
             col2_disp.markdown(
+                f"<span style='color: {cor};'>{cargo}</span>",
+                unsafe_allow_html=True)
+            col3_disp.markdown(
                 (
                     f"<span style='color: {cor};'>{row['ultimo_acesso_str']}"
                     f"</span>"
                 ),
                 unsafe_allow_html=True)
-            col3_disp.markdown(
+            col4_disp.markdown(
                 f"<span style='color: {cor};'>**{status_texto}**</span>",
                 unsafe_allow_html=True)
 

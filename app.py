@@ -185,8 +185,14 @@ def create_db_tables(engine):
                     ultimo_acesso TIMESTAMP,
                     status_logado TEXT,
                     role TEXT DEFAULT 'user',
+                    cargo TEXT,
                     lojas_acesso TEXT
                 )
+            """))
+
+            conn.execute(text("""
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS cargo TEXT
             """))
 
             lojas_sql_cols = ", ".join(
