@@ -3,7 +3,6 @@ import pandas as pd
 import hashlib
 import io
 import os
-from utils.produtos_loader import engine
 
 
 def validate_con5cod_schema(df):
@@ -90,6 +89,9 @@ def show_admin_uploads_page():
     Cria a interface para upload dos arquivos
     con5cod.parquet e consumo.parquet.
     """
+    from app import get_engine
+    engine = get_engine()
+    
     st.title("⚙️ Administração de Uploads de Base")
     st.markdown(
         "Faça o upload dos arquivos `con5cod.parquet` (base local) e "
