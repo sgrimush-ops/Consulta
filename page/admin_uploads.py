@@ -1,3 +1,11 @@
+import streamlit as st
+import pandas as pd
+import hashlib
+import io
+import os
+from utils.produtos_loader import engine
+
+
 def validate_con5cod_schema(df):
     """
     Valida se o arquivo con5cod.parquet tem a estrutura correta.
@@ -77,7 +85,7 @@ def validate_con5cod_schema(df):
     return True, msg, colunas_mapeadas
 
 
-
+def show_admin_uploads_page():
     """
     Cria a interface para upload dos arquivos
     con5cod.parquet e consumo.parquet.
