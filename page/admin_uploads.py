@@ -68,8 +68,10 @@ def validate_con5cod_schema(df):
     msg += f"   • Descrição: '{colunas_mapeadas['descricao']}'\n"
     msg += f"   • Embalagem: '{colunas_mapeadas['Emb']}'\n"
     msg += f"   • Mix: '{colunas_mapeadas['Mix']}'\n"
-    if colunas_mapeadas['transicao']:\n        msg += f"   • Transição/Acesso: '{colunas_mapeadas['transicao']}'\n"
-    if colunas_mapeadas['CapacidadeGondola']:\n        msg += f"   • Capacidade Gôndola: '{colunas_mapeadas['CapacidadeGondola']}'\n"
+    if colunas_mapeadas['transicao']:
+        msg += f"   • Transição/Acesso: '{colunas_mapeadas['transicao']}'\n"
+    if colunas_mapeadas['CapacidadeGondola']:
+        msg += f"   • Capacidade Gôndola: '{colunas_mapeadas['CapacidadeGondola']}'\n"
     msg += f"   • Total: {len(df):,} registros"
     
     return True, msg, colunas_mapeadas
