@@ -65,6 +65,38 @@ def show_consulta_mix_page(engine, base_data_path):
 
     try:
         df_mix = pd.read_parquet(parquet_path)
+        
+        # Mapear colunas novas para nomes esperados
+        column_mapping = {
+            'codigoconsinco': 'cod_consinco',
+            'Código Produto': 'cod_consinco',
+            'codigo transicao': 'transicao',
+            'CODACESSO': 'transicao',
+            'Empresa : Produto': 'descricao',
+            'embalagem': 'Emb',
+            'EmbSeparacao': 'Emb',
+            'ltmix': 'Mix',
+            'capacidade': 'CapacidadeGondola',
+            'CapacidadeGondola': 'CapacidadeGondola'
+        }
+        
+        df_mix.rename(columns=column_mapping, inplace=True)
+        
+        # Garantir colunas essenciais
+        if 'cod_consinco' not in df_mix.columns:
+            raise ValueError("Coluna 'cod_consinco' não encontrada")
+        if 'descricao' not in df_mix.columns:
+            df_mix['descricao'] = 'SEM DESCRIÇÃO'
+        if 'transicao' not in df_mix.columns:
+            df_mix['transicao'] = 0
+        if 'Emb' not in df_mix.columns:
+            df_mix['Emb'] = 1
+        if 'Mix' not in df_mix.columns:
+            df_mix['Mix'] = 'A'
+        if 'CapacidadeGondola' not in df_mix.columns:
+            df_mix['CapacidadeGondola'] = 0
+        
+        df_mix['cod_consinco'] = df_mix['cod_consinco'].astype(int)
         df_mix["origem"] = "Parquet"
 
         # Sobrepor produtos customizados (quando existirem)

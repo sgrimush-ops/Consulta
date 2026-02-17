@@ -232,8 +232,8 @@ def save_pedido_consolidado(engine, df_pedido):
         return False
 
 
-def get_last_item_order_15d(engine, username, codigo_produto):
-    """Busca o último pedido do item nos últimos 15 dias."""
+def get_last_item_order_30d(engine, username, codigo_produto):
+    """Busca o último pedido do item nos últimos 30 dias."""
     try:
         query = text(
             """
@@ -241,7 +241,7 @@ def get_last_item_order_15d(engine, username, codigo_produto):
             FROM pedidos_consolidados
             WHERE usuario_pedido = :username
               AND codigo_interno = :codigo
-              AND data_pedido >= NOW() - INTERVAL '15 days'
+              AND data_pedido >= NOW() - INTERVAL '30 days'
             ORDER BY data_pedido DESC
             LIMIT 1
             """
@@ -264,8 +264,8 @@ def get_last_item_order_15d(engine, username, codigo_produto):
         return None
 
 
-def get_orders_history_15d(engine, username):
-    """Retorna histórico de pedidos do usuário dos últimos 15 dias."""
+def get_orders_history_30d(engine, username):
+    """Retorna histórico de pedidos do usuário dos últimos 30 dias."""
     query = text(
         """
         SELECT
@@ -278,7 +278,7 @@ def get_orders_history_15d(engine, username):
             status_aprovacao
         FROM pedidos_consolidados
         WHERE usuario_pedido = :username
-          AND data_pedido >= NOW() - INTERVAL '15 days'
+          AND data_pedido >= NOW() - INTERVAL '30 days'
         ORDER BY data_pedido DESC
         LIMIT 200
         """
@@ -641,11 +641,11 @@ def show_pedido_consumo_page(engine, base_data_path):
         codigo_produto = int(item["cod_consinco"])
         username = st.session_state.get("username", "unknown")
 
-        last_order = get_last_item_order_15d(engine, username, codigo_produto)
+        last_order = get_last_item_order_30d(engine, username, codigo_produto)
         default_qtd_por_loja = {}
         if last_order:
             st.info(
-                "Último pedido deste item encontrado nos últimos 15 dias. "
+                "Último pedido deste item encontrado nos últimos 30 dias. "
                 "As quantidades foram pré-preenchidas."
             )
             for key, value in last_order.items():
@@ -658,7 +658,7 @@ def show_pedido_consumo_page(engine, base_data_path):
                         default_qtd_por_loja[key.replace("loja_", "")] = 0
         else:
             st.warning(
-                "Primeiro pedido deste item para você nos últimos 15 dias."
+                "Primeiro pedido deste item para você nos últimos 30 dias."
             )
 
         st.markdown("---")
@@ -772,16 +772,16 @@ def show_pedido_consumo_page(engine, base_data_path):
                 st.rerun()
 
     st.markdown("---")
-    st.subheader("📋 Histórico de Pedidos (Últimos 15 dias)")
+    st.subheader("📋 Histórico de Pedidos (Últimos 30 dias)")
 
     username = st.session_state.get("username", "unknown")
     try:
-        df_historico = get_orders_history_15d(engine, username)
+        df_historico = get_orders_history_30d(engine, username)
 
         if not df_historico.empty:
             st.info(
                 f"Você tem {len(df_historico)} pedido(s) registrados "
-                "nos últimos 15 dias."
+                "nos últimos 30 dias."
             )
 
             st.dataframe(
@@ -809,7 +809,7 @@ def show_pedido_consumo_page(engine, base_data_path):
                 use_container_width=True,
             )
         else:
-            st.info("Você não tem histórico de pedidos nos últimos 15 dias.")
+            st.info("Você não tem histórico de pedidos nos últimos 30 dias.")
     except Exception as e:
         st.error(f"Erro ao buscar histórico de pedidos: {e}")
 

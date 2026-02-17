@@ -35,8 +35,35 @@ def load_products_from_parquet():
         return pd.DataFrame()
     
     try:
-        df = pd.read_parquet(parquet_path)
-        df['cod_consinco'] = df['cod_consinco'].astype(int)
+        df = pd.read_parquet(parquet_path)        
+        # Mapear colunas novas
+        column_mapping = {
+            'codigoconsinco': 'cod_consinco',
+            'Código Produto': 'cod_consinco',
+            'codigo transicao': 'transicao',
+            'CODACESSO': 'transicao',
+            'Empresa : Produto': 'descricao',
+            'embalagem': 'Emb',
+            'EmbSeparacao': 'Emb',
+            'ltmix': 'Mix',
+            'capacidade': 'CapacidadeGondola',
+            'CapacidadeGondola': 'CapacidadeGondola'
+        }
+        
+        df.rename(columns=column_mapping, inplace=True)
+        
+        # Garantir colunas minimas
+        if 'cod_consinco' not in df.columns:
+            raise ValueError("Coluna 'cod_consinco' não encontrada")
+        if 'descricao' not in df.columns:
+            df['descricao'] = 'SEM DESCRIÇÃO'
+        if 'Emb' not in df.columns:
+            df['Emb'] = 1
+        if 'Mix' not in df.columns:
+            df['Mix'] = 'A'
+        if 'CapacidadeGondola' not in df.columns:
+            df['CapacidadeGondola'] = 0
+                df['cod_consinco'] = df['cod_consinco'].astype(int)
         return df
     except Exception:
         return pd.DataFrame()

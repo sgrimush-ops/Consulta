@@ -1,130 +1,105 @@
-# ProjetoBak - Versão 2.0.0
+# ProjetoBak - Versao 2.0.0
 
-Sistema de gestão de produtos e pedidos com integração Consinco.
+Sistema de gestao de produtos, pedidos e usuarios com integracao Consinco.
 
-## 📁 Estrutura do Projeto
+## Estrutura do projeto
 
 ```
 ProjetoBak/
-├── app.py                          # Aplicação principal Streamlit
-├── main.py                         # Ponto de entrada da aplicação
-├── requirements.txt                # Dependências Python
-├── README.md                       # Documentação principal
-├── ProjetoPY.code-workspace        # Configuração do workspace
+├── app.py                   # Aplicacao principal (funcionarios)
+├── main.py                  # Menu principal e acesso fornecedor
+├── requirements.txt         # Dependencias Python
+├── README.md                # Documentacao principal
+├── ProjetoPY.code-workspace # Configuracao do workspace
 │
-├── bdados/                         # Base de dados
-│   └── con5cod.parquet            # Produtos Consinco (36k registros)
+├── bdados/                  # Base de dados local
+│   └── con5cod.parquet       # Produtos Consinco (36k registros)
 │
-├── page/                           # Módulos de páginas da aplicação
-│   ├── home.py                     # Página inicial
-│   ├── consulta_mix.py             # 🆕 Consulta de produtos (cod_consinco)
-│   ├── pedido_cd.py                # Pedidos por código
-│   ├── aprovacao_pedidos.py        # Aprovação de pedidos (admin)
-│   ├── admin_uploads.py            # Gerenciamento de uploads (admin)
-│   ├── admin_maint.py              # Administração de usuários
-│   ├── status_usuarios.py          # Status de usuários online
-│   ├── contato.py                  # Sistema de chamados
-│   ├── mudar_senha.py              # Alteração de senha
-│   ├── area_fornecedor.py          # Área de fornecedores
-│   ├── admin_fornecedor.py         # Admin de fornecedores
-│   └── contato_fornecedor.py       # Contato fornecedores
+├── page/                    # Modulos de paginas
+│   ├── home.py               # Pagina inicial
+│   ├── consulta_mix.py       # Consulta de produtos (cod_consinco)
+│   ├── pedido_cd.py          # Pedidos por codigo
+│   ├── pedido_consumo.py     # Pedidos de consumo
+│   ├── aprovacao_pedidos.py  # Aprovacao de pedidos (admin)
+│   ├── admin_uploads.py      # Gerenciamento de uploads (admin)
+│   ├── admin_maint.py        # Administracao de usuarios
+│   ├── status_usuarios.py    # Status de usuarios online
+│   ├── contato.py            # Sistema de chamados
+│   ├── mudar_senha.py        # Alteracao de senha
+│   ├── area_fornecedor.py    # Area de fornecedores
+│   ├── admin_fornecedor.py   # Admin de fornecedores
+│   └── contato_fornecedor.py # Contato fornecedores
 │
-├── migrations/                     # Scripts de migração (legado)
-│   ├── 001_safe_add_columns.sql
-│   ├── 002_direct_rename.sql
-│   └── run_migration_safe.sh
+├── scripts/                 # Scripts auxiliares
+│   └── smoke_test.py         # Testes automatizados
 │
-├── scripts/                        # Scripts de manutenção
-│   └── smoke_test.py               # Testes automatizados
+├── tools/                   # Ferramentas de manutencao
+│   ├── cleanup_database_v2.py
+│   ├── cleanup_pedidos_antigos.py
+│   └── verify_produtos_integrity.py
 │
-├── tools/                          # Ferramentas auxiliares
-│   ├── apply_migration.py          # Aplicar migrações
-│   └── find_and_fix_db.py          # Diagnóstico de BD
-│
-└── doc/                            # Documentação completa
-    ├── README_PRINCIPAL.md         # Este arquivo
-    ├── ESTRUTURA_ATUALIZADA.md     # Estrutura detalhada v2.0
-    ├── MIGRACAO_CONSINCO.md        # Guia de migração
-    ├── CHANGELOG.md                # Histórico de versões
-    ├── README_MIGRATIONS.md        # Guia de migrações
+└── doc/                     # Documentacao completa
+    ├── README_PRINCIPAL.md  # Este arquivo
+    ├── MIGRACAO_CONSINCO.md # Guia de migracao (legado)
+    ├── CHANGELOG.md         # Historico de versoes
+    ├── README_MIGRATIONS.md # Guia de migracoes (legado)
+    ├── GUIA_LIMPEZA_BD.md   # Limpeza do banco
+    └── COMO_OBTER_DATABASE_URL.md
 ```
 
----
+## Funcionalidades principais
 
-## 🚀 Funcionalidades Principais (v2.0.0)
-
-### 🔍 Consulta de Mix de Produtos
-- Busca por código Consinco
-- Busca por descrição
+### Consulta de mix de produtos
+- Busca por codigo Consinco e descricao
 - Filtros por embalagem e status
-- Exportação para CSV
-- Visualização de produtos ativos e suspensos
+- Exportacao para CSV
 
-### 📦 Sistema de Pedidos
-- Pedidos por código (CD)
-- Scanner de código de barras (mobile)
-- Aprovação de pedidos (admin)
-- Controle por loja
+### Sistema de pedidos
+- Pedido por codigo (CD)
+- Pedido de consumo
+- Aprovacao de pedidos (admin)
+- Controle por lojas
 
-### 👥 Gestão de Usuários
-- Múltiplos perfis (user, admin)
+### Gestao de usuarios
+- Perfis: user e admin
+- Cargo do usuario
 - Controle de acesso por loja
 - Status online em tempo real
 - Sistema de chamados/suporte
 
-### 🗄️ Dados
-- Base Consinco: 36.063 produtos
+### Area de fornecedores
+- Login separado para fornecedor/promotor
+- Pagina inicial e contato/suporte
+- Administracao de fornecedores (admin_fornecedor)
+
+### Dados
+- Base Consinco em bdados/con5cod.parquet
 - Colunas: cod_consinco, descricao, transicao, Mix, Emb
-- Arquivo: `bdados/con5cod.parquet`
 
----
+## Comandos uteis
 
-## 🔧 Comandos Úteis
-
-### Executar a aplicação:
+### Executar a aplicacao
 ```bash
 streamlit run main.py
 ```
 
-### Testes automatizados:
+### Testes automatizados
 ```bash
 python3 scripts/smoke_test.py
 ```
 
-### Verificar dados:
+### Verificar dados
 ```bash
 python3 -c "import pandas as pd; df = pd.read_parquet('bdados/con5cod.parquet'); print(df.info())"
 ```
 
----
+## Documentacao adicional
 
-## 📚 Documentação Adicional
+- [CHANGELOG.md](CHANGELOG.md) - Historico de versoes
+- [MIGRACAO_CONSINCO.md](MIGRACAO_CONSINCO.md) - Guia de migracao (legado)
+- [README_MIGRATIONS.md](README_MIGRATIONS.md) - Migrações (legado)
+- [GUIA_LIMPEZA_BD.md](GUIA_LIMPEZA_BD.md) - Limpeza do banco
+- [COMO_OBTER_DATABASE_URL.md](COMO_OBTER_DATABASE_URL.md) - Configuracao do banco
 
-- [CHANGELOG.md](CHANGELOG.md) - Histórico de versões
-- [MIGRACAO_CONSINCO.md](MIGRACAO_CONSINCO.md) - Guia de migração para v2.0
-- [ESTRUTURA_ATUALIZADA.md](ESTRUTURA_ATUALIZADA.md) - Estrutura detalhada
-- [README_MIGRATIONS.md](README_MIGRATIONS.md) - Guia de migrações de BD
-- [COMO_OBTER_DATABASE_URL.md](COMO_OBTER_DATABASE_URL.md) - Configuração do banco
-
----
-
-## ⚠️ Funcionalidades Descontinuadas
-
-As seguintes funcionalidades foram removidas na v2.0.0:
-- ❌ Sistema de ofertas (upload_ofertas, ver_ofertas)
-- ❌ Dashboard online
-- ❌ Gestão de promoções (legado)
-- ❌ Consulta antiga de estoque (consulta_cd)
-
----
-
-## 🔄 Migrações (Legado)
-
-Os scripts de migração estão mantidos para referência histórica mas não são mais necessários para a operação atual do sistema.
-
-Para informações sobre migrações antigas, consulte [README_MIGRATIONS.md](README_MIGRATIONS.md).
-
----
-
-**Versão:** 2.0.0  
-**Última Atualização:** 02/02/2026
+**Versao:** 2.0.0
+**Ultima atualizacao:** 17/02/2026

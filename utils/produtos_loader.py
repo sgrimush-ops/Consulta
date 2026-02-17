@@ -46,6 +46,37 @@ def load_produtos_merged(engine):
     if os.path.exists(parquet_path):
         try:
             df_parquet = pd.read_parquet(parquet_path)
+            
+            # Mapear colunas novas
+            column_mapping = {
+                'codigoconsinco': 'cod_consinco',
+                'Código Produto': 'cod_consinco',
+                'codigo transicao': 'transicao',
+                'CODACESSO': 'transicao',
+                'Empresa : Produto': 'descricao',
+                'embalagem': 'Emb',
+                'EmbSeparacao': 'Emb',
+                'ltmix': 'Mix',
+                'capacidade': 'CapacidadeGondola',
+                'CapacidadeGondola': 'CapacidadeGondola'
+            }
+            
+            df_parquet.rename(columns=column_mapping, inplace=True)
+            
+            # Garantir colunas essenciais
+            if 'cod_consinco' not in df_parquet.columns:
+                raise ValueError("Coluna 'cod_consinco' não encontrada no parquet")
+            if 'descricao' not in df_parquet.columns:
+                df_parquet['descricao'] = 'SEM DESCRIÇÃO'
+            if 'transicao' not in df_parquet.columns:
+                df_parquet['transicao'] = 0
+            if 'Emb' not in df_parquet.columns:
+                df_parquet['Emb'] = 1
+            if 'Mix' not in df_parquet.columns:
+                df_parquet['Mix'] = 'A'
+            if 'CapacidadeGondola' not in df_parquet.columns:
+                df_parquet['CapacidadeGondola'] = 0
+            
             df_parquet['cod_consinco'] = df_parquet['cod_consinco'].astype(int)
             df_parquet['origem'] = 'Parquet'
             
@@ -103,6 +134,24 @@ def get_produto_info(engine, cod_consinco):
     if os.path.exists(parquet_path):
         try:
             df = pd.read_parquet(parquet_path)
+            
+            # Mapear colunas novas
+            column_mapping = {
+                'codigoconsinco': 'cod_consinco',
+                'Código Produto': 'cod_consinco',
+                'codigo transicao': 'transicao',
+                'CODACESSO': 'transicao',
+                'Empresa : Produto': 'descricao',
+                'embalagem': 'Emb',
+                'EmbSeparacao': 'Emb',
+                'ltmix': 'Mix'
+            }
+            
+            df.rename(columns=column_mapping, inplace=True)
+            
+            if 'cod_consinco' not in df.columns:
+                return None
+            
             resultado = df[df['cod_consinco'] == int(cod_consinco)]
             
             if not resultado.empty:

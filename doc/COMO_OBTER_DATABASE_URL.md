@@ -1,6 +1,6 @@
 # 🔧 Como Obter a DATABASE_URL
 
-Para executar o script de correção, você precisa da string de conexão do banco de dados PostgreSQL.
+Para executar as ferramentas de manutencao, voce precisa da string de conexao do banco de dados PostgreSQL.
 
 ## 📍 Onde Encontrar a DATABASE_URL
 
@@ -27,7 +27,7 @@ Procure por "Connection String" ou "Database URL" no painel de controle.
 
 ```bash
 export DATABASE_URL='postgresql://usuario:senha@host:porta/banco'
-python3 diagnose_ofertas.py
+python3 tools/cleanup_database_v2.py --dry-run
 ```
 
 **Exemplo real:**
@@ -47,20 +47,15 @@ EOF
 # Carregue as variáveis
 export $(cat .env | xargs)
 
-# Execute o script
-python3 diagnose_ofertas.py
+# Execute a ferramenta
+python3 tools/verify_produtos_integrity.py
 ```
 
-### Opção 3: Usar o script interativo
+### Opção 3: Usar outra ferramenta
 
 ```bash
-python3 find_and_fix_db.py
+python3 tools/cleanup_pedidos_antigos.py --dry-run
 ```
-
-Este script irá:
-- ✓ Procurar DATABASE_URL automaticamente
-- ✓ Solicitar que você forneça se não encontrar
-- ✓ Executar a correção automaticamente
 
 ---
 
@@ -115,18 +110,18 @@ postgresql://postgres:minha_senha_123@localhost:5432/baklizi
 
 Depois de obter a DATABASE_URL:
 
-1. **Execute o diagnóstico:**
+1. **Execute uma manutencao em dry-run:**
    ```bash
    export DATABASE_URL='sua_url_aqui'
-   python3 diagnose_ofertas.py
+   python3 tools/cleanup_database_v2.py --dry-run
    ```
 
-2. **Ou use o script interativo:**
+2. **Execute uma verificacao de dados:**
    ```bash
-   python3 find_and_fix_db.py
+   python3 tools/verify_produtos_integrity.py
    ```
 
-3. **Verifique os resultados** e confirme que a migração foi aplicada
+3. **Verifique os resultados** e confirme que a operacao foi aplicada
 
 ---
 

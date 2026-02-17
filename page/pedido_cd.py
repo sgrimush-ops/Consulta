@@ -81,6 +81,37 @@ def load_products_from_parquet(engine=None):
     
     try:
         df = pd.read_parquet(parquet_path)
+        
+        # Mapear colunas novas para nomes esperados
+        column_mapping = {
+            'codigoconsinco': 'cod_consinco',
+            'Código Produto': 'cod_consinco',
+            'codigo transicao': 'transicao',
+            'CODACESSO': 'transicao',
+            'Empresa : Produto': 'descricao',
+            'embalagem': 'Emb',
+            'EmbSeparacao': 'Emb',
+            'ltmix': 'Mix',
+            'capacidade': 'CapacidadeGondola',
+            'CapacidadeGondola': 'CapacidadeGondola'
+        }
+        
+        df.rename(columns=column_mapping, inplace=True)
+        
+        # Garantir colunas essenciais com valores padrao se ausentes
+        if 'cod_consinco' not in df.columns:
+            raise ValueError("Coluna 'cod_consinco' ou 'Código Produto' não encontrada no arquivo")
+        if 'descricao' not in df.columns:
+            df['descricao'] = 'SEM DESCRIÇÃO'
+        if 'transicao' not in df.columns:
+            df['transicao'] = 0
+        if 'Emb' not in df.columns:
+            df['Emb'] = 1
+        if 'Mix' not in df.columns:
+            df['Mix'] = 'A'
+        if 'CapacidadeGondola' not in df.columns:
+            df['CapacidadeGondola'] = 0
+        
         # Garantir que cod_consinco é inteiro
         df['cod_consinco'] = df['cod_consinco'].astype(int)
         
@@ -153,6 +184,30 @@ def save_pedido_consolidado(engine, df_pedido):
     except Exception as e:
         st.error(f"Erro ao salvar pedido: {e}")
         return False
+
+
+def get_orders_history_30d_cd(engine, username):
+    """Retorna historico de pedidos CD dos ultimos 30 dias."""
+    query = text(
+        """
+        SELECT
+            id,
+            codigo_interno,
+            descricao,
+            embseparacao,
+            total_cx,
+            TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido,
+            status_aprovacao,
+            COALESCE(origem_pedido, 'Pedido por Código (CD)') AS origem_pedido
+        FROM pedidos_consolidados
+        WHERE usuario_pedido = :username
+          AND data_pedido >= NOW() - INTERVAL '30 days'
+          AND COALESCE(origem_pedido, 'Pedido por Código (CD)') = 'Pedido por Código (CD)'
+        ORDER BY data_pedido DESC
+        """
+    )
+    with engine.connect() as conn:
+        return pd.read_sql(query, conn, params={"username": username})
 
 
 # --- Página Principal ---
@@ -387,6 +442,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 "status_item": ["Pendente"],
                 "status_aprovacao": ["Pendente"],
                 "total_cx": [total_cx],
+                "origem_pedido": ["Pedido por Código (CD)"],
             }
             
             # Adicionar quantidades por loja
@@ -515,3 +571,20 @@ def show_pedidos_cd_page(engine, base_data_path):
                         st.error(f"Não foi possível enviar o chamado: {message}")
                 else:
                     st.warning("Por favor, digite uma mensagem antes de enviar.")
+
+    # --- Historico de Pedidos ---
+    st.markdown("---")
+    st.subheader("📋 Histórico de Pedidos (Últimos 30 dias)")
+    username = st.session_state.get("username", "unknown")
+    try:
+        df_historico = get_orders_history_30d_cd(engine, username)
+        if not df_historico.empty:
+            st.info(
+                f"Você tem {len(df_historico)} pedido(s) registrados "
+                "nos últimos 30 dias."
+            )
+            st.dataframe(df_historico, hide_index=True, use_container_width=True)
+        else:
+            st.info("Você não tem histórico de pedidos nos últimos 30 dias.")
+    except Exception as e:
+        st.error(f"Erro ao buscar histórico de pedidos: {e}")
