@@ -63,7 +63,7 @@ def load_products_from_parquet():
             df['Mix'] = 'A'
         if 'CapacidadeGondola' not in df.columns:
             df['CapacidadeGondola'] = 0
-                df['cod_consinco'] = df['cod_consinco'].astype(int)
+        df['cod_consinco'] = df['cod_consinco'].astype(int)
         return df
     except Exception:
         return pd.DataFrame()
