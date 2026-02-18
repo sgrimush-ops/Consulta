@@ -35,8 +35,10 @@ ProjetoBak/
 │
 ├── tools/                   # Ferramentas de manutencao
 │   ├── cleanup_database_v2.py
-│   ├── cleanup_pedidos_antigos.py
-│   └── verify_produtos_integrity.py
+│   └── cleanup_pedidos_antigos.py
+│
+├── utils/                   # Utilitarios compartilhados
+│   └── timezone.py           # Relogio padrao de Brasilia
 │
 └── doc/                     # Documentacao completa
     ├── README_PRINCIPAL.md  # Este arquivo
@@ -101,5 +103,5 @@ python3 -c "import pandas as pd; df = pd.read_parquet('bdados/con5cod.parquet');
 - [GUIA_LIMPEZA_BD.md](GUIA_LIMPEZA_BD.md) - Limpeza do banco
 - [COMO_OBTER_DATABASE_URL.md](COMO_OBTER_DATABASE_URL.md) - Configuracao do banco
 
-**Versao:** 2.0.0
-**Ultima atualizacao:** 17/02/2026
+**Versao:** 2.0.2
+**Ultima atualizacao:** 18/02/2026

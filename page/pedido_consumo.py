@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text, inspect
 import os
-from datetime import datetime
+from utils.timezone import now_brazil
 
 
 # --- Funções de Chamado ---
@@ -10,7 +10,7 @@ from datetime import datetime
 
 def create_new_ticket(engine, username, assunto, mensagem):
     """Cria um novo ticket e a primeira mensagem."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:
             query_ticket = text(
@@ -241,7 +241,9 @@ def get_last_item_order_30d(engine, username, codigo_produto):
             FROM pedidos_consolidados
             WHERE usuario_pedido = :username
               AND codigo_interno = :codigo
-              AND data_pedido >= NOW() - INTERVAL '30 days'
+                            AND data_pedido >= (
+                                    CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+                            ) - INTERVAL '30 days'
             ORDER BY data_pedido DESC
             LIMIT 1
             """
@@ -278,7 +280,9 @@ def get_orders_history_30d(engine, username):
             status_aprovacao
         FROM pedidos_consolidados
         WHERE usuario_pedido = :username
-          AND data_pedido >= NOW() - INTERVAL '30 days'
+                    AND data_pedido >= (
+                            CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+                    ) - INTERVAL '30 days'
         ORDER BY data_pedido DESC
         LIMIT 200
         """
@@ -504,7 +508,7 @@ def show_pedido_consumo_page(engine, base_data_path):
                                 "codigo_ean": "",
                                 "origem_pedido": "Pedido de Consumo",
                                 "embseparacao": int(row["Emb"]),
-                                "data_pedido": datetime.now(),
+                                "data_pedido": now_brazil(),
                                 "usuario_pedido": username,
                                 "status_item": "Pendente",
                                 "status_aprovacao": "Pendente",
@@ -744,7 +748,7 @@ def show_pedido_consumo_page(engine, base_data_path):
                 "codigo_ean": [item["descricao_consinco"]],
                 "origem_pedido": ["Pedido de Consumo"],
                 "embseparacao": [int(item["Emb"])],
-                "data_pedido": [datetime.now()],
+                "data_pedido": [now_brazil()],
                 "usuario_pedido": [
                     st.session_state.get("username", "unknown")
                 ],

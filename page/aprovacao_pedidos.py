@@ -4,6 +4,7 @@ import os
 from sqlalchemy import text
 from datetime import datetime, timedelta, date
 import io
+from utils.timezone import now_brazil, today_brazil
 
 # --- Configurações ---
 LISTA_LOJAS = [
@@ -18,7 +19,12 @@ COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
 
 def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
     """Formata tipos de dados e corrige valores numéricos."""
-    int_cols = COLUNAS_LOJAS_PEDIDO + ["total_cx", "embseparacao", "codigo_interno"]
+    int_cols = COLUNAS_LOJAS_PEDIDO + [
+        "total_cx",
+        "embseparacao",
+        "embalagem",
+        "codigo_interno",
+    ]
     
     for col in int_cols:
         if col in df.columns:
@@ -152,7 +158,7 @@ def get_pedidos_para_aprovacao(
 def update_pedidos_aprovados(engine, df_editado_selecionado):
     """Atualiza o banco com quantidades editadas e aprova os itens."""
     try:
-        data_aprovacao_dt = datetime.now()
+        data_aprovacao_dt = now_brazil()
         set_lojas_sql = ", ".join([f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
         
         query = text(
@@ -195,7 +201,7 @@ def reprovar_pedidos(engine, ids_list):
         )
         
         with engine.begin() as conn:
-            conn.execute(query, {"ids": ids_list, "data_aprovacao": datetime.now()})
+            conn.execute(query, {"ids": ids_list, "data_aprovacao": now_brazil()})
         
         return True
     except Exception as e:
@@ -222,14 +228,14 @@ def show_aprovacao_page(engine, base_data_path):
     with col1:
         date_start = st.date_input(
             "Data Início:",
-            value=date.today() - timedelta(days=7),
+            value=today_brazil() - timedelta(days=7),
             key="date_start_aprov"
         )
     
     with col2:
         date_end = st.date_input(
             "Data Fim:",
-            value=date.today(),
+            value=today_brazil(),
             key="date_end_aprov"
         )
     
@@ -417,7 +423,7 @@ def show_aprovacao_page(engine, base_data_path):
                 st.download_button(
                     label="📥 Baixar Pedidos Aprovados (Excel)",
                     data=output,
-                    file_name=f"pedidos_aprovados_{date.today().strftime('%Y%m%d')}.xlsx",
+                    file_name=f"pedidos_aprovados_{today_brazil().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:

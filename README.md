@@ -50,6 +50,11 @@ ProjetoBak/
 - Administracao de usuarios (roles user/admin, cargo, lojas)
 - Admin Uploads
 
+### Padrao de data/hora (Brasilia)
+- Gravacoes de data/hora do sistema seguem `America/Sao_Paulo`
+- Conexoes com Postgres configuram timezone de sessao para Brasilia
+- Consultas de janela temporal (ex.: ultimos 30 dias) usam referencia BRT
+
 ### Fornecedor/Promotor
 - Pagina inicial do fornecedor
 - Contato / suporte

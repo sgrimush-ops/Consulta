@@ -1,7 +1,7 @@
 import streamlit as st
 from sqlalchemy import text
-from datetime import datetime
 import pandas as pd
+from utils.timezone import now_brazil
 
 
 # =========================================================
@@ -24,7 +24,7 @@ def get_fornecedor_tickets(engine, username):
 
 def create_fornecedor_ticket(engine, username, assunto, mensagem):
     """Cria um novo ticket para fornecedor."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:
             # 1. Cria o chamado
@@ -83,7 +83,7 @@ def get_ticket_messages(engine, ticket_id):
 def add_message_to_ticket(engine, ticket_id, username, mensagem,
                           new_status):
     """Adiciona uma nova mensagem e atualiza o status do ticket."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:
             # 1. Adiciona a mensagem

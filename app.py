@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 import hashlib
-from datetime import datetime, date
 import json
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
+from utils.timezone import now_brazil
 
 # --- Importa as páginas ---
 from page.home import show_home_page
@@ -42,7 +42,19 @@ def get_engine():
         st.stop()
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-    return create_engine(db_url, connect_args={"sslmode": "require"}, pool_size=10, max_overflow=5)
+    db_engine = create_engine(
+        db_url,
+        connect_args={"sslmode": "require"},
+        pool_size=10,
+        max_overflow=5,
+    )
+
+    @event.listens_for(db_engine, "connect")
+    def _set_postgres_timezone(dbapi_connection, _connection_record):
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET TIME ZONE 'America/Sao_Paulo'")
+
+    return db_engine
 
 
 engine = get_engine()
@@ -84,7 +96,7 @@ def check_login_and_get_roles(engine, username, password):
 
 def update_user_status(username, status):
     try:
-        current_time = datetime.now()
+        current_time = now_brazil()
         query = text(
             "UPDATE users SET ultimo_acesso = :time, status_logado = :status WHERE username = :username")
         with engine.begin() as conn:
@@ -97,7 +109,7 @@ def update_user_status(username, status):
 def update_user_last_access(username):
     """Atualiza o último acesso do usuário sem mudar o status"""
     try:
-        current_time = datetime.now()
+        current_time = now_brazil()
         query = text(
             "UPDATE users SET ultimo_acesso = :time "
             "WHERE username = :username")
@@ -117,7 +129,9 @@ def cleanup_inactive_users():
             UPDATE users
             SET status_logado = 'DESLOGADO'
             WHERE status_logado = 'LOGADO'
-            AND ultimo_acesso < NOW() - INTERVAL '30 seconds'
+            AND ultimo_acesso < (
+                CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+            ) - INTERVAL '30 seconds'
         """)
         with engine.begin() as conn:
             conn.execute(query)
@@ -130,7 +144,9 @@ def cleanup_old_pedidos():
     try:
         query = text("""
             DELETE FROM pedidos_consolidados
-            WHERE data_pedido < NOW() - INTERVAL '30 days'
+            WHERE data_pedido < (
+                CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+            ) - INTERVAL '30 days'
         """)
         with engine.begin() as conn:
             conn.execute(query)

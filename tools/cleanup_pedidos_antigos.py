@@ -10,9 +10,9 @@ Uso:
 
 import os
 import sys
-from datetime import datetime, date
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 import argparse
+from utils.timezone import now_brazil, today_brazil
 
 
 def get_engine():
@@ -29,10 +29,15 @@ def get_engine():
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     
     try:
-        return create_engine(
+        engine = create_engine(
             db_url,
             connect_args={"sslmode": "require"}
         )
+        @event.listens_for(engine, "connect")
+        def _set_postgres_timezone(dbapi_connection, _connection_record):
+            with dbapi_connection.cursor() as cursor:
+                cursor.execute("SET TIME ZONE 'America/Sao_Paulo'")
+        return engine
     except Exception as e:
         print(f"❌ Erro ao conectar ao banco: {e}")
         sys.exit(1)
@@ -43,7 +48,7 @@ def cleanup_pedidos_antigos(engine, dry_run=False):
     print("\n" + "=" * 70)
     print("🗑️  LIMPEZA DE PEDIDOS DO SISTEMA ANTIGO")
     print("=" * 70)
-    print(f"\n📅 Data de referência: {date.today()}")
+    print(f"\n📅 Data de referência: {today_brazil()}")
     print("🎯 Alvo: TODOS os pedidos anteriores a hoje")
     
     if dry_run:
@@ -56,7 +61,9 @@ def cleanup_pedidos_antigos(engine, dry_run=False):
         count_query = text("""
             SELECT COUNT(*) 
             FROM pedidos_consolidados
-            WHERE CAST(data_pedido AS DATE) < CURRENT_DATE
+            WHERE CAST(data_pedido AS DATE) < (
+                CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+            )::date
         """)
         
         total_antigos = conn.execute(count_query).scalar()
@@ -78,7 +85,9 @@ def cleanup_pedidos_antigos(engine, dry_run=False):
                 COUNT(CASE WHEN status_aprovacao = 'Pendente' THEN 1 END) as total_pendentes,
                 COUNT(CASE WHEN status_aprovacao IN ('Reprovado', 'Rejeitado') THEN 1 END) as total_rejeitados
             FROM pedidos_consolidados
-            WHERE CAST(data_pedido AS DATE) < CURRENT_DATE
+            WHERE CAST(data_pedido AS DATE) < (
+                CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+            )::date
         """)
         
         result = conn.execute(detail_query).fetchone()
@@ -107,7 +116,9 @@ def cleanup_pedidos_antigos(engine, dry_run=False):
             
             delete_query = text("""
                 DELETE FROM pedidos_consolidados
-                WHERE CAST(data_pedido AS DATE) < CURRENT_DATE
+                WHERE CAST(data_pedido AS DATE) < (
+                    CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+                )::date
             """)
             
             with engine.begin() as trans_conn:
@@ -149,7 +160,7 @@ def main():
     print("\n" + "=" * 70)
     print("🛠️  FERRAMENTA DE LIMPEZA DE PEDIDOS ANTIGOS")
     print("=" * 70)
-    print(f"\n📅 Executado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    print(f"\n📅 Executado em: {now_brazil().strftime('%d/%m/%Y %H:%M:%S')}")
     
     engine = get_engine()
     
@@ -160,8 +171,6 @@ def main():
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Erro durante a execução: {e}")
-        import traceback
-        traceback.print_exc()
         sys.exit(1)
 
 

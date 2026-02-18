@@ -1,5 +1,5 @@
 import streamlit as st
-from sqlalchemy import text, create_engine
+from sqlalchemy import text, create_engine, event
 import hashlib
 import json
 import os
@@ -25,12 +25,19 @@ def get_main_engine():
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
     try:
-        return create_engine(
+        db_engine = create_engine(
             db_url,
             connect_args={"sslmode": "require"},
             pool_size=5,
             max_overflow=2
         )
+
+        @event.listens_for(db_engine, "connect")
+        def _set_postgres_timezone(dbapi_connection, _connection_record):
+            with dbapi_connection.cursor() as cursor:
+                cursor.execute("SET TIME ZONE 'America/Sao_Paulo'")
+
+        return db_engine
     except Exception as e:
         st.error(f"Erro ao criar conexão com BD: {e}")
         st.stop()
@@ -61,9 +68,7 @@ def check_fornecedor_login(engine, username, password):
             if check_hashes_fornecedor(password, hashed_password):
                 return True, role
     except Exception as e:
-        # Mostra o erro específico para debug
         st.error(f"Erro ao verificar credenciais: {str(e)}")
-        st.exception(e)
     return False, None
 
 

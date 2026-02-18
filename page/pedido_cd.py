@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 import os
 from sqlalchemy import text
-from datetime import datetime, date
+from utils.timezone import now_brazil
 
 # --- Funções de Chamado ---
 
 
 def create_new_ticket(engine, username, assunto, mensagem):
     """Cria um novo ticket e a primeira mensagem."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:
             query_ticket = text(
@@ -201,7 +201,9 @@ def get_orders_history_30d_cd(engine, username):
             COALESCE(origem_pedido, 'Pedido por Código (CD)') AS origem_pedido
         FROM pedidos_consolidados
         WHERE usuario_pedido = :username
-          AND data_pedido >= NOW() - INTERVAL '30 days'
+                    AND data_pedido >= (
+                            CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+                    ) - INTERVAL '30 days'
           AND COALESCE(origem_pedido, 'Pedido por Código (CD)') = 'Pedido por Código (CD)'
         ORDER BY data_pedido DESC
         """
@@ -437,7 +439,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 "descricao": [item['descricao']],
                 "ean": [item['transicao']],  # Usando transição como referência
                 "embseparacao": [int(item['Emb'])],
-                "data_pedido": [datetime.now()],
+                "data_pedido": [now_brazil()],
                 "usuario_pedido": [st.session_state.get("username", "unknown")],
                 "status_item": ["Pendente"],
                 "status_aprovacao": ["Pendente"],

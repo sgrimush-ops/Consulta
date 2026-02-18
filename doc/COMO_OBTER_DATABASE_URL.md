@@ -33,7 +33,7 @@ python3 tools/cleanup_database_v2.py --dry-run
 **Exemplo real:**
 ```bash
 export DATABASE_URL='postgresql://baklizi_user:abc123@dpg-xyz.oregon-postgres.render.com:5432/baklizi_db'
-python3 diagnose_ofertas.py
+python3 tools/cleanup_database_v2.py --dry-run
 ```
 
 ### Opção 2: Criar arquivo .env (Recomendado para desenvolvimento)
@@ -48,7 +48,7 @@ EOF
 export $(cat .env | xargs)
 
 # Execute a ferramenta
-python3 tools/verify_produtos_integrity.py
+python3 tools/cleanup_pedidos_antigos.py --dry-run
 ```
 
 ### Opção 3: Usar outra ferramenta
@@ -116,9 +116,9 @@ Depois de obter a DATABASE_URL:
    python3 tools/cleanup_database_v2.py --dry-run
    ```
 
-2. **Execute uma verificacao de dados:**
+2. **Execute limpeza controlada de pedidos antigos:**
    ```bash
-   python3 tools/verify_produtos_integrity.py
+   python3 tools/cleanup_pedidos_antigos.py --dry-run
    ```
 
 3. **Verifique os resultados** e confirme que a operacao foi aplicada

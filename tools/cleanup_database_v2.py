@@ -15,9 +15,9 @@ Uso:
 
 import os
 import sys
-from datetime import datetime
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text, inspect, event
 import argparse
+from utils.timezone import now_brazil
 
 
 def create_backup(engine, backup_dir="backups"):
@@ -27,7 +27,7 @@ def create_backup(engine, backup_dir="backups"):
     # Criar diretório de backup se não existir
     os.makedirs(backup_dir, exist_ok=True)
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_brazil().strftime("%Y%m%d_%H%M%S")
     backup_file = f"{backup_dir}/backup_before_cleanup_{timestamp}.sql"
     
     print(f"\n📦 Criando backup em: {backup_file}")
@@ -252,6 +252,11 @@ def main():
     
     try:
         engine = create_engine(db_url, pool_pre_ping=True)
+
+        @event.listens_for(engine, "connect")
+        def _set_postgres_timezone(dbapi_connection, _connection_record):
+            with dbapi_connection.cursor() as cursor:
+                cursor.execute("SET TIME ZONE 'America/Sao_Paulo'")
         
         # Testar conexão
         with engine.connect() as conn:

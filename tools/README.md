@@ -39,16 +39,6 @@ python3 tools/cleanup_pedidos_antigos.py --dry-run
 
 ---
 
-### verify_produtos_integrity.py
-Verificacao de integridade dos dados de produtos.
-
-Uso:
-```bash
-python3 tools/verify_produtos_integrity.py
-```
-
----
-
 ## Diretorio de backups
 
 ### backups/
@@ -102,5 +92,5 @@ Para problemas ou duvidas sobre as ferramentas:
 
 ---
 
-**Versao das ferramentas:** 2.0.0  
-**Ultima atualizacao:** 17/02/2026
+**Versao das ferramentas:** 2.0.2  
+**Ultima atualizacao:** 18/02/2026

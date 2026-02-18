@@ -2,7 +2,7 @@ import streamlit as st
 # MUDANÇA: Removido sqlite3
 from sqlalchemy import text  # MUDANÇA: Adicionado import text
 import pandas as pd
-from datetime import datetime
+from utils.timezone import now_brazil
 
 # MUDANÇA: Removido DB_PATH
 REFRESH_INTERVAL_MS = 5000  # auto refresh every 5s
@@ -26,7 +26,7 @@ def get_user_status_df(engine):
     if df_users.empty:
         return pd.DataFrame()
 
-    agora = pd.to_datetime(datetime.now())
+    agora = pd.to_datetime(now_brazil())
 
     # 1. Converte datas (coerce mantém seguro)
     df_users['ultimo_acesso_dt'] = pd.to_datetime(

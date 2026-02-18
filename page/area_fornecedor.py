@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
-from datetime import datetime
+from utils.timezone import now_brazil
 from page import (
     resolve_mix_codigo_col,
     resolve_mix_descricao_col,
@@ -21,7 +21,7 @@ ITEMS_PER_PAGE = 30
 
 def create_fornecedor_ticket(engine, username, assunto, mensagem):
     """Cria um novo ticket de fornecedor."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:
             query_ticket = text("""
@@ -489,7 +489,7 @@ def show_area_fornecedor():
                             "embalagem": produto["embalagem"],
                             f"loja_{loja}": qtd,
                             "total_cx": qtd,
-                            "data_pedido": datetime.now(),
+                            "data_pedido": now_brazil(),
                             "usuario_pedido": username,
                             "status_aprovacao": "Pendente",
                             "status_item": "Ativo",

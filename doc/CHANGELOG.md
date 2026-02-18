@@ -1,5 +1,41 @@
 # Histórico de Atualizações - ProjetoBak
 
+## 📅 18/02/2026 - Versão 2.0.2 - LIMPEZA DE RECURSOS OBSOLETOS
+
+### 🧹 Remoções
+- ❌ Removidos scripts obsoletos de verificação:
+  - `tools/verify_produtos_integrity.py`
+  - `tools/verify_brt_timestamps.py`
+- ❌ Removida exposição detalhada de stack trace no login de fornecedor (`main.py`)
+
+### 📝 Documentação atualizada
+- `README.md`
+- `doc/README_PRINCIPAL.md`
+- `tools/README.md`
+- `doc/COMO_OBTER_DATABASE_URL.md`
+
+## 📅 18/02/2026 - Versão 2.0.1 - PADRONIZAÇÃO DE HORÁRIO (BRT)
+
+### 🕒 Correção de timezone
+- Padronização de gravações de data/hora para `America/Sao_Paulo`
+- Ajuste de telas de pedidos, aprovação, contato e status para usar horário de Brasília
+- Ajuste de consultas temporais (ex.: últimos 30 dias) com referência explícita em BRT
+
+### 🗄️ Banco de dados
+- Conexões do sistema e scripts agora configuram timezone da sessão PostgreSQL para `America/Sao_Paulo`
+- Redução de divergências entre horário exibido e horário gravado
+
+### 🧪 Nova ferramenta de homologação
+- ✅ `tools/verify_brt_timestamps.py`
+  - Verifica timezone da sessão
+  - Compara relógio do banco com referência Brasília
+  - Inspeciona últimos timestamps em tabelas críticas
+
+### 📝 Documentação atualizada
+- `README.md`
+- `doc/README_PRINCIPAL.md`
+- `tools/README.md`
+
 ## 📅 02/02/2026 - Versão 2.0.0 - REESTRUTURAÇÃO COMPLETA
 
 ### 🔄 MUDANÇAS CRÍTICAS - BREAKING CHANGES

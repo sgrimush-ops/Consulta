@@ -1,7 +1,7 @@
 import streamlit as st
 from sqlalchemy import text
-from datetime import datetime
 import pandas as pd  # <--- ESTA LINHA ESTAVA FALTANDO NO SEU DEPLOY
+from utils.timezone import now_brazil
 
 # =========================================================
 # FUNÇÕES DE BANCO DE DADOS (Específicas do Contato)
@@ -39,7 +39,7 @@ def get_admin_tickets(engine):
 
 def create_new_ticket(engine, username, assunto, mensagem):
     """Cria um novo ticket e a primeira mensagem."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:  # Inicia uma transação
             # 1. Cria o chamado
@@ -83,7 +83,7 @@ def get_ticket_messages(engine, ticket_id):
 
 def add_message_to_ticket(engine, ticket_id, username, mensagem, new_status):
     """Adiciona uma nova mensagem e atualiza o status do ticket."""
-    now = datetime.now()
+    now = now_brazil()
     try:
         with engine.begin() as conn:
             # 1. Adiciona a mensagem

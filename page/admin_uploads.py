@@ -84,13 +84,14 @@ def validate_con5cod_schema(df):
     return True, msg, colunas_mapeadas
 
 
-def show_admin_uploads_page():
+def show_admin_uploads_page(engine=None):
     """
     Cria a interface para upload dos arquivos
     con5cod.parquet e consumo.parquet.
     """
-    from app import get_engine
-    engine = get_engine()
+    if engine is None:
+        from app import get_engine
+        engine = get_engine()
     
     st.title("⚙️ Administração de Uploads de Base")
     st.markdown(
