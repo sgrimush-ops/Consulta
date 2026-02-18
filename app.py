@@ -17,6 +17,7 @@ from page.contato import show_contato_page
 from page.admin_uploads import show_admin_uploads_page
 from page.pedido_cd import show_pedidos_cd_page
 from page.pedido_consumo import show_pedido_consumo_page
+from page.solicitacao_acesso import show_solicitacao_acesso_page
 
 # =========================================================
 # CONFIGURAÇÕES INICIAIS
@@ -207,6 +208,22 @@ def create_db_tables(engine):
             """))
 
             conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS solicitacoes_acesso (
+                    id SERIAL PRIMARY KEY,
+                    nome TEXT NOT NULL,
+                    cargo TEXT,
+                    loja TEXT NOT NULL,
+                    senha_sugerida TEXT NOT NULL,
+                    username_sugerido TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'Pendente',
+                    data_solicitacao TIMESTAMP NOT NULL,
+                    data_analise TIMESTAMP,
+                    admin_analise TEXT,
+                    observacao TEXT
+                )
+            """))
+
+            conn.execute(text("""
                 ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS cargo TEXT
             """))
@@ -279,6 +296,25 @@ def create_db_tables(engine):
 
 def login_page(engine):
     st.title("🔐 Login do Sistema")
+
+    st.markdown("### Primeiro acesso?")
+    st.caption(
+        "Se você ainda não possui usuário, envie uma solicitação de acesso "
+        "para aprovação do administrador."
+    )
+    if st.button("📝 Solicitar Novo Acesso"):
+        st.session_state["show_access_request_page"] = True
+        st.rerun()
+
+    if st.session_state.get("show_access_request_page", False):
+        st.markdown("---")
+        show_solicitacao_acesso_page(engine, BASE_DATA_PATH)
+        if st.button("← Voltar para Login"):
+            st.session_state["show_access_request_page"] = False
+            st.rerun()
+        st.stop()
+
+    st.markdown("---")
     username = st.text_input("Usuário:").lower()
     senha = st.text_input("Senha:", type="password")
 
@@ -343,6 +379,7 @@ def main_app():
         "Consulta de Mix": lambda: show_consulta_mix_page(engine, BASE_DATA_PATH),
         "Alterar Senha": lambda: show_mudar_senha_page(engine, BASE_DATA_PATH),
         "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH),
+        "Solicitar Acesso": lambda: show_solicitacao_acesso_page(engine, BASE_DATA_PATH),
     }
 
     if st.session_state.get("lojas_acesso"):

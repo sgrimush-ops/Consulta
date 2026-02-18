@@ -3,7 +3,8 @@ from sqlalchemy import text
 import pandas as pd
 import hashlib
 import json
-from datetime import datetime
+import re
+from utils.timezone import now_brazil
 
 # --- Configurações Globais ---
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "017", "018"]
@@ -138,6 +139,156 @@ def update_user_password(engine, username, new_password):
         st.error(f"Erro ao alterar senha: {e}")
         return False
 
+
+def _normalize_username_from_nome(nome: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]", "", str(nome).lower())
+    return normalized[:30]
+
+
+def get_pending_access_requests(engine):
+    try:
+        query = text(
+            """
+            SELECT
+                id,
+                nome,
+                cargo,
+                loja,
+                senha_sugerida,
+                username_sugerido,
+                data_solicitacao
+            FROM solicitacoes_acesso
+            WHERE status = 'Pendente'
+            ORDER BY data_solicitacao ASC
+            """
+        )
+        df = pd.read_sql_query(query, con=engine)
+        if df.empty:
+            return df
+
+        df["cargo"] = df["cargo"].fillna("")
+        df["data_solicitacao"] = pd.to_datetime(
+            df["data_solicitacao"], errors="coerce"
+        ).dt.strftime("%d/%m/%Y %H:%M")
+
+        df.rename(
+            columns={
+                "id": "ID",
+                "nome": "Nome",
+                "cargo": "Cargo",
+                "loja": "Loja",
+                "senha_sugerida": "Senha Sugerida",
+                "username_sugerido": "Usuário Sugerido",
+                "data_solicitacao": "Data Solicitação",
+            },
+            inplace=True,
+        )
+        df["Aprovar"] = False
+        df["Reprovar"] = False
+        df["Tipo"] = "🟨 Solicitação"
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar solicitações: {e}")
+        return pd.DataFrame()
+
+
+def set_request_status(engine, request_id, status, admin_username, observacao=None):
+    query = text(
+        """
+        UPDATE solicitacoes_acesso
+        SET status = :status,
+            data_analise = :data_analise,
+            admin_analise = :admin,
+            observacao = :observacao
+        WHERE id = :id
+        """
+    )
+    with engine.begin() as conn:
+        conn.execute(
+            query,
+            {
+                "status": status,
+                "data_analise": now_brazil(),
+                "admin": admin_username,
+                "observacao": observacao,
+                "id": int(request_id),
+            },
+        )
+
+
+def process_access_requests(engine, df_requests, admin_username):
+    aprovados = 0
+    reprovados = 0
+    erros = []
+
+    for _, row in df_requests.iterrows():
+        request_id = row["ID"]
+        aprovar = bool(row.get("Aprovar", False))
+        reprovar = bool(row.get("Reprovar", False))
+
+        if not aprovar and not reprovar:
+            continue
+
+        if aprovar and reprovar:
+            erros.append(f"ID {request_id}: marque apenas Aprovar ou Reprovar.")
+            continue
+
+        if reprovar:
+            try:
+                set_request_status(
+                    engine,
+                    request_id,
+                    "Reprovado",
+                    admin_username,
+                    "Solicitação reprovada pelo administrador.",
+                )
+                reprovados += 1
+            except Exception as e:
+                erros.append(f"ID {request_id}: erro ao reprovar ({e}).")
+            continue
+
+        username = str(row.get("Usuário Sugerido", "")).strip().lower()
+        if not username:
+            username = _normalize_username_from_nome(str(row.get("Nome", "")))
+
+        if not username:
+            erros.append(f"ID {request_id}: usuário sugerido inválido.")
+            continue
+
+        senha_sugerida = str(row.get("Senha Sugerida", "")).strip()
+        cargo = str(row.get("Cargo", "")).strip()
+        loja = str(row.get("Loja", "")).strip()
+
+        if not senha_sugerida:
+            erros.append(f"ID {request_id}: senha sugerida vazia.")
+            continue
+
+        try:
+            if add_new_user(
+                engine,
+                username,
+                senha_sugerida,
+                "user",
+                cargo,
+                [loja] if loja else [],
+            ):
+                set_request_status(
+                    engine,
+                    request_id,
+                    "Aprovado",
+                    admin_username,
+                    f"Usuário criado: {username}",
+                )
+                aprovados += 1
+            else:
+                erros.append(
+                    f"ID {request_id}: não foi possível criar usuário '{username}'."
+                )
+        except Exception as e:
+            erros.append(f"ID {request_id}: erro na aprovação ({e}).")
+
+    return aprovados, reprovados, erros
+
 # --- Lógica de Exibição da Página ---
 
 def show_admin_page(engine, base_data_path):
@@ -174,7 +325,13 @@ def show_admin_page(engine, base_data_path):
     st.markdown("---")
 
     # 2. ABAS DE AÇÃO
-    tab1, tab2, tab3, tab4 = st.tabs(["Adicionar Usuário", "Gerenciar Acesso", "Alterar Senha", "Excluir Usuário"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Adicionar Usuário",
+        "Gerenciar Acesso",
+        "Alterar Senha",
+        "Excluir Usuário",
+        "Solicitações de Acesso",
+    ])
 
     # --- ABA 1: Adicionar Usuário ---
     with tab1:
@@ -322,3 +479,62 @@ def show_admin_page(engine, base_data_path):
                         st.rerun()
                     else:
                         st.error("Falha ao excluir usuário.")
+
+    with tab5:
+        st.subheader("Solicitações de Novo Acesso")
+        st.caption(
+            "Solicitações aparecem destacadas e podem ser aprovadas ou "
+            "reprovadas. Ao aprovar, o usuário é criado no sistema."
+        )
+
+        df_requests = get_pending_access_requests(engine)
+
+        if df_requests.empty:
+            st.info("Não há solicitações pendentes no momento.")
+        else:
+            df_requests_edit = st.data_editor(
+                df_requests,
+                hide_index=True,
+                use_container_width=True,
+                key="admin_requests_editor",
+                column_config={
+                    "ID": None,
+                    "Tipo": st.column_config.TextColumn(
+                        "Tipo",
+                        disabled=True,
+                        width="small",
+                    ),
+                    "Nome": st.column_config.TextColumn("Nome", disabled=True),
+                    "Cargo": st.column_config.TextColumn("Cargo"),
+                    "Loja": st.column_config.SelectboxColumn(
+                        "Loja",
+                        options=LISTA_LOJAS,
+                    ),
+                    "Senha Sugerida": st.column_config.TextColumn("Senha Sugerida"),
+                    "Usuário Sugerido": st.column_config.TextColumn("Usuário Sugerido"),
+                    "Data Solicitação": st.column_config.TextColumn(
+                        "Data Solicitação",
+                        disabled=True,
+                    ),
+                    "Aprovar": st.column_config.CheckboxColumn("Aprovar", default=False),
+                    "Reprovar": st.column_config.CheckboxColumn("Reprovar", default=False),
+                },
+            )
+
+            if st.button("Processar Solicitações", type="primary"):
+                admin_username = st.session_state.get("username", "admin")
+                aprovados, reprovados, erros = process_access_requests(
+                    engine,
+                    df_requests_edit,
+                    admin_username,
+                )
+
+                if aprovados:
+                    st.success(f"{aprovados} solicitação(ões) aprovada(s).")
+                if reprovados:
+                    st.warning(f"{reprovados} solicitação(ões) reprovada(s).")
+                if erros:
+                    for erro in erros:
+                        st.error(erro)
+                if aprovados or reprovados:
+                    st.rerun()
