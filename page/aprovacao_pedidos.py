@@ -9,7 +9,7 @@ from utils.timezone import now_brazil, today_brazil
 # --- Configurações ---
 LISTA_LOJAS = [
     "001", "002", "003", "004", "005", "006",
-    "007", "008", "011", "012", "013", "014", "017", "018"
+    "007", "008", "011", "012", "013", "014", "016", "017", "018"
 ]
 COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
 

@@ -210,6 +210,15 @@ def show_area_fornecedor():
     # Dados do fornecedor logado
     username = st.session_state.get("fornecedor_username", "")
     lojas_acesso = st.session_state.get("fornecedor_lojas_acesso", [])
+    lojas_acesso = [
+        (
+            str(loja).strip()[5:]
+            if str(loja).strip().lower().startswith("loja_")
+            else str(loja).strip()
+        )
+        for loja in lojas_acesso
+        if str(loja).strip()
+    ]
 
     # Buscar empresa do fornecedor no banco
     try:
@@ -502,7 +511,7 @@ def show_area_fornecedor():
                     LISTA_LOJAS = [
                         "001", "002", "003", "004", "005", "006",
                         "007", "008", "011", "012", "013", "014",
-                        "017", "018"
+                        "016", "017", "018"
                     ]
                     for loja in LISTA_LOJAS:
                         col_name = f"loja_{loja}"

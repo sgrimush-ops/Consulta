@@ -28,7 +28,7 @@ BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
 os.makedirs(BASE_DATA_PATH, exist_ok=True)
 
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
-               "007", "008", "011", "012", "013", "014", "017", "018"]
+               "007", "008", "011", "012", "013", "014", "016", "017", "018"]
 
 # =========================================================
 # CONEXÃO DE BANCO
@@ -74,6 +74,22 @@ def check_hashes(password, hashed_text):
     return make_hashes(password) == hashed_text
 
 
+def normalize_lojas_acesso(lojas_raw):
+    lojas_norm = []
+    for loja in lojas_raw or []:
+        loja_str = str(loja).strip()
+        if loja_str.lower().startswith("loja_"):
+            loja_str = loja_str[5:]
+
+        if loja_str.isdigit():
+            loja_str = loja_str.zfill(3)
+
+        if loja_str and loja_str not in lojas_norm:
+            lojas_norm.append(loja_str)
+
+    return lojas_norm
+
+
 def check_login_and_get_roles(engine, username, password):
     # A definição aqui está correta (3 argumentos)
     with engine.connect() as conn:
@@ -91,6 +107,7 @@ def check_login_and_get_roles(engine, username, password):
                     lojas = json.loads(lojas_acesso_json)
                 except json.JSONDecodeError:
                     lojas = []
+            lojas = normalize_lojas_acesso(lojas)
             return True, (role or "user"), lojas
     return False, "user", []
 
@@ -251,6 +268,12 @@ def create_db_tables(engine):
                 ALTER TABLE pedidos_consolidados
                 ADD COLUMN IF NOT EXISTS origem_pedido TEXT
             """))
+
+            for loja in LISTA_LOJAS:
+                conn.execute(text(f"""
+                    ALTER TABLE pedidos_consolidados
+                    ADD COLUMN IF NOT EXISTS loja_{loja} INTEGER DEFAULT 0
+                """))
 
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS contato_chamados (

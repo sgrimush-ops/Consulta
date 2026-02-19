@@ -51,6 +51,22 @@ def check_hashes_fornecedor(password, hashed_text):
     return make_hashes_fornecedor(password) == hashed_text
 
 
+def normalize_lojas_acesso(lojas_raw):
+    lojas_norm = []
+    for loja in lojas_raw or []:
+        loja_str = str(loja).strip()
+        if loja_str.lower().startswith("loja_"):
+            loja_str = loja_str[5:]
+
+        if loja_str.isdigit():
+            loja_str = loja_str.zfill(3)
+
+        if loja_str and loja_str not in lojas_norm:
+            lojas_norm.append(loja_str)
+
+    return lojas_norm
+
+
 def check_fornecedor_login(engine, username, password):
     """Verifica as credenciais na tabela de fornecedores."""
     try:
@@ -123,6 +139,8 @@ def show_fornecedor_login(engine):
                         lojas = []
             except Exception:
                 lojas = []
+
+            lojas = normalize_lojas_acesso(lojas)
 
             st.session_state['fornecedor_logged_in'] = True
             st.session_state['fornecedor_username'] = username

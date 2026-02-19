@@ -280,6 +280,7 @@ def get_orders_history_30d(engine, username):
             status_aprovacao
         FROM pedidos_consolidados
         WHERE usuario_pedido = :username
+                AND COALESCE(origem_pedido, 'Pedido por Código (CD)') = 'Pedido de Consumo'
                     AND data_pedido >= (
                             CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
                     ) - INTERVAL '30 days'
@@ -311,7 +312,7 @@ def show_pedido_consumo_page(engine, base_data_path):
 
     lista_lojas_global = [
         "001", "002", "003", "004", "005", "006",
-        "007", "008", "011", "012", "013", "014", "017", "018"
+        "007", "008", "011", "012", "013", "014", "016", "017", "018"
     ]
 
     df_produtos = load_products_from_consumo_table(engine)
@@ -381,14 +382,7 @@ def show_pedido_consumo_page(engine, base_data_path):
             key=busca_key,
         ).strip()
 
-        col_busca1, col_busca2, _ = st.columns([1, 1, 2])
-        with col_busca1:
-            if st.button(
-                "🧹 Limpar busca",
-                key=f"consumo_limpar_busca_{setor_selecionado}",
-            ):
-                st.session_state[busca_key] = ""
-                st.rerun()
+        _, col_busca2, _ = st.columns([1, 1, 2])
 
         if termo_setor:
             mask_desc = df_setor["descricao"].str.contains(

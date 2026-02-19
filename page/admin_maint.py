@@ -7,7 +7,7 @@ import re
 from utils.timezone import now_brazil
 
 # --- Configurações Globais ---
-LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "017", "018"]
+LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "016", "017", "018"]
 ROLES_DISPONIVEIS = ["user", "admin"]
 
 # --- Funções Auxiliares de Hashing ---

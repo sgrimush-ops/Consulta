@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 # --- Configurações Globais ---
-LISTA_LOJAS_FORNECEDOR = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "017", "018"] # Pode ser diferente no futuro
+LISTA_LOJAS_FORNECEDOR = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "016", "017", "018"] # Pode ser diferente no futuro
 ROLES_FORNECEDOR = ["fornecedor", "admin_fornecedor"]
 
 # --- Funções Auxiliares de Hashing ---
