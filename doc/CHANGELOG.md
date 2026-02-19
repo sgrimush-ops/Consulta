@@ -1,5 +1,29 @@
 # Histórico de Atualizações - ProjetoBak
 
+## 📅 19/02/2026 - Versão 2.0.3 - AJUSTES DE LOJA E PEDIDO DE CONSUMO
+
+### 🏬 Acesso a lojas
+- ✅ Incluída a loja `016` nas listas de acesso do sistema (usuários e fornecedores)
+- ✅ Ajustada normalização de lojas legadas para exibição no formato `016` (sem prefixo `loja_`)
+
+### 📦 Pedido de Consumo
+- ✅ Histórico da tela de consumo agora exibe apenas pedidos com origem `Pedido de Consumo`
+- ✅ Removido botão `Limpar busca` na seção de pedido rápido por setor para eliminar erro de interface
+
+### 🗄️ Banco de dados
+- ✅ Adicionada rotina de migração automática para garantir criação de colunas de loja faltantes (incluindo `loja_016`) em bases já existentes
+
+### 🔧 Arquivos impactados
+- `app.py`
+- `main.py`
+- `page/admin_maint.py`
+- `page/admin_fornecedor.py`
+- `page/area_fornecedor.py`
+- `page/pedido_cd.py`
+- `page/pedido_consumo.py`
+- `page/aprovacao_pedidos.py`
+- `page/solicitacao_acesso.py`
+
 ## 📅 18/02/2026 - Versão 2.0.2 - LIMPEZA DE RECURSOS OBSOLETOS
 
 ### 🧹 Remoções

@@ -103,5 +103,5 @@ python3 -c "import pandas as pd; df = pd.read_parquet('bdados/con5cod.parquet');
 - [GUIA_LIMPEZA_BD.md](GUIA_LIMPEZA_BD.md) - Limpeza do banco
 - [COMO_OBTER_DATABASE_URL.md](COMO_OBTER_DATABASE_URL.md) - Configuracao do banco
 
-**Versao:** 2.0.2
-**Ultima atualizacao:** 18/02/2026
+**Versao:** 2.0.3
+**Ultima atualizacao:** 19/02/2026
