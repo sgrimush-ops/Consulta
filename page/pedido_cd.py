@@ -72,6 +72,13 @@ def get_correcoes_embalagens(engine):
         return pd.DataFrame()
 
 
+def _normalizar_nomes_colunas(df):
+    """Normaliza nomes de colunas vindas do parquet."""
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    return df
+
+
 def load_products_from_parquet(engine=None):
     """Carrega produtos do arquivo parquet e aplica correções do banco."""
     parquet_path = os.path.join("bdados", "con5cod.parquet")
@@ -80,15 +87,17 @@ def load_products_from_parquet(engine=None):
         return pd.DataFrame()
     
     try:
-        df = pd.read_parquet(parquet_path)
+        df = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
         
         # Mapear colunas novas para nomes esperados
         column_mapping = {
             'codigoconsinco': 'cod_consinco',
             'Código Produto': 'cod_consinco',
+            'Codigo Produto': 'cod_consinco',
             'codigo transicao': 'transicao',
             'CODACESSO': 'transicao',
             'Empresa : Produto': 'descricao',
+            'Empresa: Produto': 'descricao',
             'embalagem': 'Emb',
             'EmbSeparacao': 'Emb',
             'ltmix': 'Mix',
