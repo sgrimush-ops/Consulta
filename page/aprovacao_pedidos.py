@@ -140,7 +140,7 @@ def get_pedidos_para_aprovacao(
             query = text(
                 str(query)
                 + " AND COALESCE(origem_pedido, 'Pedido por Código (CD)') "
-                + "= 'Pedido por Código (CD)'"
+                + "IN ('Pedido por Código (CD)', 'CD15', 'CD16')"
             )
         
         query = text(str(query) + " ORDER BY data_pedido ASC")
@@ -283,7 +283,7 @@ def show_aprovacao_page(engine, base_data_path):
             lambda origem: (
                 "🛒 Pedido de Consumo"
                 if str(origem) == "Pedido de Consumo"
-                else "📦 Pedido por Código (CD)"
+                else f"📦 {str(origem).strip() if str(origem).strip() else 'Pedido por Código (CD)'}"
             )
         )
     else:
@@ -301,6 +301,16 @@ def show_aprovacao_page(engine, base_data_path):
     cols_exibicao = [col for col in cols_exibicao if col in df_pedidos.columns]
     
     df_para_editar = df_pedidos[cols_exibicao].copy()
+
+    # Persistir seleção entre reruns (por id_pedido)
+    selection_key = "aprovacao_selected_ids"
+    if selection_key not in st.session_state:
+        st.session_state[selection_key] = []
+
+    ids_visiveis = df_para_editar["id_pedido"].tolist()
+    selecionados_atuais = set(st.session_state.get(selection_key, []))
+    selecionados_atuais = selecionados_atuais.intersection(ids_visiveis)
+    st.session_state[selection_key] = list(selecionados_atuais)
     
     # Botões de seleção rápida
     st.markdown("### ⚡ Seleção Rápida")
@@ -308,13 +318,15 @@ def show_aprovacao_page(engine, base_data_path):
     
     with col_marcar:
         if st.button("☑️ Marcar Todos", use_container_width=True):
-            df_para_editar["Selecionar"] = True
-            st.session_state.marcar_todos_trigger = True
+            st.session_state[selection_key] = ids_visiveis.copy()
     
     with col_desmarcar:
         if st.button("⬜ Desmarcar Todos", use_container_width=True):
-            df_para_editar["Selecionar"] = False
-            st.session_state.desmarcar_todos_trigger = True
+            st.session_state[selection_key] = []
+
+    df_para_editar["Selecionar"] = df_para_editar["id_pedido"].isin(
+        st.session_state[selection_key]
+    )
     
     st.markdown("---")
     
@@ -353,6 +365,12 @@ def show_aprovacao_page(engine, base_data_path):
         use_container_width=True,
         key="editor_aprovacao_v2"
     )
+
+    # Sincronizar seleção manual do editor com session_state
+    selecionados_editor = df_editado.loc[
+        df_editado["Selecionar"] == True, "id_pedido"
+    ].tolist()
+    st.session_state[selection_key] = selecionados_editor
     
     # Recalcular total_cx baseado nas quantidades editadas
     for idx in df_editado.index:
@@ -392,6 +410,8 @@ def show_aprovacao_page(engine, base_data_path):
     
     if st.button("Gerar Excel de Pedidos Aprovados"):
         try:
+            limite_aprovacao = now_brazil() - timedelta(minutes=5)
+
             query = text(
                 f"""
                 SELECT
@@ -406,28 +426,125 @@ def show_aprovacao_page(engine, base_data_path):
                     p.total_cx
                 FROM pedidos_consolidados p
                 WHERE p.status_aprovacao = 'Aprovado'
+                  AND p.data_aprovacao >= :limite_aprovacao
                 ORDER BY p.data_aprovacao DESC
                 """
             )
             
-            df_aprovados = pd.read_sql_query(query, con=engine)
+            df_aprovados = pd.read_sql_query(
+                query,
+                con=engine,
+                params={"limite_aprovacao": limite_aprovacao}
+            )
             
             if not df_aprovados.empty:
+                lojas_presentes = [
+                    col for col in COLUNAS_LOJAS_PEDIDO
+                    if col in df_aprovados.columns
+                ]
+
+                for col in lojas_presentes:
+                    df_aprovados[col] = pd.to_numeric(
+                        df_aprovados[col], errors="coerce"
+                    ).fillna(0)
+
+                df_lojas = df_aprovados.melt(
+                    id_vars=[
+                        "id",
+                        "data_pedido",
+                        "usuario_pedido",
+                        "codigo_interno",
+                        "descricao",
+                        "embseparacao",
+                    ],
+                    value_vars=lojas_presentes,
+                    var_name="loja_col",
+                    value_name="qtd_cx_loja",
+                )
+
+                df_lojas = df_lojas[df_lojas["qtd_cx_loja"] > 0].copy()
+
+                if df_lojas.empty:
+                    st.info(
+                        "Nenhum item com quantidade por loja nos pedidos "
+                        "aprovados dos últimos 5 minutos."
+                    )
+                    return
+
+                df_lojas["loja"] = (
+                    df_lojas["loja_col"].astype(str).str.replace(
+                        "loja_", "", regex=False
+                    )
+                )
+
+                def formatar_usuarios(series_usuarios):
+                    contagem = (
+                        series_usuarios.astype(str)
+                        .str.strip()
+                        .replace("", "unknown")
+                        .value_counts()
+                    )
+                    return ", ".join(
+                        [
+                            f"{usuario} ({qtd})" if qtd > 1 else usuario
+                            for usuario, qtd in contagem.items()
+                        ]
+                    )
+
+                df_export = (
+                    df_lojas.groupby(
+                        [
+                            "data_pedido",
+                            "loja",
+                            "codigo_interno",
+                            "descricao",
+                            "embseparacao",
+                        ],
+                        as_index=False,
+                    )
+                    .agg(
+                        total_cx=("qtd_cx_loja", "sum"),
+                        usuarios_pedido=("usuario_pedido", formatar_usuarios),
+                        qtd_lancamentos=("id", "count"),
+                    )
+                    .sort_values(
+                        by=["data_pedido", "loja", "descricao"],
+                        ascending=[False, True, True],
+                    )
+                )
+
+                df_export = df_export.rename(
+                    columns={
+                        "data_pedido": "Data Pedido",
+                        "loja": "Loja",
+                        "codigo_interno": "Código Consinco",
+                        "descricao": "Descrição",
+                        "embseparacao": "Emb",
+                        "total_cx": "Total CX",
+                        "usuarios_pedido": "Usuários",
+                        "qtd_lancamentos": "Qtd Lançamentos",
+                    }
+                )
+
                 # Criar arquivo Excel em memória
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_aprovados.to_excel(writer, sheet_name='Pedidos Aprovados', index=False)
+                    df_export.to_excel(
+                        writer,
+                        sheet_name='Pedidos Aprovados',
+                        index=False
+                    )
                 
                 output.seek(0)
                 
                 st.download_button(
                     label="📥 Baixar Pedidos Aprovados (Excel)",
                     data=output,
-                    file_name=f"pedidos_aprovados_{today_brazil().strftime('%Y%m%d')}.xlsx",
+                    file_name="pedido.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:
-                st.info("Nenhum pedido aprovado encontrado.")
+                st.info("Nenhum pedido aprovado nos últimos 5 minutos.")
         
         except Exception as e:
             st.error(f"Erro ao gerar Excel: {e}")

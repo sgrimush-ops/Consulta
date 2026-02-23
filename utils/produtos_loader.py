@@ -7,6 +7,13 @@ import os
 from sqlalchemy import text
 
 
+def _normalizar_nomes_colunas(df):
+    """Normaliza nomes de colunas vindas do parquet."""
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    return df
+
+
 def load_produtos_merged(engine):
     """
     Carrega produtos mesclando parquet + banco custom.
@@ -45,15 +52,19 @@ def load_produtos_merged(engine):
     
     if os.path.exists(parquet_path):
         try:
-            df_parquet = pd.read_parquet(parquet_path)
+            df_parquet = _normalizar_nomes_colunas(
+                pd.read_parquet(parquet_path)
+            )
             
             # Mapear colunas novas
             column_mapping = {
                 'codigoconsinco': 'cod_consinco',
                 'Código Produto': 'cod_consinco',
+                'Codigo Produto': 'cod_consinco',
                 'codigo transicao': 'transicao',
                 'CODACESSO': 'transicao',
                 'Empresa : Produto': 'descricao',
+                'Empresa: Produto': 'descricao',
                 'embalagem': 'Emb',
                 'EmbSeparacao': 'Emb',
                 'ltmix': 'Mix',
@@ -133,15 +144,17 @@ def get_produto_info(engine, cod_consinco):
     
     if os.path.exists(parquet_path):
         try:
-            df = pd.read_parquet(parquet_path)
+            df = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
             
             # Mapear colunas novas
             column_mapping = {
                 'codigoconsinco': 'cod_consinco',
                 'Código Produto': 'cod_consinco',
+                'Codigo Produto': 'cod_consinco',
                 'codigo transicao': 'transicao',
                 'CODACESSO': 'transicao',
                 'Empresa : Produto': 'descricao',
+                'Empresa: Produto': 'descricao',
                 'embalagem': 'Emb',
                 'EmbSeparacao': 'Emb',
                 'ltmix': 'Mix'

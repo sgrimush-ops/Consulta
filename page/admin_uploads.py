@@ -5,14 +5,29 @@ import io
 import os
 
 
+def _normalizar_nomes_colunas(df):
+    """Remove espaços extras e quebras de linha nos nomes de colunas."""
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    return df
+
+
 def validate_con5cod_schema(df):
     """
     Valida se o arquivo con5cod.parquet tem a estrutura correta.
     Retorna (valido: bool, mensagem: str, colunas_mapeadas: dict)
     """
+    df = _normalizar_nomes_colunas(df)
+
     # Colunas esperadas (antigos e novos nomes)
-    col_cod = {'codigoconsinco', 'Código Produto', 'cod_consinco', 'codigo_produto'}
-    col_desc = {'descricao', 'Empresa : Produto', 'produto', 'empresa_produto'}
+    col_cod = {
+        'codigoconsinco', 'Código Produto', 'Codigo Produto',
+        'cod_consinco', 'codigo_produto'
+    }
+    col_desc = {
+        'descricao', 'Empresa : Produto', 'Empresa: Produto',
+        'produto', 'empresa_produto'
+    }
     col_emb = {'Emb', 'embalagem', 'EmbSeparacao', 'emb_separacao'}
     col_mix = {'Mix', 'ltmix', 'status_mix'}
     col_trans = {'transicao', 'CODACESSO', 'codigo_transicao', 'transacao'}
@@ -135,7 +150,9 @@ def show_admin_uploads_page(engine=None):
                 f"Hash: {preview_hash[:12]}"
             )
 
-            df_preview = pd.read_parquet(io.BytesIO(uploaded_bytes))
+            df_preview = _normalizar_nomes_colunas(
+                pd.read_parquet(io.BytesIO(uploaded_bytes))
+            )
             
             # Validar schema
             is_valid, validation_msg, col_map = validate_con5cod_schema(df_preview)

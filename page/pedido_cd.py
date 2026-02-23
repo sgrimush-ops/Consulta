@@ -212,6 +212,50 @@ def get_orders_history_30d_cd(engine, username):
         return pd.read_sql(query, conn, params={"username": username})
 
 
+def get_same_day_item_orders_cd(engine, username, codigo_produto):
+    """Retorna quantidade de lançamentos e total de caixas do item no dia."""
+    query = text(
+        """
+        SELECT
+            COUNT(*) AS qtd_lancamentos,
+            COALESCE(SUM(total_cx), 0) AS total_cx
+        FROM pedidos_consolidados
+        WHERE usuario_pedido = :username
+          AND codigo_interno = :codigo
+          AND COALESCE(origem_pedido, 'Pedido por Código (CD)')
+              IN ('Pedido por Código (CD)', 'CD15', 'CD16')
+          AND data_pedido >= DATE_TRUNC(
+              'day',
+              CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+          )
+          AND data_pedido < DATE_TRUNC(
+              'day',
+              CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
+          ) + INTERVAL '1 day'
+        """
+    )
+
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                query,
+                {
+                    "username": username,
+                    "codigo": str(codigo_produto),
+                },
+            ).fetchone()
+
+        if not row:
+            return {"qtd_lancamentos": 0, "total_cx": 0}
+
+        return {
+            "qtd_lancamentos": int(row.qtd_lancamentos or 0),
+            "total_cx": int(row.total_cx or 0),
+        }
+    except Exception:
+        return {"qtd_lancamentos": 0, "total_cx": 0}
+
+
 # --- Página Principal ---
 
 
@@ -326,6 +370,18 @@ def show_pedidos_cd_page(engine, base_data_path):
         item = st.session_state.searched_item
         codigo_produto = int(item['cod_consinco'])
         status_mix = item['Mix']
+        username = st.session_state.get("username", "unknown")
+
+        same_day_info = get_same_day_item_orders_cd(
+            engine, username, codigo_produto
+        )
+        if same_day_info["qtd_lancamentos"] > 0:
+            st.warning(
+                "⚠️ Você já lançou este item hoje. "
+                f"Lançamentos no dia: {same_day_info['qtd_lancamentos']} | "
+                f"Total já lançado: {same_day_info['total_cx']} CX. "
+                "Se enviar novamente, os pedidos serão somados."
+            )
         
         st.markdown("---")
         st.subheader(f"Produto Selecionado: {item['descricao']}")
@@ -375,11 +431,20 @@ def show_pedidos_cd_page(engine, base_data_path):
             col_total1, col_total2 = st.columns(2)
             col_total1.metric("Total de Caixas", total_cx)
             col_total2.metric("Total de Unidades", total_un)
+
+            cd_abastecedor = st.selectbox(
+                "CD abastecedor:",
+                ["", "CD15", "CD16"],
+                index=0,
+                key=f"cd_abastecedor_{codigo_produto}"
+            )
             
             submitted_pedido = st.form_submit_button("📤 Enviar para Aprovação", type="primary")
             
             if submitted_pedido:
-                if total_cx > 0:
+                if not cd_abastecedor:
+                    st.warning("⚠️ Pedido não será enviado, informe um CD.")
+                elif total_cx > 0:
                     # Verificar se produto está suspenso
                     if status_mix == 'S':
                         st.session_state.pedido_details = {
@@ -387,6 +452,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                             "total_cx": total_cx,
                             "codigo_produto": codigo_produto,
                             "item": item,
+                            "cd_abastecedor": cd_abastecedor,
                             "aguardando_confirmacao_suspenso": True
                         }
                         st.rerun()
@@ -397,6 +463,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                             "total_cx": total_cx,
                             "codigo_produto": codigo_produto,
                             "item": item,
+                            "cd_abastecedor": cd_abastecedor,
                             "confirmar_pedido": True
                         }
                         st.rerun()
@@ -433,6 +500,9 @@ def show_pedidos_cd_page(engine, base_data_path):
             total_cx = st.session_state.pedido_details["total_cx"]
             codigo_produto = st.session_state.pedido_details["codigo_produto"]
             item = st.session_state.pedido_details["item"]
+            cd_abastecedor = st.session_state.pedido_details.get(
+                "cd_abastecedor", "Pedido por Código (CD)"
+            )
             
             pedido_data = {
                 "codigo_interno": [codigo_produto],
@@ -444,7 +514,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 "status_item": ["Pendente"],
                 "status_aprovacao": ["Pendente"],
                 "total_cx": [total_cx],
-                "origem_pedido": ["Pedido por Código (CD)"],
+                "origem_pedido": [cd_abastecedor],
             }
             
             # Adicionar quantidades por loja
@@ -473,6 +543,7 @@ def show_pedidos_cd_page(engine, base_data_path):
                 id,
                 codigo_interno,
                 descricao,
+                COALESCE(origem_pedido, 'Pedido por Código (CD)') AS origem_pedido,
                 embseparacao,
                 total_cx,
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido,
@@ -504,6 +575,9 @@ def show_pedidos_cd_page(engine, base_data_path):
                     ),
                     "descricao": st.column_config.TextColumn(
                         "Produto", width="large", disabled=True
+                    ),
+                    "origem_pedido": st.column_config.TextColumn(
+                        "Origem/CD", disabled=True, width="small"
                     ),
                     "embseparacao": st.column_config.NumberColumn(
                         "Emb. (Un/Cx)", disabled=True, format="%d"

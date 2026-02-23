@@ -4,6 +4,13 @@ import os
 from sqlalchemy import text
 
 
+def _normalizar_nomes_colunas(df):
+    """Normaliza nomes de colunas vindas do parquet."""
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    return df
+
+
 def get_correcoes_embalagens(engine):
     """Busca correções de embalagens do banco de dados."""
     try:
@@ -64,15 +71,17 @@ def show_consulta_mix_page(engine, base_data_path):
         st.stop()
 
     try:
-        df_mix = pd.read_parquet(parquet_path)
+        df_mix = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
         
         # Mapear colunas novas para nomes esperados
         column_mapping = {
             'codigoconsinco': 'cod_consinco',
             'Código Produto': 'cod_consinco',
+            'Codigo Produto': 'cod_consinco',
             'codigo transicao': 'transicao',
             'CODACESSO': 'transicao',
             'Empresa : Produto': 'descricao',
+            'Empresa: Produto': 'descricao',
             'embalagem': 'Emb',
             'EmbSeparacao': 'Emb',
             'ltmix': 'Mix',
