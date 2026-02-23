@@ -1,5 +1,38 @@
 # Histórico de Atualizações - ProjetoBak
 
+## 📅 23/02/2026 - Versão 2.0.4 - AJUSTES DE PEDIDO CD E APROVAÇÃO
+
+### 📦 Pedido por Código (CD)
+- ✅ Seleção de CD abastecedor obrigatória antes do envio (`CD15` ou `CD16`)
+- ✅ Seleção de CD alterada para clique único (sem lista suspensa)
+- ✅ Origem do pedido CD passa a ser gravada em `origem_pedido` como `CD15` ou `CD16`
+- ✅ Lista de pendentes da tela CD exibe `Origem/CD`
+- ✅ Aviso na tela quando o mesmo usuário lança o mesmo item novamente no mesmo dia
+
+### ✅ Aprovação de Pedidos
+- ✅ Correção do botão `Marcar Todos` para persistir seleção corretamente até aprovar/reprovar
+- ✅ Filtro de origem "Pedido por Código (CD)" inclui pedidos legados e novos (`Pedido por Código (CD)`, `CD15`, `CD16`)
+- ✅ Coluna de origem exibe o CD abastecedor quando aplicável
+
+### 📥 Exportação de aprovados (Excel)
+- ✅ Download limitado a pedidos aprovados nos últimos 5 minutos
+- ✅ Nome padrão do arquivo alterado para `pedido.xlsx`
+- ✅ Exportação consolidada por dia + loja + item, somando quantidades duplicadas
+- ✅ Inclusão de usuários participantes com contagem por repetição (ex.: `usuario (2)`)
+
+### 🧾 Upload/Leitura de `con5cod.parquet`
+- ✅ Normalização de nomes de colunas com espaços/quebras (`strip`) para evitar falha de mapeamento
+- ✅ Compatibilidade ampliada para variações de cabeçalho (`Código Produto`/`Codigo Produto`, `Empresa : Produto`/`Empresa: Produto`)
+- ✅ Correção de leitura de descrição na tela de Pedido CD
+
+### 🔧 Arquivos impactados
+- `page/admin_uploads.py`
+- `page/aprovacao_pedidos.py`
+- `page/consulta_mix.py`
+- `page/pedido_cd.py`
+- `utils/produtos_loader.py`
+- `bdados/con5cod.parquet`
+
 ## 📅 19/02/2026 - Versão 2.0.3 - AJUSTES DE LOJA E PEDIDO DE CONSUMO
 
 ### 🏬 Acesso a lojas
@@ -247,4 +280,4 @@ As seguintes páginas foram **completamente removidas** do sistema:
 ---
 
 **Mantido por:** Equipe Bakizi  
-**Última atualização:** 02/01/2026
+**Última atualização:** 23/02/2026

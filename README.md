@@ -50,6 +50,12 @@ ProjetoBak/
 - Administracao de usuarios (roles user/admin, cargo, lojas)
 - Admin Uploads
 
+### Atualizações recentes
+- Pedido por Codigo (CD) exige escolha de CD abastecedor (`CD15` ou `CD16`) antes de enviar
+- Aprovacao exibe origem do pedido CD com o abastecedor (`CD15`/`CD16`)
+- Download de aprovados considera ultimos 5 minutos e gera arquivo `pedido.xlsx`
+- Exportacao consolida repeticoes do mesmo item por loja no mesmo dia
+
 ### Padrao de data/hora (Brasilia)
 - Gravacoes de data/hora do sistema seguem `America/Sao_Paulo`
 - Conexoes com Postgres configuram timezone de sessao para Brasilia

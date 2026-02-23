@@ -209,6 +209,106 @@ def reprovar_pedidos(engine, ids_list):
         return False
 
 
+def ensure_download_aprovados_table(engine):
+    """Garante tabela de log de downloads de aprovados."""
+    query = text(
+        """
+        CREATE TABLE IF NOT EXISTS downloads_aprovados_log (
+            id SERIAL PRIMARY KEY,
+            data_download TIMESTAMP NOT NULL,
+            usuario TEXT
+        )
+        """
+    )
+    with engine.begin() as conn:
+        conn.execute(query)
+
+
+def registrar_download_aprovados(engine, usuario):
+    """Registra que o Excel de aprovados foi baixado."""
+    try:
+        ensure_download_aprovados_table(engine)
+        query = text(
+            """
+            INSERT INTO downloads_aprovados_log (data_download, usuario)
+            VALUES (:data_download, :usuario)
+            """
+        )
+        with engine.begin() as conn:
+            conn.execute(
+                query,
+                {
+                    "data_download": now_brazil(),
+                    "usuario": usuario,
+                },
+            )
+        return True
+    except Exception:
+        return False
+
+
+def get_alerta_download_pendente(engine, janela_minutos=5):
+    """Retorna status de aprovados sem download no período recente."""
+    limite_aprovacao = now_brazil() - timedelta(minutes=janela_minutos)
+
+    query_aprov = text(
+        """
+        SELECT
+            COUNT(*) AS total_itens,
+            MAX(data_aprovacao) AS ultima_aprovacao
+        FROM pedidos_consolidados
+        WHERE status_aprovacao = 'Aprovado'
+          AND data_aprovacao >= :limite_aprovacao
+        """
+    )
+
+    try:
+        with engine.connect() as conn:
+            row_aprov = conn.execute(
+                query_aprov,
+                {"limite_aprovacao": limite_aprovacao},
+            ).fetchone()
+
+        total_itens = int((row_aprov.total_itens or 0) if row_aprov else 0)
+        ultima_aprovacao = row_aprov.ultima_aprovacao if row_aprov else None
+
+        if total_itens == 0:
+            return {
+                "pendente": False,
+                "total_itens": 0,
+                "ultima_aprovacao": None,
+            }
+
+        ensure_download_aprovados_table(engine)
+        query_download = text(
+            "SELECT MAX(data_download) AS ultimo_download "
+            "FROM downloads_aprovados_log"
+        )
+        with engine.connect() as conn:
+            row_down = conn.execute(query_download).fetchone()
+
+        ultimo_download = row_down.ultimo_download if row_down else None
+        pendente = (
+            ultimo_download is None
+            or (
+                ultima_aprovacao is not None
+                and ultimo_download < ultima_aprovacao
+            )
+        )
+
+        return {
+            "pendente": pendente,
+            "total_itens": total_itens,
+            "ultima_aprovacao": ultima_aprovacao,
+        }
+    except Exception:
+        return {
+            "pendente": False,
+            "total_itens": 0,
+            "ultima_aprovacao": None,
+        }
+
+
 # --- Página Principal ---
 
 
@@ -407,6 +507,17 @@ def show_aprovacao_page(engine, base_data_path):
     # --- Download de Pedidos Aprovados ---
     st.markdown("---")
     st.subheader("📥 Download de Pedidos Aprovados")
+
+    if "aprovacao_excel_payload" not in st.session_state:
+        st.session_state["aprovacao_excel_payload"] = None
+
+    alerta_download = get_alerta_download_pendente(engine, janela_minutos=5)
+    if alerta_download["pendente"]:
+        st.warning(
+            "⚠️ Existem "
+            f"{alerta_download['total_itens']} item(ns) aprovado(s) "
+            "nos últimos 5 minutos sem download registrado."
+        )
     
     if st.button("Gerar Excel de Pedidos Aprovados"):
         try:
@@ -536,15 +647,29 @@ def show_aprovacao_page(engine, base_data_path):
                     )
                 
                 output.seek(0)
-                
-                st.download_button(
-                    label="📥 Baixar Pedidos Aprovados (Excel)",
-                    data=output,
-                    file_name="pedido.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+
+                st.session_state["aprovacao_excel_payload"] = {
+                    "bytes": output.getvalue(),
+                    "nome": "pedido.xlsx",
+                }
             else:
+                st.session_state["aprovacao_excel_payload"] = None
                 st.info("Nenhum pedido aprovado nos últimos 5 minutos.")
         
         except Exception as e:
             st.error(f"Erro ao gerar Excel: {e}")
+
+    payload_excel = st.session_state.get("aprovacao_excel_payload")
+    if payload_excel:
+        baixou = st.download_button(
+            label="📥 Baixar Pedidos Aprovados (Excel)",
+            data=payload_excel["bytes"],
+            file_name=payload_excel["nome"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_aprovados_excel"
+        )
+        if baixou:
+            usuario = st.session_state.get("username", "unknown")
+            if registrar_download_aprovados(engine, usuario):
+                st.success("Download registrado com sucesso.")
+                st.session_state["aprovacao_excel_payload"] = None
