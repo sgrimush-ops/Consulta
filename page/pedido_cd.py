@@ -432,17 +432,18 @@ def show_pedidos_cd_page(engine, base_data_path):
             col_total1.metric("Total de Caixas", total_cx)
             col_total2.metric("Total de Unidades", total_un)
 
-            cd_abastecedor = st.selectbox(
+            cd_abastecedor = st.radio(
                 "CD abastecedor:",
-                ["", "CD15", "CD16"],
+                ["Selecione...", "CD15", "CD16"],
                 index=0,
+                horizontal=True,
                 key=f"cd_abastecedor_{codigo_produto}"
             )
             
             submitted_pedido = st.form_submit_button("📤 Enviar para Aprovação", type="primary")
             
             if submitted_pedido:
-                if not cd_abastecedor:
+                if cd_abastecedor not in ("CD15", "CD16"):
                     st.warning("⚠️ Pedido não será enviado, informe um CD.")
                 elif total_cx > 0:
                     # Verificar se produto está suspenso
