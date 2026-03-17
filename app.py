@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from sqlalchemy import create_engine, text, event
+from utils.cargos import bootstrap_cargos_catalog
 from utils.timezone import now_brazil
 
 # --- Importa as páginas ---
@@ -246,6 +247,20 @@ def create_db_tables(engine):
                 ADD COLUMN IF NOT EXISTS cargo TEXT
             """))
 
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS cargos_catalogo (
+                    id SERIAL PRIMARY KEY,
+                    nome TEXT NOT NULL,
+                    criado_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                    atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """))
+
+            conn.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_cargos_catalogo_nome_normalizado
+                ON cargos_catalogo ((LOWER(BTRIM(nome))))
+            """))
+
             lojas_sql_cols = ", ".join(
                 [f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
             conn.execute(text(f"""
@@ -264,6 +279,8 @@ def create_db_tables(engine):
                     {lojas_sql_cols}
                 )
             """))
+
+        bootstrap_cargos_catalog(engine)
 
             conn.execute(text("""
                 ALTER TABLE pedidos_consolidados

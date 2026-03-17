@@ -1,6 +1,7 @@
 import re
 import streamlit as st
 from sqlalchemy import text
+from utils.cargos import cargo_exists, list_cargos, normalize_cargo_name
 from utils.timezone import now_brazil
 
 LISTA_LOJAS = [
@@ -46,6 +47,9 @@ def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sug
     if _solicitacao_ja_existe(engine, username_sugerido):
         return False, "Já existe solicitação pendente para este usuário sugerido."
 
+    if not cargo_exists(engine, cargo):
+        return False, "Selecione um cargo valido na lista disponibilizada."
+
     query = text(
         """
         INSERT INTO solicitacoes_acesso (
@@ -73,7 +77,7 @@ def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sug
             query,
             {
                 "nome": nome.strip(),
-                "cargo": cargo.strip() if cargo else None,
+                "cargo": normalize_cargo_name(cargo) if cargo else None,
                 "loja": loja,
                 "senha_sugerida": senha_sugerida,
                 "username_sugerido": username_sugerido,
@@ -86,6 +90,7 @@ def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sug
 
 def show_solicitacao_acesso_page(engine, base_data_path):
     _ = base_data_path
+    cargos_disponiveis = list_cargos(engine)
 
     st.subheader("📝 Solicitação de Acesso")
     st.markdown(
@@ -93,9 +98,15 @@ def show_solicitacao_acesso_page(engine, base_data_path):
         "A conta só será criada após aprovação de um administrador."
     )
 
+    if not cargos_disponiveis:
+        st.warning(
+            "Nao ha cargos cadastrados no momento. Solicite a um administrador que cadastre ao menos um cargo."
+        )
+        return
+
     with st.form("form_solicitacao_acesso", clear_on_submit=True):
         nome = st.text_input("1º - Nome")
-        cargo = st.text_input("2º - Cargo")
+        cargo = st.selectbox("2º - Cargo", cargos_disponiveis, index=None, placeholder="Selecione um cargo")
         loja = st.selectbox("3º - Loja", LISTA_LOJAS, index=None)
         senha_sugerida = st.text_input("4º - Senha sugerida", type="password")
 
@@ -105,8 +116,8 @@ def show_solicitacao_acesso_page(engine, base_data_path):
             if not nome.strip():
                 st.warning("Informe o nome.")
                 return
-            if not cargo.strip():
-                st.warning("Informe o cargo.")
+            if not cargo:
+                st.warning("Selecione o cargo.")
                 return
             if not loja:
                 st.warning("Selecione a loja.")

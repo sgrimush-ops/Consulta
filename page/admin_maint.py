@@ -4,11 +4,16 @@ import pandas as pd
 import hashlib
 import json
 import re
+from utils.cargos import add_cargo, bootstrap_cargos_catalog, cargo_exists, get_cargo_normalization_preview, list_cargos, normalize_cargo_name, rename_cargo
 from utils.timezone import now_brazil
 
 # --- Configurações Globais ---
 LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "016", "017", "018"]
 ROLES_DISPONIVEIS = ["user", "admin"]
+
+
+def _format_cargo_option(cargo: str) -> str:
+    return cargo if cargo else "Sem cargo"
 
 # --- Funções Auxiliares de Hashing ---
 def make_hashes(password):
@@ -56,7 +61,11 @@ def add_new_user(engine, username, password, role, cargo, lojas_acesso_list):
     try:
         hashed_password = make_hashes(password)
         lojas_acesso_json = json.dumps(lojas_acesso_list)
-        cargo_value = cargo.strip() if cargo else None
+        cargo_value = normalize_cargo_name(cargo) or None
+
+        if cargo_value and not cargo_exists(engine, cargo_value):
+            st.error("Selecione um cargo valido cadastrado na lista de cargos.")
+            return False
         
         query = text("""
             INSERT INTO users (username, password, role, cargo, lojas_acesso, status_logado) 
@@ -99,7 +108,11 @@ def update_user_permissions(engine, username, role, cargo, lojas_acesso_list):
     """Atualiza o role, cargo e as lojas de um usuário."""
     try:
         lojas_acesso_json = json.dumps(lojas_acesso_list)
-        cargo_value = cargo.strip() if cargo else None
+        cargo_value = normalize_cargo_name(cargo) or None
+
+        if cargo_value and not cargo_exists(engine, cargo_value):
+            st.error("Selecione um cargo valido cadastrado na lista de cargos.")
+            return False
         
         query = text("""
             UPDATE users SET role = :role, cargo = :cargo, lojas_acesso = :lojas 
@@ -190,6 +203,37 @@ def get_pending_access_requests(engine):
     except Exception as e:
         st.error(f"Erro ao carregar solicitações: {e}")
         return pd.DataFrame()
+
+
+def get_cargos_catalog_details(engine):
+    bootstrap_cargos_catalog(engine)
+    try:
+        query = text(
+            """
+            SELECT
+                c.nome AS "Cargo",
+                COALESCE(u.total_usuarios, 0) AS "Usuarios",
+                COALESCE(s.total_pendentes, 0) AS "Solicitacoes Pendentes"
+            FROM cargos_catalogo c
+            LEFT JOIN (
+                SELECT LOWER(BTRIM(cargo)) AS cargo_key, COUNT(*) AS total_usuarios
+                FROM users
+                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                GROUP BY LOWER(BTRIM(cargo))
+            ) u ON u.cargo_key = LOWER(BTRIM(c.nome))
+            LEFT JOIN (
+                SELECT LOWER(BTRIM(cargo)) AS cargo_key, COUNT(*) AS total_pendentes
+                FROM solicitacoes_acesso
+                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> '' AND status = 'Pendente'
+                GROUP BY LOWER(BTRIM(cargo))
+            ) s ON s.cargo_key = LOWER(BTRIM(c.nome))
+            ORDER BY LOWER(c.nome), c.nome
+            """
+        )
+        return pd.read_sql_query(query, con=engine)
+    except Exception as e:
+        st.error(f"Erro ao carregar catalogo de cargos: {e}")
+        return pd.DataFrame(columns=["Cargo", "Usuarios", "Solicitacoes Pendentes"])
 
 
 def set_request_status(engine, request_id, status, admin_username, observacao=None):
@@ -293,6 +337,7 @@ def process_access_requests(engine, df_requests, admin_username):
 
 def show_admin_page(engine, base_data_path):
     """Cria a interface do painel de administração."""
+    bootstrap_cargos_catalog(engine)
     st.title("🛡️ Painel de Administração")
     st.markdown("Gerencie usuários, funções (roles), cargos e acesso às lojas.")
     
@@ -324,10 +369,15 @@ def show_admin_page(engine, base_data_path):
 
     st.markdown("---")
 
+    cargos_disponiveis = list_cargos(engine)
+    df_cargos = get_cargos_catalog_details(engine)
+    cargos_preview = pd.DataFrame(get_cargo_normalization_preview(engine))
+
     # 2. ABAS DE AÇÃO
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Adicionar Usuário",
         "Gerenciar Acesso",
+        "Cargos",
         "Alterar Senha",
         "Excluir Usuário",
         "Solicitações de Acesso",
@@ -340,7 +390,14 @@ def show_admin_page(engine, base_data_path):
             new_username = st.text_input("Novo Login (Username)", key="add_user").lower()
             new_password = st.text_input("Senha Inicial", type="password", key="add_pass")
             new_role = st.selectbox("Função (Role):", ROLES_DISPONIVEIS, index=0, key="add_role")
-            new_cargo = st.text_input("Cargo (ex: gerente)", key="add_cargo")
+            cargo_options_add = [""] + cargos_disponiveis
+            new_cargo = st.selectbox(
+                "Cargo:",
+                cargo_options_add,
+                index=0,
+                key="add_cargo",
+                format_func=_format_cargo_option,
+            )
             
             new_lojas = st.multiselect(
                 "Quais lojas este usuário pode acessar? (Se for admin, pode deixar em branco)", 
@@ -376,6 +433,9 @@ def show_admin_page(engine, base_data_path):
                 user_data = df_users[df_users['Usuário'] == user_to_manage].iloc[0]
                 current_role_index = ROLES_DISPONIVEIS.index(user_data['Role']) if user_data['Role'] in ROLES_DISPONIVEIS else 0
                 current_cargo = user_data.get('Cargo', "")
+                cargo_options_manage = [""] + cargos_disponiveis
+                if current_cargo and current_cargo not in cargo_options_manage:
+                    cargo_options_manage.append(current_cargo)
                 
                 try:
                     with engine.connect() as conn:
@@ -401,10 +461,12 @@ def show_admin_page(engine, base_data_path):
                         key="manage_role"
                     )
 
-                    managed_cargo = st.text_input(
+                    managed_cargo = st.selectbox(
                         "Cargo:",
-                        value=current_cargo,
-                        key="manage_cargo"
+                        cargo_options_manage,
+                        index=cargo_options_manage.index(current_cargo) if current_cargo in cargo_options_manage else 0,
+                        key="manage_cargo",
+                        format_func=_format_cargo_option,
                     )
                     
                     managed_lojas = st.multiselect(
@@ -422,8 +484,85 @@ def show_admin_page(engine, base_data_path):
                         else:
                             st.error("Falha ao salvar alterações.")
 
-    # --- ABA 3: Alterar Senha ---
     with tab3:
+        st.subheader("Catálogo de Cargos")
+        st.caption(
+            "Cadastre e renomeie cargos sem excluir registros. Ao renomear, usuários e solicitações existentes são atualizados para o novo nome."
+        )
+        st.info(
+            "Regra canônica: cargos são salvos em minúsculas, sem acentos e sem conectores como 'de', 'da', 'do', 'das' e 'dos'."
+        )
+
+        if df_cargos.empty:
+            st.info("Nenhum cargo cadastrado ainda. Adicione o primeiro cargo abaixo.")
+        else:
+            st.dataframe(df_cargos, hide_index=True, use_container_width=True)
+
+        col_add, col_rename = st.columns(2)
+
+        with col_add:
+            with st.form("add_cargo_form", clear_on_submit=True):
+                novo_cargo = st.text_input("Novo cargo")
+                if st.form_submit_button("Adicionar cargo"):
+                    ok, message = add_cargo(engine, novo_cargo)
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+        with col_rename:
+            if not cargos_disponiveis:
+                st.info("Cadastre ao menos um cargo para habilitar modificações.")
+            else:
+                with st.form("rename_cargo_form"):
+                    cargo_atual = st.selectbox(
+                        "Cargo para modificar",
+                        cargos_disponiveis,
+                        index=None,
+                        placeholder="Selecione um cargo",
+                    )
+                    novo_nome_cargo = st.text_input("Novo nome do cargo")
+                    if st.form_submit_button("Salvar novo nome"):
+                        ok, message = rename_cargo(engine, cargo_atual, novo_nome_cargo)
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+        st.markdown("---")
+        st.subheader("Conferência de Normalização")
+
+        if cargos_preview.empty:
+            st.caption("Nenhum cargo encontrado em usuários ou solicitações para comparar no momento.")
+        else:
+            st.dataframe(cargos_preview, hide_index=True, use_container_width=True)
+
+        with st.form("cargo_normalization_preview_form"):
+            exemplos_cargos = st.text_area(
+                "Testar normalização manual",
+                placeholder="Digite um cargo por linha, por exemplo:\nGerente de Loja\nRepositor da Mercearia\nAuxiliar do Depósito",
+                height=140,
+            )
+            if st.form_submit_button("Gerar conferência"):
+                linhas = [linha.strip() for linha in exemplos_cargos.splitlines() if linha.strip()]
+                if not linhas:
+                    st.warning("Informe ao menos um cargo para testar.")
+                else:
+                    df_preview_manual = pd.DataFrame(
+                        [
+                            {
+                                "Cargo Informado": linha,
+                                "Cargo Canonico": normalize_cargo_name(linha),
+                            }
+                            for linha in linhas
+                        ]
+                    )
+                    st.dataframe(df_preview_manual, hide_index=True, use_container_width=True)
+
+    # --- ABA 4: Alterar Senha ---
+    with tab4:
         st.subheader("Alterar Senha de Usuário (Admin)")
         if df_users.empty:
             st.info("Nenhum usuário para gerenciar.")
@@ -445,8 +584,8 @@ def show_admin_page(engine, base_data_path):
                         else:
                             st.warning("Digite a nova senha.")
 
-    # --- ABA 4: Excluir Usuário ---
-    with tab4:
+    # --- ABA 5: Excluir Usuário ---
+    with tab5:
         st.subheader("Excluir Usuário")
         st.warning("ATENÇÃO: A exclusão é permanente.")
         
@@ -480,7 +619,7 @@ def show_admin_page(engine, base_data_path):
                     else:
                         st.error("Falha ao excluir usuário.")
 
-    with tab5:
+    with tab6:
         st.subheader("Solicitações de Novo Acesso")
         st.caption(
             "Solicitações aparecem destacadas e podem ser aprovadas ou "
@@ -492,6 +631,10 @@ def show_admin_page(engine, base_data_path):
         if df_requests.empty:
             st.info("Não há solicitações pendentes no momento.")
         else:
+            request_cargo_options = list_cargos(engine)
+            if not request_cargo_options:
+                st.warning("Cadastre cargos na aba 'Cargos' antes de processar solicitações.")
+                return
             df_requests_edit = st.data_editor(
                 df_requests,
                 hide_index=True,
@@ -505,7 +648,10 @@ def show_admin_page(engine, base_data_path):
                         width="small",
                     ),
                     "Nome": st.column_config.TextColumn("Nome", disabled=True),
-                    "Cargo": st.column_config.TextColumn("Cargo"),
+                    "Cargo": st.column_config.SelectboxColumn(
+                        "Cargo",
+                        options=request_cargo_options,
+                    ),
                     "Loja": st.column_config.SelectboxColumn(
                         "Loja",
                         options=LISTA_LOJAS,

@@ -1,0 +1,353 @@
+from __future__ import annotations
+
+import re
+import unicodedata
+
+from sqlalchemy import text
+
+
+CONNECTOR_WORDS = {"de", "da", "do", "das", "dos"}
+
+
+def normalize_cargo_name(cargo: str | None) -> str:
+    normalized = str(cargo or "").strip().lower()
+    normalized = unicodedata.normalize("NFKD", normalized)
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = re.sub(r"\s+", " ", normalized)
+    tokens = [token for token in normalized.split(" ") if token and token not in CONNECTOR_WORDS]
+    normalized = " ".join(tokens)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def ensure_cargos_catalog(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS cargos_catalogo (
+                    id SERIAL PRIMARY KEY,
+                    nome TEXT NOT NULL,
+                    criado_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                    atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_cargos_catalogo_nome_normalizado
+                ON cargos_catalogo ((LOWER(BTRIM(nome))))
+                """
+            )
+        )
+
+
+def sync_cargos_from_existing(engine) -> None:
+    ensure_cargos_catalog(engine)
+
+    with engine.begin() as conn:
+        user_rows = conn.execute(
+            text(
+                """
+                SELECT DISTINCT cargo
+                FROM users
+                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                """
+            )
+        ).fetchall()
+        request_rows = conn.execute(
+            text(
+                """
+                SELECT DISTINCT cargo
+                FROM solicitacoes_acesso
+                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                """
+            )
+        ).fetchall()
+        catalog_rows = conn.execute(
+            text(
+                """
+                SELECT id, nome
+                FROM cargos_catalogo
+                ORDER BY id
+                """
+            )
+        ).fetchall()
+
+    existing_values = [row[0] for row in user_rows] + [row[0] for row in request_rows]
+    canonical_names = []
+    seen_names = set()
+    for raw_value in existing_values:
+        normalized = normalize_cargo_name(raw_value)
+        if normalized and normalized not in seen_names:
+            seen_names.add(normalized)
+            canonical_names.append(normalized)
+
+    keep_catalog_rows = {}
+    duplicate_catalog_ids = []
+    empty_catalog_ids = []
+    for row in catalog_rows:
+        normalized = normalize_cargo_name(row.nome)
+        if not normalized:
+            empty_catalog_ids.append(row.id)
+            continue
+        if normalized in keep_catalog_rows:
+            duplicate_catalog_ids.append(row.id)
+            continue
+        keep_catalog_rows[normalized] = row.id
+
+    with engine.begin() as conn:
+        if empty_catalog_ids:
+            conn.execute(
+                text("DELETE FROM cargos_catalogo WHERE id = ANY(:ids)"),
+                {"ids": empty_catalog_ids},
+            )
+
+        if duplicate_catalog_ids:
+            conn.execute(
+                text("DELETE FROM cargos_catalogo WHERE id = ANY(:ids)"),
+                {"ids": duplicate_catalog_ids},
+            )
+
+        for normalized, row_id in keep_catalog_rows.items():
+            conn.execute(
+                text(
+                    """
+                    UPDATE cargos_catalogo
+                    SET nome = :nome,
+                        atualizado_em = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": row_id, "nome": normalized},
+            )
+
+        conn.execute(
+            text(
+                """
+                UPDATE users
+                SET cargo = LOWER(BTRIM(cargo))
+                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE solicitacoes_acesso
+                SET cargo = LOWER(BTRIM(cargo))
+                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                """
+            )
+        )
+
+        for raw_value in existing_values:
+            normalized = normalize_cargo_name(raw_value)
+            if not normalized:
+                continue
+
+            conn.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET cargo = :normalized
+                    WHERE cargo IS NOT NULL
+                      AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:raw_value))
+                    """
+                ),
+                {"normalized": normalized, "raw_value": raw_value},
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE solicitacoes_acesso
+                    SET cargo = :normalized
+                    WHERE cargo IS NOT NULL
+                      AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:raw_value))
+                    """
+                ),
+                {"normalized": normalized, "raw_value": raw_value},
+            )
+
+        for normalized in canonical_names:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO cargos_catalogo (nome)
+                    SELECT :nome
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM cargos_catalogo
+                        WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:nome))
+                    )
+                    """
+                ),
+                {"nome": normalized},
+            )
+
+
+def bootstrap_cargos_catalog(engine) -> None:
+    ensure_cargos_catalog(engine)
+    sync_cargos_from_existing(engine)
+
+
+def list_cargos(engine) -> list[str]:
+    bootstrap_cargos_catalog(engine)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT nome
+                FROM cargos_catalogo
+                ORDER BY nome
+                """
+            )
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def cargo_exists(engine, cargo: str | None) -> bool:
+    normalized = normalize_cargo_name(cargo)
+    if not normalized:
+        return False
+
+    bootstrap_cargos_catalog(engine)
+    with engine.connect() as conn:
+        return bool(
+            conn.execute(
+                text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM cargos_catalogo
+                        WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:cargo))
+                    )
+                    """
+                ),
+                {"cargo": normalized},
+            ).scalar()
+        )
+
+
+def add_cargo(engine, cargo: str | None) -> tuple[bool, str]:
+    normalized = normalize_cargo_name(cargo)
+    if not normalized:
+        return False, "Informe um cargo valido."
+
+    bootstrap_cargos_catalog(engine)
+    if cargo_exists(engine, normalized):
+        return False, f"O cargo '{normalized}' ja existe na lista."
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO cargos_catalogo (nome, atualizado_em)
+                VALUES (:nome, NOW())
+                """
+            ),
+            {"nome": normalized},
+        )
+
+    return True, f"Cargo '{normalized}' adicionado com sucesso."
+
+
+def rename_cargo(engine, current_name: str | None, new_name: str | None) -> tuple[bool, str]:
+    current_normalized = normalize_cargo_name(current_name)
+    new_normalized = normalize_cargo_name(new_name)
+
+    if not current_normalized:
+        return False, "Selecione um cargo para alterar."
+    if not new_normalized:
+        return False, "Informe o novo nome do cargo."
+    if current_normalized.lower() == new_normalized.lower() and current_normalized == new_normalized:
+        return False, "O novo nome do cargo e igual ao atual."
+
+    bootstrap_cargos_catalog(engine)
+
+    if not cargo_exists(engine, current_normalized):
+        return False, f"O cargo '{current_normalized}' nao existe na lista."
+
+    if current_normalized.lower() != new_normalized.lower() and cargo_exists(engine, new_normalized):
+        return False, f"Ja existe um cargo cadastrado como '{new_normalized}'."
+
+    params = {"current_name": current_normalized, "new_name": new_normalized}
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE cargos_catalogo
+                SET nome = :new_name,
+                    atualizado_em = NOW()
+                WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:current_name))
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE users
+                SET cargo = :new_name
+                WHERE cargo IS NOT NULL
+                  AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:current_name))
+                """
+            ),
+            params,
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE solicitacoes_acesso
+                SET cargo = :new_name
+                WHERE cargo IS NOT NULL
+                  AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:current_name))
+                """
+            ),
+            params,
+        )
+
+    return True, f"Cargo '{current_normalized}' atualizado para '{new_normalized}'."
+
+
+def get_cargo_normalization_preview(engine):
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT DISTINCT cargo
+                FROM (
+                    SELECT cargo
+                    FROM users
+                    WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+
+                    UNION ALL
+
+                    SELECT cargo
+                    FROM solicitacoes_acesso
+                    WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                ) cargos_origem
+                ORDER BY cargo
+                """
+            )
+        ).fetchall()
+
+    preview = []
+    seen_pairs = set()
+    for row in rows:
+        original_value = row[0]
+        canonical_value = normalize_cargo_name(original_value)
+        pair = (original_value, canonical_value)
+        if not canonical_value or pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        preview.append(
+            {
+                "Cargo Atual": original_value,
+                "Cargo Canonico": canonical_value,
+            }
+        )
+
+    return preview

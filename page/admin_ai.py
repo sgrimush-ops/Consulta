@@ -26,6 +26,12 @@ def _read_text(path: Path) -> str:
         return ""
 
 
+def _widget_key(prefix: str, path: Path) -> str:
+    relative_path = str(path.relative_to(ROOT_DIR))
+    sanitized_path = relative_path.replace("/", "-").replace(".", "-")
+    return f"{prefix}-{sanitized_path}"
+
+
 def _parse_frontmatter(path: Path) -> dict:
     content = _read_text(path)
     if not content.startswith("---"):
@@ -275,7 +281,7 @@ def _render_collection(title: str, items: list[dict], kind: str) -> None:
                 data=_read_text(item["arquivo"]),
                 file_name=item["arquivo"].name,
                 mime="text/plain",
-                key=f"download-{kind}-{item['arquivo'].name}",
+                key=_widget_key(f"download-{kind}", item["arquivo"]),
             )
 
 
@@ -311,7 +317,7 @@ def _render_reference_explorer(agents: list[dict], skills: list[dict], prompts: 
             data=content,
             file_name=selected_path.name,
             mime="text/plain",
-            key=f"download-reference-{selected_path.name}",
+            key=_widget_key("download-reference", selected_path),
         )
     else:
         st.warning("Nao foi possivel ler o conteudo do arquivo selecionado.")
