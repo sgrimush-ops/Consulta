@@ -262,7 +262,7 @@ def rename_cargo(engine, current_name: str | None, new_name: str | None) -> tupl
         return False, "Selecione um cargo para alterar."
     if not new_normalized:
         return False, "Informe o novo nome do cargo."
-    if current_normalized.lower() == new_normalized.lower() and current_normalized == new_normalized:
+    if current_normalized == new_normalized:
         return False, "O novo nome do cargo e igual ao atual."
 
     bootstrap_cargos_catalog(engine)
@@ -270,22 +270,35 @@ def rename_cargo(engine, current_name: str | None, new_name: str | None) -> tupl
     if not cargo_exists(engine, current_normalized):
         return False, f"O cargo '{current_normalized}' nao existe na lista."
 
-    if current_normalized.lower() != new_normalized.lower() and cargo_exists(engine, new_normalized):
-        return False, f"Ja existe um cargo cadastrado como '{new_normalized}'."
+    target_exists = cargo_exists(engine, new_normalized)
 
     params = {"current_name": current_normalized, "new_name": new_normalized}
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE cargos_catalogo
-                SET nome = :new_name,
-                    atualizado_em = NOW()
-                WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:current_name))
-                """
-            ),
-            params,
-        )
+        if target_exists:
+            # Quando o cargo de destino ja existe, fazemos fusao: migramos os
+            # registros e removemos o cargo antigo do catalogo.
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM cargos_catalogo
+                    WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:current_name))
+                    """
+                ),
+                {"current_name": current_normalized},
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    UPDATE cargos_catalogo
+                    SET nome = :new_name,
+                        atualizado_em = NOW()
+                    WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:current_name))
+                    """
+                ),
+                params,
+            )
+
         conn.execute(
             text(
                 """
@@ -309,6 +322,8 @@ def rename_cargo(engine, current_name: str | None, new_name: str | None) -> tupl
             params,
         )
 
+    if target_exists:
+        return True, f"Cargo '{current_normalized}' unificado em '{new_normalized}'."
     return True, f"Cargo '{current_normalized}' atualizado para '{new_normalized}'."
 
 
