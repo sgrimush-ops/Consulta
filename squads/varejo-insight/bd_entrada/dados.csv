@@ -1,0 +1,5 @@
+empresa;descrição;código;embalagem;estoque;pedidos pendentes;minimo;maximo;venda média dia;venda ultimos 30 dias;custo;preço venda;preço promocional;Sugestao de reposição
+3;coca cola 2 L;10;4;1185;400;1600;2000;56;1680;5;9,9;8,9;
+2;coca cola 2 L;10;4;800;200;1000;1500;30;900;5;9,9;8,9;
+15;coca cola 2 L;10;4;600;0;1600;2000;;;;;;
+2;coca cola 2 L;10;4;400;0;300;900;10;1000;5;9,9;8,9;

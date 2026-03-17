@@ -1,0 +1,15 @@
+name: Varejo Insight
+title: "Equipe Especialista em Ruptura e Reposição de Estoque"
+description: "Processa inventários complexos e histórico de vendas para gerar projeções precisas de compra, protegendo contra rupturas financeiras e excesso de estoque nas gôndolas e depósitos."
+icon: 🛒
+party: squads/varejo-insight/squad-party.csv
+pipeline: squads/varejo-insight/pipeline/pipeline.yaml
+skills:
+  - web_search
+  - web_fetch
+data:
+  - pipeline/data/research-brief.md
+  - pipeline/data/domain-framework.md
+  - pipeline/data/quality-criteria.md
+  - pipeline/data/output-examples.md
+  - pipeline/data/anti-patterns.md

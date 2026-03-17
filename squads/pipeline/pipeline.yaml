@@ -1,0 +1,17 @@
+name: Varejo Insight Pipeline
+entrypoint: steps/step-01-danilo.md
+steps:
+  - id: analise-base
+    file: steps/step-01-danilo.md
+  - id: analise-gondola
+    file: steps/step-02-gabi.md
+  - id: analise-deposito
+    file: steps/step-03-davi.md
+  - id: analise-clima
+    file: steps/step-04-clara.md
+  - id: consolidacao-aprovacao
+    file: steps/step-05-checkpoint.md
+  - id: geracao-dashboard
+    file: steps/step-06-diego.md
+  - id: aprovacao-final
+    file: steps/step-07-checkpoint.md

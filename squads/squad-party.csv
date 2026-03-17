@@ -1,0 +1,6 @@
+id,name,role,path
+squads/varejo-insight/agents/danilo-dados,Danilo Dados,Analista Numérico de Reposição (ROP),./agents/danilo-dados.agent.md
+squads/varejo-insight/agents/gabi-gondola,Gabi Gôndola,Analista de Facing e Estrutura Física,./agents/gabi-gondola.agent.md
+squads/varejo-insight/agents/davi-deposito,Davi Depósito,Gestor de Operações de Retaguarda,./agents/davi-deposito.agent.md
+squads/varejo-insight/agents/clara-clima,Clara Clima,Inteligência Sazonal e Promocional,./agents/clara-clima.agent.md
+squads/varejo-insight/agents/diego-dashboard,Diego Dashboard,Estrategista Executivo de BI,./agents/diego-dashboard.agent.md
