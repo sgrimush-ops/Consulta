@@ -5,11 +5,11 @@ icon: 🛒
 party: squads/varejo-insight/squad-party.csv
 pipeline: squads/varejo-insight/pipeline/pipeline.yaml
 skills:
-  - web_search
-  - web_fetch
+  - governanca-dados-varejo
+  - carregar-e-sanitizar-dados
 data:
-  - pipeline/data/research-brief.md
-  - pipeline/data/domain-framework.md
-  - pipeline/data/quality-criteria.md
-  - pipeline/data/output-examples.md
-  - pipeline/data/anti-patterns.md
+  - squads/varejo-insight/pipeline/data/research-brief.md
+  - squads/varejo-insight/pipeline/data/domain-framework.md
+  - squads/varejo-insight/pipeline/data/quality-criteria.md
+  - squads/varejo-insight/pipeline/data/output-examples.md
+  - squads/varejo-insight/pipeline/data/anti-patterns.md

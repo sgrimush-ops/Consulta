@@ -15,6 +15,7 @@ from page.admin_maint import show_admin_page
 from page.mudar_senha import show_mudar_senha_page
 from page.contato import show_contato_page
 from page.admin_uploads import show_admin_uploads_page
+from page.admin_ai import show_admin_ai_page
 from page.pedido_cd import show_pedidos_cd_page
 from page.pedido_consumo import show_pedido_consumo_page
 from page.solicitacao_acesso import show_solicitacao_acesso_page
@@ -420,6 +421,8 @@ def main_app():
         paginas["Administração"] = lambda: show_admin_page(
             engine, BASE_DATA_PATH)
         paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine)
+        paginas["Integração IA"] = lambda: show_admin_ai_page(
+            engine, BASE_DATA_PATH)
 
     # Seletor de Página
     page_labels = list(paginas.keys())

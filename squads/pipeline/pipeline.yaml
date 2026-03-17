@@ -6,12 +6,12 @@ steps:
   - id: analise-gondola
     file: steps/step-02-gabi.md
   - id: analise-deposito
-    file: steps/step-03-davi.md
+    file: steps/step-03-leonardo.md
   - id: analise-clima
     file: steps/step-04-clara.md
   - id: consolidacao-aprovacao
     file: steps/step-05-checkpoint.md
   - id: geracao-dashboard
-    file: steps/step-06-diego.md
+    file: steps/step-06-roberta.md
   - id: aprovacao-final
     file: steps/step-07-checkpoint.md
