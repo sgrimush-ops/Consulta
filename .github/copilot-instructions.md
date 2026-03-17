@@ -42,3 +42,12 @@ Os 9 agentes têm especialização pronta em manipulação robusta de Parquet:
 - Squad principal: `squads/varejo-insight/squad.yaml`
 - **Skill de Parquet**: `.github/skills/manipulacao-robusta-parquet/SKILL.md`
 - **Utilitários Parquet**: `.github/skills/manipulacao-robusta-parquet/parquet_utils.py`
+
+## Guardrails de Qualidade (Anti-Falhas de Deploy)
+
+- Em alteracoes de Python, principalmente em `app.py`, valide blocos `with`, `try/except` e `def` para evitar erro de indentacao.
+- Nunca inserir chamadas fora de bloco (ex.: `bootstrap_*`) no meio de comandos `conn.execute(...)` dentro de `with engine.begin()`.
+- Sempre executar validacao local antes de commit:
+	- `python scripts/smoke_test.py`
+	- checagem de erros estaticos no arquivo alterado
+- Se houver falha de deploy com `IndentationError`, revisar primeiro o entorno da linha reportada e confirmar alinhamento por bloco logico.

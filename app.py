@@ -279,9 +279,6 @@ def create_db_tables(engine):
                     {lojas_sql_cols}
                 )
             """))
-
-        bootstrap_cargos_catalog(engine)
-
             conn.execute(text("""
                 ALTER TABLE pedidos_consolidados
                 ADD COLUMN IF NOT EXISTS origem_pedido TEXT
@@ -325,6 +322,8 @@ def create_db_tables(engine):
                     UNIQUE(codigo_interno, data_inicio, data_final)
                 )
             """))
+
+        bootstrap_cargos_catalog(engine)
     except Exception as e:
         # Melhoria: avisa se houver erro ao criar tabelas
         st.warning(f"Aviso: Falha ao tentar criar tabelas no BD. {e}")
