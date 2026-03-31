@@ -1,7 +1,70 @@
 import streamlit as st
 import pandas as pd
 import os
+import threading
+import time
+import av
+import cv2
 from sqlalchemy import text
+
+try:
+    from pyzbar.pyzbar import decode as pyzbar_decode
+except Exception:
+    pyzbar_decode = None
+
+try:
+    from streamlit_webrtc import (
+        webrtc_streamer,
+        WebRtcMode,
+        RTCConfiguration,
+    )
+except Exception:
+    webrtc_streamer = None
+    WebRtcMode = None
+    RTCConfiguration = None
+
+
+class EANVideoProcessor:
+    """Processa frames da câmera e detecta EAN/DUN em tempo real."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.last_ean = None
+        self.last_seen_at = None
+
+    def _set_last_ean(self, ean):
+        with self._lock:
+            self.last_ean = ean
+            self.last_seen_at = time.time()
+
+    def get_last_ean(self):
+        with self._lock:
+            return self.last_ean
+
+    def recv(self, frame):
+        image = frame.to_ndarray(format="bgr24")
+
+        if pyzbar_decode is not None:
+            barcodes = pyzbar_decode(image)
+            for barcode in barcodes:
+                texto_lido = barcode.data.decode("utf-8", errors="ignore")
+                ean = "".join(ch for ch in texto_lido if ch.isdigit())
+                if ean:
+                    self._set_last_ean(ean)
+
+                x, y, w, h = barcode.rect
+                cv2.rectangle(image, (x, y), (x + w, y + h), (0, 180, 0), 2)
+                cv2.putText(
+                    image,
+                    texto_lido,
+                    (x, max(20, y - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 180, 0),
+                    2,
+                )
+
+        return av.VideoFrame.from_ndarray(image, format="bgr24")
 
 
 def _normalizar_nomes_colunas(df):
@@ -9,6 +72,71 @@ def _normalizar_nomes_colunas(df):
     df = df.copy()
     df.columns = [str(col).strip() for col in df.columns]
     return df
+
+
+def _normalizar_codigo_barras(valor):
+    """Mantém apenas dígitos do EAN/DUN para comparação estável."""
+    if pd.isna(valor):
+        return ""
+    return "".join(ch for ch in str(valor).strip() if ch.isdigit())
+
+
+def _carregar_base_ean_dun():
+    """Carrega a base EAN/DUN e retorna colunas padronizadas."""
+    parquet_path = os.path.join("bdados", "ean_dun.parquet")
+    if not os.path.exists(parquet_path):
+        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
+
+    df_ean = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
+    if df_ean.empty:
+        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
+
+    colunas_lower = {str(col).strip().lower(): col for col in df_ean.columns}
+
+    aliases_cod = [
+        "cod_consinco",
+        "codigoconsinco",
+        "codigo produto",
+        "código produto",
+        "codigo_interno",
+        "codigo"
+    ]
+    aliases_ean = [
+        "codigo_ean",
+        "ean",
+        "ean_dun",
+        "dun",
+        "codigo de barras",
+        "código de barras",
+        "codigobarras",
+        "codigo_barras"
+    ]
+
+    col_cod = next(
+        (colunas_lower[a] for a in aliases_cod if a in colunas_lower),
+        None
+    )
+    col_ean = next(
+        (colunas_lower[a] for a in aliases_ean if a in colunas_lower),
+        None
+    )
+
+    if not col_cod or not col_ean:
+        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
+
+    df_ean = df_ean[[col_cod, col_ean]].copy()
+    df_ean.columns = ["cod_consinco", "codigo_ean"]
+
+    df_ean["cod_consinco"] = pd.to_numeric(
+        df_ean["cod_consinco"], errors="coerce"
+    )
+    df_ean = df_ean.dropna(subset=["cod_consinco"]).copy()
+    df_ean["cod_consinco"] = df_ean["cod_consinco"].astype(int)
+
+    df_ean["codigo_ean"] = df_ean["codigo_ean"].apply(_normalizar_codigo_barras)
+    df_ean = df_ean[df_ean["codigo_ean"] != ""].copy()
+
+    return df_ean.drop_duplicates(subset=["cod_consinco", "codigo_ean"])
 
 
 def get_correcoes_embalagens(engine):
@@ -181,6 +309,16 @@ def show_consulta_mix_page(engine, base_data_path):
         st.error(f"Erro ao carregar arquivo de dados: {e}")
         st.stop()
 
+    # Carregar e anexar EAN/DUN para consulta por código de barras
+    df_ean = _carregar_base_ean_dun()
+    if not df_ean.empty:
+        df_ean_first = df_ean.drop_duplicates(
+            subset=["cod_consinco"], keep="first"
+        )
+        df_mix = df_mix.merge(df_ean_first, on="cod_consinco", how="left")
+    else:
+        df_mix["codigo_ean"] = None
+
     # Filtrar apenas produtos ativos
     df_mix_ativo = df_mix[df_mix["Mix"] == "A"].copy()
     
@@ -200,7 +338,12 @@ def show_consulta_mix_page(engine, base_data_path):
     st.subheader("Buscar Produto")
     tipo_busca = st.radio(
         "Tipo de busca:",
-        ["Por Código Consinco", "Por Código Transição", "Por Descrição"],
+        [
+            "Por Código Consinco",
+            "Por Código Transição",
+            "Por EAN",
+            "Por Descrição"
+        ],
         horizontal=True
     )
     
@@ -239,6 +382,10 @@ def show_consulta_mix_page(engine, base_data_path):
                         st.info(f"**Código Consinco:** {produto['cod_consinco']}")
                         st.info(f"**Descrição:** {produto['descricao']}")
                         st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
+                        st.info(
+                            "**EAN:** "
+                            f"{produto.get('codigo_ean', '-') if pd.notna(produto.get('codigo_ean')) else '-'}"
+                        )
                     with col2:
                         st.info(f"**Status:** {'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}")
                         
@@ -250,8 +397,22 @@ def show_consulta_mix_page(engine, base_data_path):
                     
                     # Exibir em formato de tabela também
                     st.markdown("### Detalhes Completos")
-                    df_display = resultado.copy()
-                    df_display.columns = ['Código Consinco', 'Descrição', 'Código Transição', 'Status', 'Embalagem']
+                    df_display = resultado[[
+                        'cod_consinco',
+                        'descricao',
+                        'transicao',
+                        'Mix',
+                        'Emb',
+                        'codigo_ean'
+                    ]].copy()
+                    df_display.columns = [
+                        'Código Consinco',
+                        'Descrição',
+                        'Código Transição',
+                        'Status',
+                        'Embalagem',
+                        'EAN'
+                    ]
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
                 else:
                     if not resultado_all.empty:
@@ -333,6 +494,10 @@ def show_consulta_mix_page(engine, base_data_path):
                         st.info(
                             f"**Código Transição (Antigo):** {produto['transicao']}"
                         )
+                        st.info(
+                            "**EAN:** "
+                            f"{produto.get('codigo_ean', '-') if pd.notna(produto.get('codigo_ean')) else '-'}"
+                        )
                     with col2:
                         st.info(
                             "**Status:** "
@@ -349,13 +514,21 @@ def show_consulta_mix_page(engine, base_data_path):
                         st.info(emb_text)
 
                     st.markdown("### Detalhes Completos")
-                    df_display = resultado.copy()
+                    df_display = resultado[[
+                        'cod_consinco',
+                        'descricao',
+                        'transicao',
+                        'Mix',
+                        'Emb',
+                        'codigo_ean'
+                    ]].copy()
                     df_display.columns = [
                         "Código Consinco",
                         "Descrição",
                         "Código Transição",
                         "Status",
-                        "Embalagem"
+                        "Embalagem",
+                        "EAN"
                     ]
                     st.dataframe(
                         df_display,
@@ -405,6 +578,148 @@ def show_consulta_mix_page(engine, base_data_path):
                         )
             except ValueError:
                 st.error("❌ Por favor, digite apenas números no código.")
+
+    elif tipo_busca == "Por EAN":
+        if "consulta_mix_ean_input" not in st.session_state:
+            st.session_state["consulta_mix_ean_input"] = ""
+
+        st.caption(
+            "Use a câmera do celular para ler o código em tempo real "
+            "ou digite o EAN manualmente."
+        )
+
+        dependencias_camera_ok = all(
+            [
+                webrtc_streamer is not None,
+                WebRtcMode is not None,
+                RTCConfiguration is not None,
+                pyzbar_decode is not None,
+            ]
+        )
+
+        if dependencias_camera_ok:
+            usar_camera = st.toggle(
+                "Ler EAN pela câmera em tempo real",
+                value=False,
+                key="consulta_mix_usar_camera",
+            )
+
+            if usar_camera:
+                st.info(
+                    "Aponte a câmera para o código de barras; "
+                    "o campo EAN será preenchido automaticamente."
+                )
+
+                rtc_config = RTCConfiguration(
+                    {
+                        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                    }
+                )
+
+                webrtc_ctx = webrtc_streamer(
+                    key="consulta_mix_ean_reader",
+                    mode=WebRtcMode.SENDRECV,
+                    rtc_configuration=rtc_config,
+                    media_stream_constraints={
+                        "video": {
+                            "facingMode": {"ideal": "environment"}
+                        },
+                        "audio": False,
+                    },
+                    video_processor_factory=EANVideoProcessor,
+                    async_processing=True,
+                )
+
+                if webrtc_ctx.video_processor:
+                    ean_detectado = webrtc_ctx.video_processor.get_last_ean()
+                    if ean_detectado:
+                        ean_norm = _normalizar_codigo_barras(ean_detectado)
+                        if ean_norm and (
+                            st.session_state["consulta_mix_ean_input"]
+                            != ean_norm
+                        ):
+                            st.session_state[
+                                "consulta_mix_ean_input"
+                            ] = ean_norm
+                        if ean_norm:
+                            st.success(
+                                f"EAN detectado: {ean_norm}"
+                            )
+        else:
+            st.warning(
+                "Leitura por câmera indisponível no ambiente atual. "
+                "Use o campo manual de EAN."
+            )
+
+        ean_busca = st.text_input(
+            "Digite o EAN lido no celular:",
+            placeholder="Ex: 7894900011517",
+            key="consulta_mix_ean_input",
+        )
+
+        if ean_busca:
+            ean_norm = _normalizar_codigo_barras(ean_busca)
+            if not ean_norm:
+                st.error("❌ Informe um EAN válido (somente dígitos).")
+            elif df_ean.empty:
+                st.warning(
+                    "⚠️ Base EAN/DUN não encontrada ou sem mapeamento válido."
+                )
+            else:
+                codigos_encontrados = df_ean.loc[
+                    df_ean["codigo_ean"] == ean_norm,
+                    "cod_consinco"
+                ].drop_duplicates()
+
+                if codigos_encontrados.empty:
+                    st.warning(
+                        f"⚠️ EAN {ean_norm} não encontrado na base ean_dun.parquet."
+                    )
+                else:
+                    resultado_all = df_mix[
+                        df_mix["cod_consinco"].isin(codigos_encontrados)
+                    ].copy()
+                    resultado = resultado_all[resultado_all["Mix"] == "A"].copy()
+
+                    if resultado.empty and not resultado_all.empty:
+                        produto = resultado_all.iloc[0]
+                        st.warning(
+                            "⚠️ Produto encontrado pelo EAN, mas não está ativo no mix."
+                        )
+                        st.info(
+                            f"Código Consinco: {produto.get('cod_consinco')} | "
+                            f"Status: {produto.get('Mix')}"
+                        )
+                    elif resultado.empty:
+                        st.warning(
+                            "⚠️ Produto encontrado no EAN, mas sem vínculo no mix atual."
+                        )
+                    else:
+                        st.success(
+                            f"✅ Encontrado(s) {len(resultado)} produto(s) para o EAN {ean_norm}."
+                        )
+
+                        df_display = resultado[[
+                            'cod_consinco',
+                            'descricao',
+                            'transicao',
+                            'Mix',
+                            'Emb',
+                            'codigo_ean'
+                        ]].copy()
+                        df_display.columns = [
+                            'Código Consinco',
+                            'Descrição',
+                            'Código Transição',
+                            'Status',
+                            'Embalagem',
+                            'EAN'
+                        ]
+                        st.dataframe(
+                            df_display,
+                            use_container_width=True,
+                            hide_index=True
+                        )
     
     else:  # Busca por descrição
         descricao_busca = st.text_input(
@@ -426,8 +741,22 @@ def show_consulta_mix_page(engine, base_data_path):
                 
                 # Renomear colunas para exibição
                 df_display = resultado.copy()
-                df_display = df_display[['cod_consinco', 'descricao', 'transicao', 'Mix', 'Emb']]
-                df_display.columns = ['Código Consinco', 'Descrição', 'Código Transição', 'Status', 'Embalagem']
+                df_display = df_display[[
+                    'cod_consinco',
+                    'descricao',
+                    'transicao',
+                    'Mix',
+                    'Emb',
+                    'codigo_ean'
+                ]]
+                df_display.columns = [
+                    'Código Consinco',
+                    'Descrição',
+                    'Código Transição',
+                    'Status',
+                    'Embalagem',
+                    'EAN'
+                ]
                 
                 # Adicionar filtros adicionais
                 st.markdown("#### Filtros Adicionais")
@@ -473,8 +802,22 @@ def show_consulta_mix_page(engine, base_data_path):
         st.markdown("### Todos os Produtos Ativos")
         
         df_display_all = df_mix_ativo.copy()
-        df_display_all = df_display_all[['cod_consinco', 'descricao', 'transicao', 'Mix', 'Emb']]
-        df_display_all.columns = ['Código Consinco', 'Descrição', 'Código Transição', 'Status', 'Embalagem']
+        df_display_all = df_display_all[[
+            'cod_consinco',
+            'descricao',
+            'transicao',
+            'Mix',
+            'Emb',
+            'codigo_ean'
+        ]]
+        df_display_all.columns = [
+            'Código Consinco',
+            'Descrição',
+            'Código Transição',
+            'Status',
+            'Embalagem',
+            'EAN'
+        ]
         
         st.dataframe(
             df_display_all,
