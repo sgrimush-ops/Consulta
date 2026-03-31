@@ -32,6 +32,20 @@ Essa pasta concentra a definicao principal do squad de varejo, incluindo:
 - O `squad-party.csv` foi corrigido para apontar para `leonardo-logistica` e `roberta-relatorios`, que sao os agentes reais presentes no repositorio.
 - O `pipeline/pipeline.yaml` foi corrigido para usar `step-03-leonardo.md` e `step-06-roberta.md`, que sao os arquivos existentes.
 - O `squads/squad.yaml` passou a apontar corretamente para os caminhos completos do squad principal.
+- Os agentes duplicados de `squads/agents/` foram removidos (canonico em `squads/varejo-insight/agents/`).
+
+## Fontes Canonicas de Dados (Parquet)
+
+| Arquivo | Uso | Origem |
+|---|---|---|
+| `bdados/con5cod.parquet` | Catalogo de produtos Consinco | Git / Admin Uploads |
+| `bdados/consumo.parquet` | Historico de consumo por loja | Git / Admin Uploads |
+| `bdados/ean_dun.parquet` | Mapeamento EAN/DUN por produto | **Somente Admin Uploads** |
+| `bdados/query.parquet` | Embalagem de transferencia | **Somente Admin Uploads** |
+
+- Arquivos marcados como **"Somente Admin Uploads"** nao ficam no Git.
+- Use `page/admin_uploads.py` para envia-los ao disco persistente no Render.
+- Variaveis de ambiente `EAN_DUN_PARQUET_PATH` e `QUERY_PARQUET_PATH` permitem sobrescrever caminhos.
 
 ## Skills integradas
 
@@ -44,27 +58,19 @@ Use para:
 - classificacao de filiais e CDs
 - limpeza de colunas com delimitador interno
 
-### `manipulacao-robusta-parquet` ⭐ **NOVO**
+### `manipulacao-robusta-parquet`
 
 Use para:
 - Validar integridade de arquivos Parquet (schema, nulos, duplicatas)
-- Inspeccionar metadados: linhas, colunas, tipos de dados, tamanho comprimido
-- Converter CSV → Parquet ou Parquet → CSV com preservação de tipos
-- Mesclar múltiplos Parquets
-- Otimizar leitura usando leitura de colunas parciais e push-down filters
-- Trabalhar com dados canônicos: `bdados/con5cod.parquet` (produtos), `bdados/consumo.parquet` (consumo)
+- Inspecionar metadados: linhas, colunas, tipos de dados, tamanho comprimido
+- Converter CSV → Parquet ou Parquet → CSV com preservacao de tipos
+- Mesclar multiplos Parquets
+- Resolver caminhos de Parquet em deploy no Render
+- Trabalhar com dados canonicos: `con5cod`, `consumo`, `ean_dun`, `query`
 
-**Referência:** `.github/skills/manipulacao-robusta-parquet/SKILL.md`
+**Referencia:** `.github/skills/manipulacao-robusta-parquet/SKILL.md`
 
 **Script de utilidade:** `python .github/skills/manipulacao-robusta-parquet/parquet_utils.py`
-
-**Exemplos CLI:**
-```
-python parquet_utils.py info bdados/con5cod.parquet        # Metadados
-python parquet_utils.py validate bdados/consumo.parquet    # Integridade
-python parquet_utils.py columns bdados/con5cod.parquet     # Detalhe por coluna
-python parquet_utils.py csv-to-parquet dados.csv dados.parquet
-```
 
 ### `carregar-e-sanitizar-dados`
 
@@ -77,8 +83,8 @@ Use para:
 
 ## Agentes integrados
 
-- `Anton Engenheiro Software`: integracao tecnica e manutencao do ecossistema
-- `Ale Governanca de Dados`: qualidade de dados e padronizacao
+- `Anton Engenheiro Software`: integracao tecnica, manutencao do ecossistema, deploy no Render
+- `Ale Governanca de Dados`: qualidade de dados, padronizacao, validacao de Parquets
 - `Danilo Dados`: reposicao numerica e ROP
 - `Gabi Gondola`: ajuste visual e facing
 - `Leonardo Logistica`: backroom e transbordo
@@ -119,4 +125,4 @@ Nela e possivel:
 
 - A aplicacao Streamlit nao invoca esses agentes automaticamente.
 - A integracao e orientada ao uso no editor e a padronizacao de analises assistidas por IA.
-- Os artefatos historicos em `.agents/` e `skills/` foram preservados como base original.
+- Agentes canonicos ficam em `.github/agents/` (9 agentes) e `squads/varejo-insight/agents/` (6 agentes da squad).

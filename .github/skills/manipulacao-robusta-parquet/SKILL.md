@@ -8,7 +8,12 @@ O aplicativo ProjetoBak usa **Parquet como formato canônico** para armazenament
 bdados/
 ├── con5cod.parquet          # Catálogo de produtos (Consinco)
 ├── consumo.parquet          # Histórico de consumo por loja
+├── ean_dun.parquet          # Mapeamento EAN/DUN por produto (Admin Uploads)
+└── query.parquet            # Embalagem de transferência por produto (Admin Uploads)
 ```
+
+> **Atenção**: `ean_dun.parquet` e `query.parquet` **não ficam no Git**.
+> Devem ser carregados via `page/admin_uploads.py` para o disco persistente no Render.
 
 **Parquet** é um formato **columnar, comprimido e tipado** que oferece:
 - ✅ Compressão automática (reduz tamanho em 70-90% vs CSV)
@@ -43,8 +48,6 @@ df_final = pd.concat([
 
 ### 2. **Dados de Consumo** (`bdados/consumo.parquet`)
 
-CSV de entrada é exportado para Parquet após sanitização:
-
 ```python
 # Carrega CSV com problemas
 df = pd.read_csv("consumo_sujo.csv")
@@ -54,6 +57,36 @@ df = _sanitizar_consumo(df)
 
 # Exporta para parquet para próximas execuções
 df.to_parquet("bdados/consumo.parquet", engine='pyarrow')
+```
+
+### 3. **EAN/DUN por Produto** (`bdados/ean_dun.parquet`)
+
+```python
+df_ean = pd.read_parquet("bdados/ean_dun.parquet")
+
+# Normaliza colunas (schema pode variar por exportação do ERP)
+df_ean.columns = [c.lower().strip().replace(' ', '_') for c in df_ean.columns]
+
+# Colunas esperadas após normalização: codigo_produto, ean_dun
+df_ean['ean_dun'] = df_ean['ean_dun'].astype(str).str.strip()
+
+# Equivalência EAN-13 ↔ GTIN-14 (comum em base DUN)
+def buscar_por_ean(df_ean, codigo):
+    variantes = {str(codigo).strip().zfill(13), str(codigo).strip().zfill(14)}
+    return df_ean[df_ean['ean_dun'].isin(variantes)]
+```
+
+### 4. **Embalagem de Transferência** (`bdados/query.parquet`)
+
+```python
+df_query = pd.read_parquet("bdados/query.parquet")
+df_query.columns = [c.lower().strip().replace(' ', '_') for c in df_query.columns]
+
+# Mesclar embalagem ao resultado de produto por cod_consinco
+resultado = resultado.merge(
+    df_query[['cod_consinco', 'embalagem_de_transferencia']],
+    on='cod_consinco', how='left'
+)
 ```
 
 ## Operações Comuns com Parquet
@@ -84,19 +117,11 @@ df = table.to_pandas()
 ### **2. Escrever Parquet**
 
 ```python
-# Exportar DataFrame para Parquet
 df.to_parquet(
     "bdados/consumo.parquet",
     engine='pyarrow',
-    compression='snappy',  # ou 'gzip', 'brotli'
+    compression='snappy',
     index=False
-)
-
-# Com particionamento (para arquivos muito grandes)
-df.to_parquet(
-    "bdados/consumo_particionado/",
-    partition_cols=['loja_id'],  # Cria subpastas por loja
-    engine='pyarrow'
 )
 ```
 
@@ -105,58 +130,23 @@ df.to_parquet(
 ```python
 import pyarrow.parquet as pq
 
-# Ler metadados sem carregar dados
 parquet_file = pq.ParquetFile("bdados/con5cod.parquet")
-
-# Número de linhas
-num_rows = parquet_file.num_rows
-# 50000
-
-# Schema (tipos de dados)
-schema = parquet_file.schema
-# cod_consinco: int64
-# descricao: string
-# Emb: int32
-# Mix: string
-
-# Tamanho físico (comprimido)
-metadata = parquet_file.metadata
-compressed_size = metadata.size
-# "2.5 MB"
-
-# Informações de particionamento
-print(parquet_file.schema_arrow)
+print(f"Linhas: {parquet_file.num_rows}")
+print(f"Schema: {parquet_file.schema}")
 ```
 
 ### **4. Validações de Integridade**
 
 ```python
-import pandas as pd
-
 def validar_parquet(caminho_arquivo):
-    """Valida integridade de arquivo parquet."""
-    
     try:
-        # Tentativa de leitura
         df = pd.read_parquet(caminho_arquivo)
-        
-        # Validações
         assert df.shape[0] > 0, "Arquivo está vazio"
         assert df.shape[1] > 0, "Nenhuma coluna encontrada"
-        
-        # Linhas duplicadas
-        n_duplicados = df.duplicated().sum()
-        if n_duplicados > 0:
-            print(f"⚠️  AVISO: {n_duplicados} linhas duplicadas")
-        
-        # Valores nulos críticos
-        for col in df.columns:
-            n_nulos = df[col].isna().sum()
-            if n_nulos > 0:
-                print(f"⚠️  AVISO: {col} tem {n_nulos} valores nulos")
-        
+        n_dup = df.duplicated().sum()
+        if n_dup > 0:
+            print(f"⚠️  {n_dup} linhas duplicadas")
         return True, f"✅ Parquet válido: {df.shape[0]} linhas, {df.shape[1]} colunas"
-    
     except Exception as e:
         return False, f"❌ Erro ao ler parquet: {e}"
 ```
@@ -164,49 +154,72 @@ def validar_parquet(caminho_arquivo):
 ### **5. Converter CSV → Parquet**
 
 ```python
-import pandas as pd
-
-# Carregar CSV com encoding correto
-df = pd.read_csv(
-    "dados.csv",
-    sep=';',
-    encoding='utf-8',
-    dtype={'cod_consinco': 'int64', 'Mix': 'string'}
-)
-
-# Validar antes de exportar
+df = pd.read_csv("dados.csv", sep=';', encoding='utf-8')
 assert not df[['cod_consinco']].duplicated().any(), "Códigos duplicados!"
-
-# Exportar para Parquet
-df.to_parquet(
-    "bdados/dados.parquet",
-    engine='pyarrow',
-    compression='snappy',
-    index=False
-)
-
-print(f"✅ Convertido: {df.shape[0]} linhas para Parquet")
+df.to_parquet("bdados/dados.parquet", engine='pyarrow', compression='snappy', index=False)
 ```
 
 ### **6. Mesclar Múltiplos Parquets**
 
 ```python
-import pandas as pd
 import glob
-
-# Ler todos os parquets de um diretório
-arquivos = glob.glob("bdados/consumo_*/consumo_*.parquet")
-
-dfs = [
-    pd.read_parquet(arquivo)
-    for arquivo in arquivos
-]
-
-# Concatenar
+arquivos = glob.glob("bdados/consumo_*/*.parquet")
+dfs = [pd.read_parquet(a) for a in arquivos]
 df_total = pd.concat(dfs, ignore_index=True)
-
-# Exportar resultado
 df_total.to_parquet("bdados/consumo_consolidado.parquet")
+```
+
+## Parquet no Deploy do Render
+
+### Arquivos que NÃO ficam no Git
+- `ean_dun.parquet` e `query.parquet` são carregados via **Admin Uploads**.
+- `con5cod.parquet` e `consumo.parquet` podem ser commitados ou enviados via upload.
+- O cwd do container Render pode diferir do ambiente local.
+
+### Resolução de Caminho (Padrão Anti-Deploy-Fail)
+
+```python
+import os, pathlib
+
+def resolver_parquet(nome_arquivo, env_var=None):
+    """Resolve caminho de Parquet compativel com Render e ambiente local."""
+    if env_var and os.getenv(env_var):
+        return os.getenv(env_var)
+    base_disk = os.getenv('RENDER_DISK_PATH', '')
+    candidatos = [
+        pathlib.Path(__file__).parent.parent / 'bdados' / nome_arquivo,
+        pathlib.Path(base_disk) / 'bdados' / nome_arquivo if base_disk else None,
+        pathlib.Path('/opt/render/project/src/bdados') / nome_arquivo,
+        pathlib.Path('bdados') / nome_arquivo,
+    ]
+    for c in candidatos:
+        if c and c.exists():
+            return str(c)
+    return None  # Arquivo nao encontrado em nenhum candidato
+
+# Uso:
+path_ean = resolver_parquet('ean_dun.parquet', 'EAN_DUN_PARQUET_PATH')
+path_query = resolver_parquet('query.parquet', 'QUERY_PARQUET_PATH')
+```
+
+### apt.txt para Libs de Sistema
+
+```
+libzbar0   # pyzbar (leitura de codigo de barras)
+ffmpeg     # av/streamlit-webrtc
+```
+
+### Imports Opcionais (evitar crash por dependência ausente)
+
+```python
+try:
+    import av
+    import cv2
+    from pyzbar import pyzbar
+    from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+    CAMERA_DISPONIVEL = True
+except ImportError:
+    CAMERA_DISPONIVEL = False
 ```
 
 ## Padrões de Boas Práticas
@@ -214,49 +227,39 @@ df_total.to_parquet("bdados/consumo_consolidado.parquet")
 ### **✅ Fazer**
 - Ler só colunas necessárias (reduz memória)
 - Usar filtros no nível do Parquet (push-down)
-- Definir tipos de dados explicitamente
-- Adicionar coluna de origem (`origem = 'Parquet'`) ao mesclar
-- Documentar schema e mapeamento de colunas
+- Normalizar colunas antes de mapear (lower, strip, replace espaços)
+- Adicionar coluna de origem ao mesclar
+- Resolver caminhos por múltiplos candidatos no Render
 
 ### **❌ Não Fazer**
 - Ler arquivo inteiro se só precisa de subset
 - Converter Parquet → CSV → Parquet (perda de tipos)
-- Sobrescrever Parquet sem backup
-- Assumir que coluna existe sem validar primeiro
-- Ignorar avisos de duplicatas/nulos
+- Assumir que coluna existe sem validar
+- Commitar Parquets grandes no Git (usar Admin Uploads)
+- Import direto no topo de libs opcionais (derruba o app)
 
 ## Checklist para Trabalhar com Parquet
 
-- [ ] Arquivo parquet existe em `bdados/`?
+- [ ] Arquivo parquet existe no caminho correto?
 - [ ] Consigo ler com `pd.read_parquet()`?
-- [ ] Schema está correto (tipos de dados)?
+- [ ] Colunas normalizadas e mapeadas?
 - [ ] Sem linhas duplicadas críticas?
-- [ ] Sem valores nulos onde não esperado?
-- [ ] Tamanho do arquivo é razoável (<1 GB descomprimido)?
-- [ ] Se modifico, valido antes de sobrescrever?
-- [ ] Backup do original antes de escrever?
+- [ ] Arquivo disponível no Render (via Admin Uploads)?
+- [ ] Caminhos resolvidos por múltiplos candidatos?
 
 ## Dependências Já Instaladas
 
 ```
 pyarrow==23.0.1              # ← Já em requirements.txt
-pandas==3.0.1                # ← Já em requirements.txt
+pandas==2.2.3                # ← Já em requirements.txt
 ```
-
-Parquet é suportado nativamente via `pd.read_parquet()` / `df.to_parquet()`.
 
 ## Exemplos de Tarefas Típicas
 
 ### **Tarefa 1: Carregar apenas ativos para análise**
 
 ```python
-import pandas as pd
-
-# Ler só produtos Mix='A' (ativos)
-df = pd.read_parquet(
-    "bdados/con5cod.parquet",
-    columns=['cod_consinco', 'descricao', 'Emb']
-)
+df = pd.read_parquet("bdados/con5cod.parquet", columns=['cod_consinco', 'descricao', 'Emb'])
 df = df[df['Mix'] == 'A']
 ```
 
@@ -264,47 +267,44 @@ df = df[df['Mix'] == 'A']
 
 ```python
 from pyarrow.parquet import ParquetFile
-
 pf = ParquetFile("bdados/con5cod.parquet")
-print(f"Linhas: {pf.num_rows}, Colunas: {pf.num_columns}")
-print(f"Schema: {pf.schema}")
+print(f"Linhas: {pf.num_rows}, Schema: {pf.schema}")
 ```
 
 ### **Tarefa 3: Mesclar custom + parquet (padrão ProjetoBak)**
 
 ```python
-import pandas as pd
-
 df_custom = pd.read_sql("SELECT * FROM produtos_custom", engine)
 df_parquet = pd.read_parquet("bdados/con5cod.parquet")
-
-# Custom sempre prevalece
 codigos_custom = set(df_custom['cod_consinco'].values)
 df_parquet = df_parquet[~df_parquet['cod_consinco'].isin(codigos_custom)]
-
 df_final = pd.concat([df_custom, df_parquet], ignore_index=True)
+```
+
+### **Tarefa 4: Buscar produto por EAN**
+
+```python
+df_ean = pd.read_parquet("bdados/ean_dun.parquet")
+df_ean.columns = [c.lower().strip().replace(' ', '_') for c in df_ean.columns]
+variantes = {ean.zfill(13), ean.zfill(14)}
+resultado = df_ean[df_ean['ean_dun'].isin(variantes)]
 ```
 
 ## Integração com Agentes
 
-**Danilo Dados** usa esta skill para:
-- Carregar base de produtos/consumo
-- Validar integridade de parquet
-- Calcular ROP/cobertura sobre parquet
+**Danilo Dados**: carrega consumo/produtos, calcula ROP/cobertura.
 
-**Ale Governança** usa para:
-- Auditar tipos de dados
-- Detectar inconsistências
-- Documentar schema
+**Ale Governança**: audita schema, detecta inconsistências, valida ean_dun e query.
 
-**Roberta Relatórios** usa para:
-- Agregações de consumo
-- Particionamento por período
-- Exportação para dashboard
+**Anton Software**: resolve caminhos no Render, gerencia Admin Uploads, valida apt.txt.
+
+**Roberta Relatórios**: agrega consumo, exporta para dashboard.
 
 ## Referências
 
 - Docs PyArrow: https://arrow.apache.org/docs/python/
 - Pandas Parquet: https://pandas.pydata.org/docs/user_guide/io.html#parquet
 - `utils/produtos_loader.py`: Exemplo de leitura + mesclagem
+- `page/admin_uploads.py`: Upload de Parquet para disco persistente no Render
 - `requirements.txt`: `pyarrow==23.0.1`
+- `apt.txt`: libs de sistema para pyzbar/av
