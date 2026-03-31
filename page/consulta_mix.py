@@ -194,6 +194,74 @@ def _resolver_caminho_ean_dun(base_data_path=None):
     return None, caminhos_arquivos
 
 
+def _resolver_caminho_query(base_data_path=None):
+    """Resolve o caminho do query.parquet para local e Render."""
+    caminhos_arquivos = []
+    caminhos_diretorios = []
+
+    render_disk_path = os.environ.get("RENDER_DISK_PATH")
+    query_env_path = os.environ.get("QUERY_PARQUET_PATH")
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    if query_env_path:
+        if os.path.isdir(query_env_path):
+            caminhos_diretorios.append(query_env_path)
+        else:
+            caminhos_arquivos.append(query_env_path)
+
+    if base_data_path:
+        caminhos_diretorios.extend([
+            base_data_path,
+            os.path.join(base_data_path, "bdados"),
+        ])
+
+    if render_disk_path:
+        caminhos_diretorios.extend([
+            render_disk_path,
+            os.path.join(render_disk_path, "bdados"),
+            os.path.join(render_disk_path, "data"),
+        ])
+
+    caminhos_diretorios.extend([
+        os.path.join(project_root, "bdados"),
+        os.path.join(project_root, "data"),
+        os.path.join(os.getcwd(), "bdados"),
+        os.path.join(os.getcwd(), "data"),
+        "bdados",
+        "data",
+    ])
+
+    nomes_arquivo = [
+        "query.parquet",
+        "QUERY.parquet",
+        "query.PARQUET",
+    ]
+
+    for diretorio in caminhos_diretorios:
+        for nome_arquivo in nomes_arquivo:
+            caminhos_arquivos.append(os.path.join(diretorio, nome_arquivo))
+
+    caminhos_arquivos = list(dict.fromkeys(caminhos_arquivos))
+
+    for caminho in caminhos_arquivos:
+        if os.path.isfile(caminho):
+            return os.path.abspath(caminho), caminhos_arquivos
+
+    for diretorio in list(dict.fromkeys(caminhos_diretorios)):
+        if not os.path.isdir(diretorio):
+            continue
+        try:
+            for nome in os.listdir(diretorio):
+                if nome.lower() == "query.parquet":
+                    caminho = os.path.join(diretorio, nome)
+                    if os.path.isfile(caminho):
+                        return os.path.abspath(caminho), caminhos_arquivos
+        except Exception:
+            continue
+
+    return None, caminhos_arquivos
+
+
 def _carregar_base_ean_dun(base_data_path=None):
     """Carrega a base EAN/DUN com diagnostico de caminho e colunas."""
     caminho_encontrado, caminhos_testados = _resolver_caminho_ean_dun(base_data_path)
@@ -364,6 +432,84 @@ def _carregar_base_ean_dun(base_data_path=None):
     return df_ean, diagnostico
 
 
+def _carregar_embalagem_query(base_data_path=None):
+    """Carrega embalagem de transferencia do query.parquet por cod_consinco."""
+    caminho_encontrado, caminhos_testados = _resolver_caminho_query(base_data_path)
+    diagnostico = {
+        "caminho_encontrado": caminho_encontrado,
+        "caminhos_testados": caminhos_testados,
+        "colunas_detectadas": [],
+    }
+
+    if not caminho_encontrado:
+        return pd.DataFrame(columns=["cod_consinco", "Emb"]), diagnostico
+
+    df_query = _normalizar_nomes_colunas(pd.read_parquet(caminho_encontrado))
+    diagnostico["colunas_detectadas"] = df_query.columns.astype(str).tolist()
+    if df_query.empty:
+        return pd.DataFrame(columns=["cod_consinco", "Emb"]), diagnostico
+
+    colunas_norm = {
+        _normalizar_chave_coluna(col): col
+        for col in df_query.columns
+    }
+
+    aliases_cod = [
+        "cod_consinco",
+        "codigoconsinco",
+        "codigoproduto",
+        "codigo produto",
+        "codigo_produto",
+        "codigo",
+    ]
+    aliases_emb = [
+        "embalagemtransferencia",
+        "embalagem de transferencia",
+        "embalagem transferência",
+        "emb_transferencia",
+        "embalagem",
+        "emb",
+    ]
+
+    col_cod = next(
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_cod
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
+        None,
+    )
+    col_emb = next(
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_emb
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
+        None,
+    )
+
+    if not col_cod or not col_emb:
+        return pd.DataFrame(columns=["cod_consinco", "Emb"]), diagnostico
+
+    df_emb = df_query[[col_cod, col_emb]].copy().rename(columns={
+        col_cod: "cod_consinco",
+        col_emb: "Emb",
+    })
+
+    df_emb["cod_consinco"] = pd.to_numeric(df_emb["cod_consinco"], errors="coerce")
+    df_emb["Emb"] = pd.to_numeric(df_emb["Emb"], errors="coerce")
+    df_emb = df_emb.dropna(subset=["cod_consinco", "Emb"]).copy()
+    if df_emb.empty:
+        return pd.DataFrame(columns=["cod_consinco", "Emb"]), diagnostico
+
+    df_emb["cod_consinco"] = df_emb["cod_consinco"].astype(int)
+    df_emb = (
+        df_emb.sort_values(["cod_consinco", "Emb"])
+        .drop_duplicates(subset=["cod_consinco"], keep="last")
+    )
+    return df_emb[["cod_consinco", "Emb"]], diagnostico
+
+
 def _filtrar_codigos_por_ean(df_ean, ean_consulta):
     """Filtra codigos por equivalencia de EAN-13 e GTIN-14."""
     ean_norm = _normalizar_codigo_barras(ean_consulta)
@@ -444,7 +590,7 @@ def show_consulta_mix_page(engine, base_data_path):
     """
     st.title("🔍 Consulta de Mix de Produtos")
     st.markdown("---")
-    st.caption("Fonte ativa: ean_dun.parquet | consulta-mix-ean v4")
+    st.caption("Fonte ativa: ean_dun.parquet | consulta-mix-ean v5")
 
     # Fonte exclusiva da consulta: ean_dun.parquet
     df_ean, diag_ean = _carregar_base_ean_dun(base_data_path)
@@ -473,11 +619,24 @@ def show_consulta_mix_page(engine, base_data_path):
     df_mix = df_ean.copy()
     df_mix["origem"] = "EAN_DUN"
 
+    # Embalagem deve vir do query.parquet por codigo do produto.
+    df_emb_query, diag_query = _carregar_embalagem_query(base_data_path)
+    if not df_emb_query.empty:
+        df_mix = df_mix.merge(df_emb_query, on="cod_consinco", how="left", suffixes=("", "_query"))
+        if "Emb_query" in df_mix.columns:
+            df_mix["Emb"] = df_mix["Emb_query"].where(
+                df_mix["Emb_query"].notna(),
+                df_mix.get("Emb"),
+            )
+            df_mix = df_mix.drop(columns=["Emb_query"])
+    else:
+        st.caption("Observacao: query.parquet nao encontrado ou sem coluna de embalagem de transferencia.")
+        if diag_query.get("caminho_encontrado") is None and diag_query.get("caminhos_testados"):
+            st.caption("Caminhos query testados: " + " | ".join(diag_query["caminhos_testados"]))
+
     # Garantir colunas esperadas pela tela com fallback seguro.
     if "descricao" not in df_mix.columns:
         df_mix["descricao"] = ""
-    if "transicao" not in df_mix.columns:
-        df_mix["transicao"] = pd.NA
     if "Emb" not in df_mix.columns:
         df_mix["Emb"] = pd.NA
     if "Mix" not in df_mix.columns:
@@ -517,8 +676,6 @@ def show_consulta_mix_page(engine, base_data_path):
     # Tipo de busca (apenas campos realmente existentes na base ean_dun)
     st.subheader("Buscar Produto")
     opcoes_busca = ["Por EAN", "Por Código Consinco"]
-    if _coluna_tem_dados(df_mix, "transicao"):
-        opcoes_busca.append("Por Código Transição")
     if _coluna_tem_dados(df_mix, "descricao"):
         opcoes_busca.append("Por Descrição")
 
@@ -562,8 +719,6 @@ def show_consulta_mix_page(engine, base_data_path):
                     with col1:
                         st.info(f"**Código Consinco:** {produto['cod_consinco']}")
                         st.info(f"**Descrição:** {produto['descricao']}")
-                        if "transicao" in produto.index:
-                            st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
                         st.info(f"**EAN:** {produto.get('codigo_ean', '-')}")
                     with col2:
                         st.info(f"**Status:** {'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}")
@@ -576,7 +731,6 @@ def show_consulta_mix_page(engine, base_data_path):
                         c for c in [
                             "cod_consinco",
                             "descricao",
-                            "transicao",
                             "Mix",
                             "Emb",
                             "codigo_ean",
@@ -586,7 +740,6 @@ def show_consulta_mix_page(engine, base_data_path):
                     df_display = df_display.rename(columns={
                         "cod_consinco": "Código Consinco",
                         "descricao": "Descrição",
-                        "transicao": "Código Transição",
                         "Mix": "Status",
                         "Emb": "Embalagem",
                         "codigo_ean": "EAN",
@@ -619,108 +772,6 @@ def show_consulta_mix_page(engine, base_data_path):
                     else:
                         st.warning(
                             "⚠️ Produto com código "
-                            f"{codigo_int} não encontrado."
-                        )
-            except ValueError:
-                st.error("❌ Por favor, digite apenas números no código.")
-
-    elif tipo_busca == "Por Código Transição":
-        if "transicao" not in df_mix.columns:
-            st.info("Base ean_dun.parquet não possui coluna de transição.")
-            st.stop()
-        codigo_transicao = st.text_input(
-            "Digite o código de transição:",
-            placeholder="Ex: 3612"
-        )
-
-        if codigo_transicao:
-            try:
-                codigo_int = int(codigo_transicao)
-                codigo_norm = str(codigo_int)
-                trans_series = (
-                    df_mix["transicao"]
-                    .astype(str)
-                    .str.replace(r"\.0$", "", regex=True)
-                    .str.strip()
-                    .str.lstrip("0")
-                )
-                resultado_all = df_mix[
-                    (df_mix["transicao"] == codigo_int)
-                    | (trans_series == codigo_norm)
-                ]
-                resultado = resultado_all[resultado_all["Mix"] == "A"]
-
-                if not resultado.empty:
-                    st.success("✅ Produto encontrado!")
-                    produto = resultado.iloc[0]
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.info(
-                            f"**Código Consinco:** {produto['cod_consinco']}"
-                        )
-                        st.info(f"**Descrição:** {produto['descricao']}")
-                        st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
-                        st.info(f"**EAN:** {produto.get('codigo_ean', '-')}")
-                    with col2:
-                        st.info(
-                            "**Status:** "
-                            f"{'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}"
-                        )
-                        if "Emb" in produto.index and pd.notna(produto["Emb"]):
-                            st.info(f"**Embalagem:** {produto['Emb']} unidades")
-
-                    st.markdown("### Detalhes Completos")
-                    colunas_tabela = [
-                        c for c in [
-                            "cod_consinco",
-                            "descricao",
-                            "transicao",
-                            "Mix",
-                            "Emb",
-                            "codigo_ean",
-                        ] if c in resultado.columns
-                    ]
-                    df_display = resultado[colunas_tabela].copy().rename(columns={
-                        "cod_consinco": "Código Consinco",
-                        "descricao": "Descrição",
-                        "transicao": "Código Transição",
-                        "Mix": "Status",
-                        "Emb": "Embalagem",
-                        "codigo_ean": "EAN",
-                    })
-                    st.dataframe(
-                        df_display,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                else:
-                    if not resultado_all.empty:
-                        produto = resultado_all.iloc[0]
-                        status_raw = produto.get("Mix")
-                        status_norm = (
-                            str(status_raw).strip().upper()
-                            if pd.notna(status_raw)
-                            else None
-                        )
-
-                        if status_norm == "S":
-                            status_label = "Suspenso"
-                        elif status_norm == "A":
-                            status_label = "Ativo"
-                        else:
-                            status_label = "Indefinido"
-
-                        st.warning(
-                            "⚠️ Produto encontrado, mas não está ativo. "
-                            f"Status: {status_label}."
-                        )
-                        st.info(
-                            f"Origem: {produto.get('origem', 'N/A')}"
-                        )
-                    else:
-                        st.warning(
-                            "⚠️ Produto com código de transição "
                             f"{codigo_int} não encontrado."
                         )
             except ValueError:
@@ -862,7 +913,6 @@ def show_consulta_mix_page(engine, base_data_path):
                             c for c in [
                                 "cod_consinco",
                                 "descricao",
-                                "transicao",
                                 "Mix",
                                 "Emb",
                                 "codigo_ean",
@@ -871,7 +921,6 @@ def show_consulta_mix_page(engine, base_data_path):
                         df_display = resultado[colunas_tabela].copy().rename(columns={
                             "cod_consinco": "Código Consinco",
                             "descricao": "Descrição",
-                            "transicao": "Código Transição",
                             "Mix": "Status",
                             "Emb": "Embalagem",
                             "codigo_ean": "EAN",
@@ -908,7 +957,6 @@ def show_consulta_mix_page(engine, base_data_path):
                     c for c in [
                         "cod_consinco",
                         "descricao",
-                        "transicao",
                         "Mix",
                         "Emb",
                         "codigo_ean",
@@ -917,7 +965,6 @@ def show_consulta_mix_page(engine, base_data_path):
                 df_display = resultado[colunas_tabela].copy().rename(columns={
                     "cod_consinco": "Código Consinco",
                     "descricao": "Descrição",
-                    "transicao": "Código Transição",
                     "Mix": "Status",
                     "Emb": "Embalagem",
                     "codigo_ean": "EAN",
@@ -975,7 +1022,6 @@ def show_consulta_mix_page(engine, base_data_path):
             c for c in [
                 "cod_consinco",
                 "descricao",
-                "transicao",
                 "Mix",
                 "Emb",
                 "codigo_ean",
@@ -984,7 +1030,6 @@ def show_consulta_mix_page(engine, base_data_path):
         df_display_all = df_display_all[colunas_tabela].copy().rename(columns={
             "cod_consinco": "Código Consinco",
             "descricao": "Descrição",
-            "transicao": "Código Transição",
             "Mix": "Status",
             "Emb": "Embalagem",
             "codigo_ean": "EAN",
