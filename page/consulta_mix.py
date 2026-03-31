@@ -3,9 +3,17 @@ import pandas as pd
 import os
 import threading
 import time
-import av
-import cv2
 from sqlalchemy import text
+
+try:
+    import av
+except Exception:
+    av = None
+
+try:
+    import cv2
+except Exception:
+    cv2 = None
 
 try:
     from pyzbar.pyzbar import decode as pyzbar_decode
@@ -42,6 +50,9 @@ class EANVideoProcessor:
             return self.last_ean
 
     def recv(self, frame):
+        if av is None or cv2 is None:
+            return frame
+
         image = frame.to_ndarray(format="bgr24")
 
         if pyzbar_decode is not None:
@@ -590,6 +601,8 @@ def show_consulta_mix_page(engine, base_data_path):
 
         dependencias_camera_ok = all(
             [
+                av is not None,
+                cv2 is not None,
                 webrtc_streamer is not None,
                 WebRtcMode is not None,
                 RTCConfiguration is not None,
