@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import threading
 import time
+import unicodedata
 from sqlalchemy import text
 
 try:
@@ -83,6 +84,14 @@ def _normalizar_nomes_colunas(df):
     return df
 
 
+def _normalizar_chave_coluna(nome_coluna):
+    """Normaliza nome de coluna para comparação tolerante a acentos/separadores."""
+    texto = unicodedata.normalize("NFKD", str(nome_coluna))
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+    texto = texto.lower().strip()
+    return "".join(ch for ch in texto if ch.isalnum())
+
+
 def _normalizar_codigo_barras(valor):
     """Mantém apenas dígitos do EAN/DUN para comparação estável."""
     if pd.isna(valor):
@@ -100,11 +109,17 @@ def _carregar_base_ean_dun():
     if df_ean.empty:
         return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
 
-    colunas_lower = {str(col).strip().lower(): col for col in df_ean.columns}
+    colunas_norm = {
+        _normalizar_chave_coluna(col): col
+        for col in df_ean.columns
+    }
 
     aliases_cod = [
         "cod_consinco",
         "codigoconsinco",
+        "codigoproduto",
+        "codigointerno",
+        "codproduto",
         "codigo produto",
         "código produto",
         "codigo_interno",
@@ -114,6 +129,10 @@ def _carregar_base_ean_dun():
         "codigo_ean",
         "ean",
         "ean_dun",
+        "eandun",
+        "gtin",
+        "gtin13",
+        "gtin14",
         "dun",
         "codigo de barras",
         "código de barras",
@@ -122,11 +141,19 @@ def _carregar_base_ean_dun():
     ]
 
     col_cod = next(
-        (colunas_lower[a] for a in aliases_cod if a in colunas_lower),
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_cod
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
         None
     )
     col_ean = next(
-        (colunas_lower[a] for a in aliases_ean if a in colunas_lower),
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_ean
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
         None
     )
 
@@ -146,6 +173,35 @@ def _carregar_base_ean_dun():
     df_ean = df_ean[df_ean["codigo_ean"] != ""].copy()
 
     return df_ean.drop_duplicates(subset=["cod_consinco", "codigo_ean"])
+
+
+def _filtrar_codigos_por_ean(df_ean, ean_consulta):
+    """Filtra codigos por equivalencia de EAN-13 e GTIN-14."""
+    ean_norm = _normalizar_codigo_barras(ean_consulta)
+    if not ean_norm or df_ean.empty:
+        return pd.Series(dtype="int64")
+
+    serie_ean = df_ean["codigo_ean"].astype(str)
+    mascara = serie_ean == ean_norm
+
+    # Equivalencia comum: GTIN-14 com digito indicador + EAN-13.
+    if len(ean_norm) == 13:
+        mascara = mascara | (
+            (serie_ean.str.len() == 14)
+            & (serie_ean.str[-13:] == ean_norm)
+        )
+    elif len(ean_norm) == 14:
+        mascara = mascara | (
+            (serie_ean.str.len() == 13)
+            & (ean_norm[-13:] == serie_ean)
+        )
+
+    # Tolerancia adicional para bases com preenchimento por zeros a esquerda.
+    ean_sem_zero = ean_norm.lstrip("0")
+    if ean_sem_zero:
+        mascara = mascara | (serie_ean.str.lstrip("0") == ean_sem_zero)
+
+    return df_ean.loc[mascara, "cod_consinco"].drop_duplicates()
 
 
 def get_correcoes_embalagens(engine):
@@ -657,10 +713,25 @@ def show_consulta_mix_page(engine, base_data_path):
                                 f"EAN detectado: {ean_norm}"
                             )
         else:
+            dependencias_faltantes = []
+            if av is None:
+                dependencias_faltantes.append("av")
+            if cv2 is None:
+                dependencias_faltantes.append("opencv-python-headless")
+            if webrtc_streamer is None:
+                dependencias_faltantes.append("streamlit-webrtc")
+            if pyzbar_decode is None:
+                dependencias_faltantes.append("pyzbar/libzbar")
+
             st.warning(
                 "Leitura por câmera indisponível no ambiente atual. "
                 "Use o campo manual de EAN."
             )
+            if dependencias_faltantes:
+                st.caption(
+                    "Dependencias ausentes ou indisponiveis: "
+                    + ", ".join(dependencias_faltantes)
+                )
 
         ean_busca = st.text_input(
             "Digite o EAN lido no celular:",
@@ -677,10 +748,9 @@ def show_consulta_mix_page(engine, base_data_path):
                     "⚠️ Base EAN/DUN não encontrada ou sem mapeamento válido."
                 )
             else:
-                codigos_encontrados = df_ean.loc[
-                    df_ean["codigo_ean"] == ean_norm,
-                    "cod_consinco"
-                ].drop_duplicates()
+                codigos_encontrados = _filtrar_codigos_por_ean(
+                    df_ean, ean_norm
+                )
 
                 if codigos_encontrados.empty:
                     st.warning(
