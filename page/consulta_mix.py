@@ -109,30 +109,89 @@ def _coluna_tem_dados(df, coluna):
 
 def _resolver_caminho_ean_dun(base_data_path=None):
     """Resolve o caminho do ean_dun.parquet para local e Render."""
-    caminhos = []
-
-    if base_data_path:
-        caminhos.append(os.path.join(base_data_path, "ean_dun.parquet"))
-        caminhos.append(os.path.join(base_data_path, "bdados", "ean_dun.parquet"))
+    caminhos_arquivos = []
+    caminhos_diretorios = []
 
     render_disk_path = os.environ.get("RENDER_DISK_PATH")
-    if render_disk_path:
-        caminhos.append(os.path.join(render_disk_path, "ean_dun.parquet"))
-        caminhos.append(os.path.join(render_disk_path, "bdados", "ean_dun.parquet"))
-
+    ean_dun_env_path = os.environ.get("EAN_DUN_PARQUET_PATH")
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    caminhos.append(os.path.join(project_root, "bdados", "ean_dun.parquet"))
-    caminhos.append(os.path.join(os.getcwd(), "bdados", "ean_dun.parquet"))
-    caminhos.append(os.path.join("bdados", "ean_dun.parquet"))
+
+    if ean_dun_env_path:
+        if os.path.isdir(ean_dun_env_path):
+            caminhos_diretorios.append(ean_dun_env_path)
+        else:
+            caminhos_arquivos.append(ean_dun_env_path)
+
+    if base_data_path:
+        caminhos_diretorios.extend([
+            base_data_path,
+            os.path.join(base_data_path, "bdados"),
+        ])
+
+    if render_disk_path:
+        caminhos_diretorios.extend([
+            render_disk_path,
+            os.path.join(render_disk_path, "bdados"),
+            os.path.join(render_disk_path, "data"),
+        ])
+
+    caminhos_diretorios.extend([
+        os.path.join(project_root, "bdados"),
+        os.path.join(project_root, "data"),
+        os.path.join(os.getcwd(), "bdados"),
+        os.path.join(os.getcwd(), "data"),
+        "bdados",
+        "data",
+    ])
+
+    nomes_arquivo = [
+        "ean_dun.parquet",
+        "EAN_DUN.parquet",
+        "ean_dun.PARQUET",
+    ]
+
+    for diretorio in caminhos_diretorios:
+        for nome_arquivo in nomes_arquivo:
+            caminhos_arquivos.append(os.path.join(diretorio, nome_arquivo))
 
     # Remove duplicados preservando ordem.
-    caminhos = list(dict.fromkeys(caminhos))
+    caminhos_arquivos = list(dict.fromkeys(caminhos_arquivos))
 
-    for caminho in caminhos:
-        if os.path.exists(caminho):
-            return caminho, caminhos
+    for caminho in caminhos_arquivos:
+        if os.path.isfile(caminho):
+            return os.path.abspath(caminho), caminhos_arquivos
 
-    return None, caminhos
+    # Fallback para arquivos com variacao de caixa/nome no mesmo diretorio.
+    for diretorio in list(dict.fromkeys(caminhos_diretorios)):
+        if not os.path.isdir(diretorio):
+            continue
+        try:
+            for nome in os.listdir(diretorio):
+                if nome.lower() == "ean_dun.parquet":
+                    caminho = os.path.join(diretorio, nome)
+                    if os.path.isfile(caminho):
+                        return os.path.abspath(caminho), caminhos_arquivos
+        except Exception:
+            continue
+
+    # Fallback final: busca recursiva controlada no diretorio do projeto/disco.
+    raizes_busca = [project_root]
+    if render_disk_path:
+        raizes_busca.append(render_disk_path)
+
+    for raiz in list(dict.fromkeys(raizes_busca)):
+        if not raiz or not os.path.isdir(raiz):
+            continue
+        try:
+            for atual, _dirs, arquivos in os.walk(raiz):
+                for nome in arquivos:
+                    if nome.lower() == "ean_dun.parquet":
+                        caminho = os.path.join(atual, nome)
+                        return os.path.abspath(caminho), caminhos_arquivos
+        except Exception:
+            continue
+
+    return None, caminhos_arquivos
 
 
 def _carregar_base_ean_dun(base_data_path=None):
@@ -398,6 +457,10 @@ def show_consulta_mix_page(engine, base_data_path):
         st.error(
             "Base ean_dun.parquet nao encontrada ou sem mapeamento de "
             "cod_consinco/codigo_ean."
+        )
+        st.caption(
+            "Defina EAN_DUN_PARQUET_PATH no Render com o caminho absoluto do arquivo "
+            "ou garanta o arquivo em /opt/render/project/src/bdados/ean_dun.parquet."
         )
         if caminhos_testados:
             st.caption("Caminhos testados: " + " | ".join(caminhos_testados))
