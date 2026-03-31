@@ -76,8 +76,6 @@ class EANVideoProcessor:
                 )
 
         return av.VideoFrame.from_ndarray(image, format="bgr24")
-
-
 def _normalizar_nomes_colunas(df):
     """Normaliza nomes de colunas vindas do parquet."""
     df = df.copy()
