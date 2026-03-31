@@ -99,8 +99,16 @@ def _normalizar_codigo_barras(valor):
     return "".join(ch for ch in str(valor).strip() if ch.isdigit())
 
 
+def _coluna_tem_dados(df, coluna):
+    """Retorna True quando a coluna existe e possui pelo menos um valor util."""
+    if coluna not in df.columns:
+        return False
+    serie = df[coluna].astype(str).str.strip()
+    return (~serie.isin(["", "nan", "None", "<NA>"])).any()
+
+
 def _carregar_base_ean_dun():
-    """Carrega a base EAN/DUN e retorna colunas padronizadas."""
+    """Carrega a base EAN/DUN e retorna colunas padronizadas para consulta."""
     parquet_path = os.path.join("bdados", "ean_dun.parquet")
     if not os.path.exists(parquet_path):
         return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
@@ -139,6 +147,30 @@ def _carregar_base_ean_dun():
         "codigobarras",
         "codigo_barras"
     ]
+    aliases_descricao = [
+        "descricao",
+        "descricaoproduto",
+        "produto",
+        "empresa produto",
+        "empresa:produto",
+    ]
+    aliases_transicao = [
+        "transicao",
+        "codigotransicao",
+        "codacesso",
+        "codigoacesso",
+    ]
+    aliases_emb = [
+        "emb",
+        "embalagem",
+        "embseparacao",
+    ]
+    aliases_mix = [
+        "mix",
+        "ltmix",
+        "statusmix",
+        "status_mix",
+    ]
 
     col_cod = next(
         (
@@ -157,11 +189,64 @@ def _carregar_base_ean_dun():
         None
     )
 
+    col_descricao = next(
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_descricao
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
+        None
+    )
+    col_transicao = next(
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_transicao
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
+        None
+    )
+    col_emb = next(
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_emb
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
+        None
+    )
+    col_mix = next(
+        (
+            colunas_norm[_normalizar_chave_coluna(a)]
+            for a in aliases_mix
+            if _normalizar_chave_coluna(a) in colunas_norm
+        ),
+        None
+    )
+
     if not col_cod or not col_ean:
         return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
 
-    df_ean = df_ean[[col_cod, col_ean]].copy()
-    df_ean.columns = ["cod_consinco", "codigo_ean"]
+    colunas_origem = [col_cod, col_ean]
+    rename_map = {
+        col_cod: "cod_consinco",
+        col_ean: "codigo_ean",
+    }
+    if col_descricao:
+        colunas_origem.append(col_descricao)
+        rename_map[col_descricao] = "descricao"
+    if col_transicao:
+        colunas_origem.append(col_transicao)
+        rename_map[col_transicao] = "transicao"
+    if col_emb:
+        colunas_origem.append(col_emb)
+        rename_map[col_emb] = "Emb"
+    if col_mix:
+        colunas_origem.append(col_mix)
+        rename_map[col_mix] = "Mix"
+
+    # Remove duplicidade de colunas de origem quando aliases batem no mesmo nome.
+    colunas_origem = list(dict.fromkeys(colunas_origem))
+
+    df_ean = df_ean[colunas_origem].copy().rename(columns=rename_map)
 
     df_ean["cod_consinco"] = pd.to_numeric(
         df_ean["cod_consinco"], errors="coerce"
@@ -171,6 +256,15 @@ def _carregar_base_ean_dun():
 
     df_ean["codigo_ean"] = df_ean["codigo_ean"].apply(_normalizar_codigo_barras)
     df_ean = df_ean[df_ean["codigo_ean"] != ""].copy()
+
+    if "descricao" in df_ean.columns:
+        df_ean["descricao"] = df_ean["descricao"].astype(str).str.strip()
+    if "transicao" in df_ean.columns:
+        df_ean["transicao"] = pd.to_numeric(df_ean["transicao"], errors="coerce")
+    if "Emb" in df_ean.columns:
+        df_ean["Emb"] = pd.to_numeric(df_ean["Emb"], errors="coerce")
+    if "Mix" in df_ean.columns:
+        df_ean["Mix"] = df_ean["Mix"].astype(str).str.strip().str.upper()
 
     return df_ean.drop_duplicates(subset=["cod_consinco", "codigo_ean"])
 
@@ -256,136 +350,41 @@ def show_consulta_mix_page(engine, base_data_path):
     st.title("🔍 Consulta de Mix de Produtos")
     st.markdown("---")
 
-    # Carregar o arquivo parquet
-    parquet_path = os.path.join("bdados", "con5cod.parquet")
-
-    if not os.path.exists(parquet_path):
-        st.error(f"Arquivo de dados não encontrado: {parquet_path}")
-        st.stop()
-
-    try:
-        df_mix = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
-        
-        # Mapear colunas novas para nomes esperados
-        column_mapping = {
-            'codigoconsinco': 'cod_consinco',
-            'Código Produto': 'cod_consinco',
-            'Codigo Produto': 'cod_consinco',
-            'codigo transicao': 'transicao',
-            'CODACESSO': 'transicao',
-            'Empresa : Produto': 'descricao',
-            'Empresa: Produto': 'descricao',
-            'embalagem': 'Emb',
-            'EmbSeparacao': 'Emb',
-            'ltmix': 'Mix',
-            'capacidade': 'CapacidadeGondola',
-            'CapacidadeGondola': 'CapacidadeGondola'
-        }
-        
-        df_mix.rename(columns=column_mapping, inplace=True)
-        
-        # Garantir colunas essenciais
-        if 'cod_consinco' not in df_mix.columns:
-            raise ValueError("Coluna 'cod_consinco' não encontrada")
-        if 'descricao' not in df_mix.columns:
-            df_mix['descricao'] = 'SEM DESCRIÇÃO'
-        if 'transicao' not in df_mix.columns:
-            df_mix['transicao'] = 0
-        if 'Emb' not in df_mix.columns:
-            df_mix['Emb'] = 1
-        if 'Mix' not in df_mix.columns:
-            df_mix['Mix'] = 'A'
-        if 'CapacidadeGondola' not in df_mix.columns:
-            df_mix['CapacidadeGondola'] = 0
-        
-        df_mix['cod_consinco'] = df_mix['cod_consinco'].astype(int)
-        df_mix["origem"] = "Parquet"
-
-        # Sobrepor produtos customizados (quando existirem)
-        df_custom = get_produtos_custom(engine)
-        if not df_custom.empty:
-            df_custom["origem"] = "Banco"
-            if (
-                "Emb" not in df_custom.columns
-                and "embalagem" in df_custom.columns
-            ):
-                df_custom = df_custom.rename(columns={"embalagem": "Emb"})
-            if (
-                "Mix" not in df_custom.columns
-                and "status_mix" in df_custom.columns
-            ):
-                df_custom = df_custom.rename(columns={"status_mix": "Mix"})
-
-            # Remove do parquet os códigos que existem no banco
-            df_mix = df_mix[
-                ~df_mix["cod_consinco"].isin(df_custom["cod_consinco"])
-            ].copy()
-            df_mix = pd.concat([df_mix, df_custom], ignore_index=True)
-
-        # Normalizações básicas
-        if "cod_consinco" in df_mix.columns:
-            df_mix["cod_consinco"] = pd.to_numeric(
-                df_mix["cod_consinco"], errors="coerce"
-            )
-            df_mix = df_mix.dropna(subset=["cod_consinco"]).copy()
-            df_mix["cod_consinco"] = df_mix["cod_consinco"].astype(int)
-        if "Mix" in df_mix.columns:
-            df_mix["Mix"] = (
-                df_mix["Mix"].astype(str).str.strip().str.upper()
-            )
-            df_mix.loc[
-                (df_mix["Mix"].isin(["NAN", "NONE", ""]))
-                & (df_mix["origem"] == "Banco"),
-                "Mix"
-            ] = "A"
-        if "Mix" in df_mix.columns:
-            df_mix.loc[
-                df_mix["Mix"].isin(["NAN", "NONE", ""]),
-                "Mix"
-            ] = None
-        if "transicao" in df_mix.columns:
-            df_mix["transicao"] = pd.to_numeric(
-                df_mix["transicao"], errors="coerce"
-            )
-
-        # Aplicar correções de embalagens do banco de dados
-        df_correcoes = get_correcoes_embalagens(engine)
-        if not df_correcoes.empty:
-            df_mix = df_mix.merge(
-                df_correcoes,
-                on="cod_consinco",
-                how="left"
-            )
-            # Usar embalagem corrigida se existir (somente para Parquet)
-            df_mix["Emb_Original"] = df_mix["Emb"]
-            aplicar = (
-                df_mix["embalagem_corrigida"].notna()
-                & (df_mix["origem"] == "Parquet")
-            )
-            df_mix.loc[aplicar, "Emb"] = df_mix.loc[
-                aplicar, "embalagem_corrigida"
-            ]
-            df_mix["Tem_Correcao"] = aplicar
-            df_mix = df_mix.drop(columns=["embalagem_corrigida"])
-        else:
-            df_mix["Tem_Correcao"] = False
-
-    except Exception as e:
-        st.error(f"Erro ao carregar arquivo de dados: {e}")
-        st.stop()
-
-    # Carregar e anexar EAN/DUN para consulta por código de barras
+    # Fonte exclusiva da consulta: ean_dun.parquet
     df_ean = _carregar_base_ean_dun()
-    if not df_ean.empty:
-        df_ean_first = df_ean.drop_duplicates(
-            subset=["cod_consinco"], keep="first"
+    if df_ean.empty:
+        st.error(
+            "Base ean_dun.parquet não encontrada ou sem mapeamento de "
+            "cod_consinco/codigo_ean."
         )
-        df_mix = df_mix.merge(df_ean_first, on="cod_consinco", how="left")
-    else:
-        df_mix["codigo_ean"] = None
+        st.stop()
+
+    df_mix = df_ean.copy()
+    df_mix["origem"] = "EAN_DUN"
+
+    # Garantir colunas esperadas pela tela com fallback seguro.
+    if "descricao" not in df_mix.columns:
+        df_mix["descricao"] = ""
+    if "transicao" not in df_mix.columns:
+        df_mix["transicao"] = pd.NA
+    if "Emb" not in df_mix.columns:
+        df_mix["Emb"] = pd.NA
+    if "Mix" not in df_mix.columns:
+        df_mix["Mix"] = "A"
+
+    df_mix["Mix"] = (
+        df_mix["Mix"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .replace({"": "A", "NAN": "A", "NONE": "A", "<NA>": "A"})
+    )
 
     # Filtrar apenas produtos ativos
     df_mix_ativo = df_mix[df_mix["Mix"] == "A"].copy()
+    if df_mix_ativo.empty:
+        # Se a base nao traz mix/status, considera toda base como ativa.
+        df_mix_ativo = df_mix.copy()
     
     # Exibir estatísticas
     col1, col2, col3 = st.columns(3)
@@ -399,16 +398,17 @@ def show_consulta_mix_page(engine, base_data_path):
     
     st.markdown("---")
     
-    # Tipo de busca
+    # Tipo de busca (apenas campos realmente existentes na base ean_dun)
     st.subheader("Buscar Produto")
+    opcoes_busca = ["Por EAN", "Por Código Consinco"]
+    if _coluna_tem_dados(df_mix, "transicao"):
+        opcoes_busca.append("Por Código Transição")
+    if _coluna_tem_dados(df_mix, "descricao"):
+        opcoes_busca.append("Por Descrição")
+
     tipo_busca = st.radio(
         "Tipo de busca:",
-        [
-            "Por Código Consinco",
-            "Por Código Transição",
-            "Por EAN",
-            "Por Descrição"
-        ],
+        opcoes_busca,
         horizontal=True
     )
     
@@ -446,38 +446,35 @@ def show_consulta_mix_page(engine, base_data_path):
                     with col1:
                         st.info(f"**Código Consinco:** {produto['cod_consinco']}")
                         st.info(f"**Descrição:** {produto['descricao']}")
-                        st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
-                        st.info(
-                            "**EAN:** "
-                            f"{produto.get('codigo_ean', '-') if pd.notna(produto.get('codigo_ean')) else '-'}"
-                        )
+                        if "transicao" in produto.index:
+                            st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
+                        st.info(f"**EAN:** {produto.get('codigo_ean', '-')}")
                     with col2:
                         st.info(f"**Status:** {'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}")
-                        
-                        # Mostrar embalagem com indicador se foi corrigida
-                        emb_text = f"**Embalagem:** {produto['Emb']} unidades"
-                        if produto.get('Tem_Correcao', False):
-                            emb_text += f" ⚠️ (Original: {produto.get('Emb_Original', produto['Emb'])})"
-                        st.info(emb_text)
+                        if "Emb" in produto.index and pd.notna(produto["Emb"]):
+                            st.info(f"**Embalagem:** {produto['Emb']} unidades")
                     
                     # Exibir em formato de tabela também
                     st.markdown("### Detalhes Completos")
-                    df_display = resultado[[
-                        'cod_consinco',
-                        'descricao',
-                        'transicao',
-                        'Mix',
-                        'Emb',
-                        'codigo_ean'
-                    ]].copy()
-                    df_display.columns = [
-                        'Código Consinco',
-                        'Descrição',
-                        'Código Transição',
-                        'Status',
-                        'Embalagem',
-                        'EAN'
+                    colunas_tabela = [
+                        c for c in [
+                            "cod_consinco",
+                            "descricao",
+                            "transicao",
+                            "Mix",
+                            "Emb",
+                            "codigo_ean",
+                        ] if c in resultado.columns
                     ]
+                    df_display = resultado[colunas_tabela].copy()
+                    df_display = df_display.rename(columns={
+                        "cod_consinco": "Código Consinco",
+                        "descricao": "Descrição",
+                        "transicao": "Código Transição",
+                        "Mix": "Status",
+                        "Emb": "Embalagem",
+                        "codigo_ean": "EAN",
+                    })
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
                 else:
                     if not resultado_all.empty:
@@ -524,6 +521,9 @@ def show_consulta_mix_page(engine, base_data_path):
                 st.error("❌ Por favor, digite apenas números no código.")
 
     elif tipo_busca == "Por Código Transição":
+        if "transicao" not in df_mix.columns:
+            st.info("Base ean_dun.parquet não possui coluna de transição.")
+            st.stop()
         codigo_transicao = st.text_input(
             "Digite o código de transição:",
             placeholder="Ex: 3612"
@@ -556,45 +556,35 @@ def show_consulta_mix_page(engine, base_data_path):
                             f"**Código Consinco:** {produto['cod_consinco']}"
                         )
                         st.info(f"**Descrição:** {produto['descricao']}")
-                        st.info(
-                            f"**Código Transição (Antigo):** {produto['transicao']}"
-                        )
-                        st.info(
-                            "**EAN:** "
-                            f"{produto.get('codigo_ean', '-') if pd.notna(produto.get('codigo_ean')) else '-'}"
-                        )
+                        st.info(f"**Código Transição (Antigo):** {produto['transicao']}")
+                        st.info(f"**EAN:** {produto.get('codigo_ean', '-')}")
                     with col2:
                         st.info(
                             "**Status:** "
                             f"{'Ativo' if produto['Mix'] == 'A' else 'Suspenso'}"
                         )
-                        emb_text = (
-                            f"**Embalagem:** {produto['Emb']} unidades"
-                        )
-                        if produto.get("Tem_Correcao", False):
-                            emb_text += (
-                                " ⚠️ (Original: "
-                                f"{produto.get('Emb_Original', produto['Emb'])})"
-                            )
-                        st.info(emb_text)
+                        if "Emb" in produto.index and pd.notna(produto["Emb"]):
+                            st.info(f"**Embalagem:** {produto['Emb']} unidades")
 
                     st.markdown("### Detalhes Completos")
-                    df_display = resultado[[
-                        'cod_consinco',
-                        'descricao',
-                        'transicao',
-                        'Mix',
-                        'Emb',
-                        'codigo_ean'
-                    ]].copy()
-                    df_display.columns = [
-                        "Código Consinco",
-                        "Descrição",
-                        "Código Transição",
-                        "Status",
-                        "Embalagem",
-                        "EAN"
+                    colunas_tabela = [
+                        c for c in [
+                            "cod_consinco",
+                            "descricao",
+                            "transicao",
+                            "Mix",
+                            "Emb",
+                            "codigo_ean",
+                        ] if c in resultado.columns
                     ]
+                    df_display = resultado[colunas_tabela].copy().rename(columns={
+                        "cod_consinco": "Código Consinco",
+                        "descricao": "Descrição",
+                        "transicao": "Código Transição",
+                        "Mix": "Status",
+                        "Emb": "Embalagem",
+                        "codigo_ean": "EAN",
+                    })
                     st.dataframe(
                         df_display,
                         use_container_width=True,
@@ -780,22 +770,24 @@ def show_consulta_mix_page(engine, base_data_path):
                             f"✅ Encontrado(s) {len(resultado)} produto(s) para o EAN {ean_norm}."
                         )
 
-                        df_display = resultado[[
-                            'cod_consinco',
-                            'descricao',
-                            'transicao',
-                            'Mix',
-                            'Emb',
-                            'codigo_ean'
-                        ]].copy()
-                        df_display.columns = [
-                            'Código Consinco',
-                            'Descrição',
-                            'Código Transição',
-                            'Status',
-                            'Embalagem',
-                            'EAN'
+                        colunas_tabela = [
+                            c for c in [
+                                "cod_consinco",
+                                "descricao",
+                                "transicao",
+                                "Mix",
+                                "Emb",
+                                "codigo_ean",
+                            ] if c in resultado.columns
                         ]
+                        df_display = resultado[colunas_tabela].copy().rename(columns={
+                            "cod_consinco": "Código Consinco",
+                            "descricao": "Descrição",
+                            "transicao": "Código Transição",
+                            "Mix": "Status",
+                            "Emb": "Embalagem",
+                            "codigo_ean": "EAN",
+                        })
                         st.dataframe(
                             df_display,
                             use_container_width=True,
@@ -803,6 +795,9 @@ def show_consulta_mix_page(engine, base_data_path):
                         )
     
     else:  # Busca por descrição
+        if "descricao" not in df_mix_ativo.columns:
+            st.info("Base ean_dun.parquet não possui coluna de descrição.")
+            st.stop()
         descricao_busca = st.text_input(
             "Digite a descrição do produto:",
             placeholder="Ex: CERVEJA"
@@ -821,38 +816,43 @@ def show_consulta_mix_page(engine, base_data_path):
                 st.success(f"✅ Encontrado(s) {len(resultado)} produto(s)")
                 
                 # Renomear colunas para exibição
-                df_display = resultado.copy()
-                df_display = df_display[[
-                    'cod_consinco',
-                    'descricao',
-                    'transicao',
-                    'Mix',
-                    'Emb',
-                    'codigo_ean'
-                ]]
-                df_display.columns = [
-                    'Código Consinco',
-                    'Descrição',
-                    'Código Transição',
-                    'Status',
-                    'Embalagem',
-                    'EAN'
+                colunas_tabela = [
+                    c for c in [
+                        "cod_consinco",
+                        "descricao",
+                        "transicao",
+                        "Mix",
+                        "Emb",
+                        "codigo_ean",
+                    ] if c in resultado.columns
                 ]
+                df_display = resultado[colunas_tabela].copy().rename(columns={
+                    "cod_consinco": "Código Consinco",
+                    "descricao": "Descrição",
+                    "transicao": "Código Transição",
+                    "Mix": "Status",
+                    "Emb": "Embalagem",
+                    "codigo_ean": "EAN",
+                })
                 
                 # Adicionar filtros adicionais
                 st.markdown("#### Filtros Adicionais")
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Filtro por embalagem
-                    embalagens_unicas = sorted(df_display['Embalagem'].unique())
-                    filtro_emb = st.multiselect(
-                        "Filtrar por Embalagem:",
-                        options=embalagens_unicas,
-                        default=embalagens_unicas
-                    )
+                    filtro_emb = []
+                    if "Embalagem" in df_display.columns:
+                        embalagens_unicas = sorted(
+                            [v for v in df_display["Embalagem"].dropna().unique()]
+                        )
+                        if embalagens_unicas:
+                            filtro_emb = st.multiselect(
+                                "Filtrar por Embalagem:",
+                                options=embalagens_unicas,
+                                default=embalagens_unicas
+                            )
                 
-                if filtro_emb:
+                if filtro_emb and "Embalagem" in df_display.columns:
                     df_display = df_display[df_display['Embalagem'].isin(filtro_emb)]
                 
                 # Exibir resultados
@@ -877,28 +877,30 @@ def show_consulta_mix_page(engine, base_data_path):
         elif descricao_busca:
             st.info("ℹ️ Digite pelo menos 3 caracteres para realizar a busca.")
     
-    # Opção de visualizar todos os produtos ativos
+    # Opção de visualizar todos os produtos da base ean_dun
     st.markdown("---")
-    if st.checkbox("📋 Visualizar todos os produtos do mix ativo"):
-        st.markdown("### Todos os Produtos Ativos")
+    if st.checkbox("📋 Visualizar todos os produtos da base EAN/DUN"):
+        st.markdown("### Todos os Produtos da Base EAN/DUN")
         
         df_display_all = df_mix_ativo.copy()
-        df_display_all = df_display_all[[
-            'cod_consinco',
-            'descricao',
-            'transicao',
-            'Mix',
-            'Emb',
-            'codigo_ean'
-        ]]
-        df_display_all.columns = [
-            'Código Consinco',
-            'Descrição',
-            'Código Transição',
-            'Status',
-            'Embalagem',
-            'EAN'
+        colunas_tabela = [
+            c for c in [
+                "cod_consinco",
+                "descricao",
+                "transicao",
+                "Mix",
+                "Emb",
+                "codigo_ean",
+            ] if c in df_display_all.columns
         ]
+        df_display_all = df_display_all[colunas_tabela].copy().rename(columns={
+            "cod_consinco": "Código Consinco",
+            "descricao": "Descrição",
+            "transicao": "Código Transição",
+            "Mix": "Status",
+            "Emb": "Embalagem",
+            "codigo_ean": "EAN",
+        })
         
         st.dataframe(
             df_display_all,
@@ -912,6 +914,6 @@ def show_consulta_mix_page(engine, base_data_path):
         st.download_button(
             label="📥 Baixar Lista Completa (CSV)",
             data=csv_all,
-            file_name="mix_completo_ativo.csv",
+            file_name="base_ean_dun.csv",
             mime="text/csv"
         )
