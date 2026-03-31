@@ -17,7 +17,12 @@
 
 ## Convencoes de dados do dominio
 
-- **Parquet é o formato canônico** para dados estruturados: `bdados/con5cod.parquet` (produtos), `bdados/consumo.parquet` (histórico).
+- **Parquet é o formato canônico** para dados estruturados:
+  - `bdados/con5cod.parquet` — catálogo de produtos Consinco
+  - `bdados/consumo.parquet` — histórico de consumo por loja
+  - `bdados/ean_dun.parquet` — mapeamento EAN/DUN por produto *(carregado via Admin Uploads)*
+  - `bdados/query.parquet` — embalagem de transferência por produto *(carregado via Admin Uploads)*
+- Os arquivos `ean_dun.parquet` e `query.parquet` **não estão no Git**; devem ser enviados pelo Admin Uploads para o disco persistente no Render.
 - Para saidas tabulares do fluxo de squad, prefira CSV com `;` e codificacao `UTF-8`.
 - Trate as filiais `015`, `016` e `050` como CDs; as demais definidas na skill de governanca como PDVs.
 - Nao invente etapas, agentes ou arquivos fora dos que existem em `squads/varejo-insight/`.
@@ -26,14 +31,14 @@
 
 Os 9 agentes têm especialização pronta em manipulação robusta de Parquet:
 - **Danilo Dados**: Carrega e valida Parquets de consumo/produtos; calcula ROP sobre dados Parquet
-- **Ale Governança**: Valida integridade de Parquets (schema, nulos, duplicatas); converte CSV → Parquet
+- **Ale Governança**: Valida integridade de Parquets (schema, nulos, duplicatas); converte CSV → Parquet; valida ean_dun e query
 - **Gabi Gôndola**: Extrai CapacidadeGondola de con5cod.parquet para otimizar facing
-- **Leonardo Logística**: Usa embalagem (Emb) de con5cod.parquet para calcular volume
+- **Leonardo Logística**: Usa embalagem (Emb) de con5cod.parquet e query.parquet para calcular volume
 - **Clara Clima**: Correlaciona consumo.parquet com padrões sazonais
 - **Paulo Pedidos**: Referencia código e status (Mix) de con5cod.parquet para consolidar pedidos
 - **Roberta Relatórios**: Agrega dados Parquet para dashboard executivo
-- **Anton Software**: Integra scripts de Parquet e otimiza pipeline de dados
-- **Varejo Insight Orquestrador**: Coordena uso de ParQuets no squad, delegando validações
+- **Anton Software**: Integra scripts de Parquet, otimiza pipeline, gerencia deploy no Render
+- **Varejo Insight Orquestrador**: Coordena uso de Parquets no squad, delegando validações
 
 ## Referencias
 
@@ -51,3 +56,7 @@ Os 9 agentes têm especialização pronta em manipulação robusta de Parquet:
 	- `python scripts/smoke_test.py`
 	- checagem de erros estaticos no arquivo alterado
 - Se houver falha de deploy com `IndentationError`, revisar primeiro o entorno da linha reportada e confirmar alinhamento por bloco logico.
+- **Imports opcionais**: dependências de runtime como `av`, `cv2`, `pyzbar`, `streamlit_webrtc` devem estar em `try/except ImportError` — import direto no topo derruba o app inteiro.
+- **Parquets no Render**: arquivos grandes como `ean_dun.parquet` e `query.parquet` não ficam no Git; use Admin Uploads para gravar no disco persistente e defina `EAN_DUN_PARQUET_PATH` / `QUERY_PARQUET_PATH` se necessário.
+- **Resolução de caminho**: ao ler Parquet, tente múltiplos caminhos candidatos (`base_data_path`, `RENDER_DISK_PATH/bdados/`, `/opt/render/project/src/bdados/`) antes de falhar.
+- **apt.txt**: libs de sistema como `libzbar0` e `ffmpeg` devem estar em `apt.txt` para serem instaladas no build do Render.

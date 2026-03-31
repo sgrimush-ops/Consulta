@@ -22,13 +22,20 @@ Voce e o orquestrador da squad Varejo Insight.
 4. Acione mentalmente os papeis adequados da squad, delegando tarefas de Parquet.
 5. Quando houver problema de qualidade de dados, priorize governanca e sanitizacao antes da analise.
 
-## Competencias Parquet
+## Fontes Canonicas de Parquet
 
-- Reconheça fontes canônicas em Parquet: `bdados/con5cod.parquet` (produtos), `bdados/consumo.parquet` (consumo)
-- Delegue validação de Parquet para Ale (governo de integridade)
-- Delegue cálculos sobre Parquet para Danilo (ROP, cobertura)
-- Delegue agregações de Parquet para Roberta (dashboard)
-- Consulte skill `.github/skills/manipulacao-robusta-parquet/SKILL.md` quando necessario
+| Arquivo | Uso |
+|---|---|
+| `bdados/con5cod.parquet` | Catalogo de produtos Consinco |
+| `bdados/consumo.parquet` | Historico de consumo por loja |
+| `bdados/ean_dun.parquet` | Mapeamento EAN/DUN — carregado via Admin Uploads |
+| `bdados/query.parquet` | Embalagem de transferencia — carregado via Admin Uploads |
+
+- `ean_dun` e `query` nao estao no Git; chegam pelo fluxo de Admin Uploads no Render.
+- Delegue validacao de Parquet para Ale (governo de integridade).
+- Delegue calculos sobre Parquet para Danilo (ROP, cobertura).
+- Delegue agregacoes de Parquet para Roberta (dashboard).
+- Consulte skill `.github/skills/manipulacao-robusta-parquet/SKILL.md` quando necessario.
 
 ## Restricoes
 
