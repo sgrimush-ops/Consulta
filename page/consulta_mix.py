@@ -349,6 +349,7 @@ def show_consulta_mix_page(engine, base_data_path):
     """
     st.title("🔍 Consulta de Mix de Produtos")
     st.markdown("---")
+    st.caption("Fonte ativa: bdados/ean_dun.parquet | consulta-mix-ean v3")
 
     # Fonte exclusiva da consulta: ean_dun.parquet
     df_ean = _carregar_base_ean_dun()
@@ -395,6 +396,11 @@ def show_consulta_mix_page(engine, base_data_path):
     with col3:
         produtos_suspensos = len(df_mix[df_mix['Mix'] == 'S'])
         st.metric("Produtos Suspensos", produtos_suspensos)
+
+    st.caption(
+        "Colunas detectadas na base EAN/DUN: "
+        + ", ".join(df_mix.columns.astype(str).tolist())
+    )
     
     st.markdown("---")
     
@@ -485,18 +491,6 @@ def show_consulta_mix_page(engine, base_data_path):
                             if pd.notna(status_raw)
                             else None
                         )
-                        if (
-                            status_norm not in ["A", "S"]
-                            and produto.get("origem") == "Banco"
-                        ):
-                            status_db = get_produto_custom_status(
-                                engine, produto.get("cod_consinco")
-                            )
-                            if status_db:
-                                status_norm = (
-                                    str(status_db).strip().upper()
-                                )
-                                produto["Mix"] = status_norm
 
                         if status_norm == "S":
                             status_label = "Suspenso"
@@ -599,18 +593,6 @@ def show_consulta_mix_page(engine, base_data_path):
                             if pd.notna(status_raw)
                             else None
                         )
-                        if (
-                            status_norm not in ["A", "S"]
-                            and produto.get("origem") == "Banco"
-                        ):
-                            status_db = get_produto_custom_status(
-                                engine, produto.get("cod_consinco")
-                            )
-                            if status_db:
-                                status_norm = (
-                                    str(status_db).strip().upper()
-                                )
-                                produto["Mix"] = status_norm
 
                         if status_norm == "S":
                             status_label = "Suspenso"
@@ -733,10 +715,6 @@ def show_consulta_mix_page(engine, base_data_path):
             ean_norm = _normalizar_codigo_barras(ean_busca)
             if not ean_norm:
                 st.error("❌ Informe um EAN válido (somente dígitos).")
-            elif df_ean.empty:
-                st.warning(
-                    "⚠️ Base EAN/DUN não encontrada ou sem mapeamento válido."
-                )
             else:
                 codigos_encontrados = _filtrar_codigos_por_ean(
                     df_ean, ean_norm
@@ -879,7 +857,7 @@ def show_consulta_mix_page(engine, base_data_path):
     
     # Opção de visualizar todos os produtos da base ean_dun
     st.markdown("---")
-    if st.checkbox("📋 Visualizar todos os produtos da base EAN/DUN"):
+    if st.checkbox("📋 Visualizar todos os produtos da base EAN/DUN (exclusivo)"):
         st.markdown("### Todos os Produtos da Base EAN/DUN")
         
         df_display_all = df_mix_ativo.copy()
