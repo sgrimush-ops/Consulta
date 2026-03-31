@@ -107,15 +107,50 @@ def _coluna_tem_dados(df, coluna):
     return (~serie.isin(["", "nan", "None", "<NA>"])).any()
 
 
-def _carregar_base_ean_dun():
-    """Carrega a base EAN/DUN e retorna colunas padronizadas para consulta."""
-    parquet_path = os.path.join("bdados", "ean_dun.parquet")
-    if not os.path.exists(parquet_path):
-        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
+def _resolver_caminho_ean_dun(base_data_path=None):
+    """Resolve o caminho do ean_dun.parquet para local e Render."""
+    caminhos = []
 
-    df_ean = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
+    if base_data_path:
+        caminhos.append(os.path.join(base_data_path, "ean_dun.parquet"))
+        caminhos.append(os.path.join(base_data_path, "bdados", "ean_dun.parquet"))
+
+    render_disk_path = os.environ.get("RENDER_DISK_PATH")
+    if render_disk_path:
+        caminhos.append(os.path.join(render_disk_path, "ean_dun.parquet"))
+        caminhos.append(os.path.join(render_disk_path, "bdados", "ean_dun.parquet"))
+
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    caminhos.append(os.path.join(project_root, "bdados", "ean_dun.parquet"))
+    caminhos.append(os.path.join(os.getcwd(), "bdados", "ean_dun.parquet"))
+    caminhos.append(os.path.join("bdados", "ean_dun.parquet"))
+
+    # Remove duplicados preservando ordem.
+    caminhos = list(dict.fromkeys(caminhos))
+
+    for caminho in caminhos:
+        if os.path.exists(caminho):
+            return caminho, caminhos
+
+    return None, caminhos
+
+
+def _carregar_base_ean_dun(base_data_path=None):
+    """Carrega a base EAN/DUN com diagnostico de caminho e colunas."""
+    caminho_encontrado, caminhos_testados = _resolver_caminho_ean_dun(base_data_path)
+    diagnostico = {
+        "caminho_encontrado": caminho_encontrado,
+        "caminhos_testados": caminhos_testados,
+        "colunas_detectadas": [],
+    }
+
+    if not caminho_encontrado:
+        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"]), diagnostico
+
+    df_ean = _normalizar_nomes_colunas(pd.read_parquet(caminho_encontrado))
+    diagnostico["colunas_detectadas"] = df_ean.columns.astype(str).tolist()
     if df_ean.empty:
-        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
+        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"]), diagnostico
 
     colunas_norm = {
         _normalizar_chave_coluna(col): col
@@ -223,7 +258,7 @@ def _carregar_base_ean_dun():
     )
 
     if not col_cod or not col_ean:
-        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"])
+        return pd.DataFrame(columns=["cod_consinco", "codigo_ean"]), diagnostico
 
     colunas_origem = [col_cod, col_ean]
     rename_map = {
@@ -266,7 +301,8 @@ def _carregar_base_ean_dun():
     if "Mix" in df_ean.columns:
         df_ean["Mix"] = df_ean["Mix"].astype(str).str.strip().str.upper()
 
-    return df_ean.drop_duplicates(subset=["cod_consinco", "codigo_ean"])
+    df_ean = df_ean.drop_duplicates(subset=["cod_consinco", "codigo_ean"])
+    return df_ean, diagnostico
 
 
 def _filtrar_codigos_por_ean(df_ean, ean_consulta):
@@ -349,15 +385,26 @@ def show_consulta_mix_page(engine, base_data_path):
     """
     st.title("🔍 Consulta de Mix de Produtos")
     st.markdown("---")
-    st.caption("Fonte ativa: bdados/ean_dun.parquet | consulta-mix-ean v3")
+    st.caption("Fonte ativa: ean_dun.parquet | consulta-mix-ean v4")
 
     # Fonte exclusiva da consulta: ean_dun.parquet
-    df_ean = _carregar_base_ean_dun()
+    df_ean, diag_ean = _carregar_base_ean_dun(base_data_path)
+    caminho_carga = diag_ean.get("caminho_encontrado") or "nao encontrado"
+    st.caption(f"Caminho efetivo da carga: {caminho_carga}")
+
     if df_ean.empty:
+        caminhos_testados = diag_ean.get("caminhos_testados", [])
+        colunas_detectadas = diag_ean.get("colunas_detectadas", [])
         st.error(
-            "Base ean_dun.parquet não encontrada ou sem mapeamento de "
+            "Base ean_dun.parquet nao encontrada ou sem mapeamento de "
             "cod_consinco/codigo_ean."
         )
+        if caminhos_testados:
+            st.caption("Caminhos testados: " + " | ".join(caminhos_testados))
+        if colunas_detectadas:
+            st.caption(
+                "Colunas lidas no arquivo: " + ", ".join(colunas_detectadas)
+            )
         st.stop()
 
     df_mix = df_ean.copy()
