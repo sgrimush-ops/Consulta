@@ -338,3 +338,86 @@ def rename_cargo(engine, current_name: str | None, new_name: str | None) -> tupl
             ),
             params,
         )
+        conn.execute(
+            text(
+                """
+                UPDATE solicitacoes_acesso
+                SET cargo = :new_name
+                WHERE cargo IS NOT NULL
+                  AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:current_name))
+                """
+            ),
+            params,
+        )
+
+    if target_exists:
+        return True, (
+            f"Cargo '{current_normalized}' consolidado em '{new_normalized}' com sucesso."
+        )
+
+    return True, f"Cargo '{current_normalized}' renomeado para '{new_normalized}' com sucesso."
+
+
+def get_cargo_normalization_preview(engine) -> list[dict[str, object]]:
+    bootstrap_cargos_catalog(engine)
+
+    with engine.connect() as conn:
+        source_rows = conn.execute(
+            text(
+                """
+                SELECT origem, cargo_informado, total_registros
+                FROM (
+                    SELECT
+                        'Usuarios' AS origem,
+                        cargo AS cargo_informado,
+                        COUNT(*) AS total_registros
+                    FROM users
+                    WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                    GROUP BY cargo
+
+                    UNION ALL
+
+                    SELECT
+                        'Solicitacoes' AS origem,
+                        cargo AS cargo_informado,
+                        COUNT(*) AS total_registros
+                    FROM solicitacoes_acesso
+                    WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                    GROUP BY cargo
+                ) cargos_origem
+                ORDER BY LOWER(BTRIM(cargo_informado)), origem
+                """
+            )
+        ).fetchall()
+        catalog_rows = conn.execute(
+            text(
+                """
+                SELECT nome
+                FROM cargos_catalogo
+                """
+            )
+        ).fetchall()
+
+    catalog_set = {normalize_cargo_name(row[0]) for row in catalog_rows}
+
+    preview = []
+    for row in source_rows:
+        original = str(row.cargo_informado or "").strip()
+        canonical = normalize_cargo_name(original)
+        if not canonical:
+            continue
+
+        preview.append(
+            {
+                "Origem": row.origem,
+                "Cargo Informado": original,
+                "Cargo Canonico": canonical,
+                "Total Registros": int(row.total_registros or 0),
+                "Ja Catalogado": "Sim" if canonical in catalog_set else "Nao",
+                "Mudou na Normalizacao": "Sim"
+                if canonical != re.sub(r"\s+", " ", original.lower()).strip()
+                else "Nao",
+            }
+        )
+
+    return preview

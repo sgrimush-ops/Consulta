@@ -14,6 +14,7 @@
 - Ao lidar com limpeza de arquivos ou padronizacao de CSV/Excel, priorize as skills em `.github/skills/`.
 - Ao trabalhar com Parquet (formato canônico de dados): consulte `.github/skills/manipulacao-robusta-parquet/` para validação, conversão e otimização.
 - Em tarefas de reposicao, ruptura, gôndola, deposito, clima, compras e dashboards, prefira os agentes em `.github/agents/`.
+- Em toda interacao com o usuario, responda sempre em portugues do Brasil, com linguagem clara e natural.
 
 ## Convencoes de dados do dominio
 
