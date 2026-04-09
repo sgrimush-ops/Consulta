@@ -407,7 +407,9 @@ def show_pedidos_cd_page(engine, base_data_path):
             col4.warning("⚠️ SUSPENSO no Mix")
         
         st.markdown("---")
-        st.subheader("Digite as quantidades por loja (em caixas):")
+        st.subheader(
+            "Digite as quantidades por loja (em caixas para CD15) e para (CD16 POR KG!!!!):"
+        )
         
         # Verificar lojas de acesso do usuário
         lojas_acesso = st.session_state.get("lojas_acesso", [])
@@ -441,13 +443,18 @@ def show_pedidos_cd_page(engine, base_data_path):
             col_total1.metric("Total de Caixas", total_cx)
             col_total2.metric("Total de Unidades", total_un)
 
-            cd_abastecedor = st.radio(
-                "CD abastecedor:",
-                ["Selecione...", "CD15", "CD16"],
-                index=0,
-                horizontal=True,
-                key=f"cd_abastecedor_{codigo_produto}"
-            )
+            col_cd, col_cd_msg = st.columns([2, 1])
+            with col_cd:
+                cd_abastecedor = st.radio(
+                    "CD abastecedor:",
+                    ["Selecione...", "CD15", "CD16"],
+                    index=0,
+                    horizontal=True,
+                    key=f"cd_abastecedor_{codigo_produto}"
+                )
+            with col_cd_msg:
+                st.markdown("")
+                st.info("CD16 pedido por Quilo (Kg)")
             
             submitted_pedido = st.form_submit_button("📤 Enviar para Aprovação", type="primary")
             
