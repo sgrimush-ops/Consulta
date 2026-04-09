@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 
 CONNECTOR_WORDS = {"de", "da", "do", "das", "dos"}
+CARGOS_BOOTSTRAP_LOCK_KEY = 104729
 
 
 def normalize_cargo_name(cargo: str | None) -> str:
@@ -20,61 +21,76 @@ def normalize_cargo_name(cargo: str | None) -> str:
     return normalized
 
 
-def ensure_cargos_catalog(engine) -> None:
-    with engine.begin() as conn:
+def _lock_cargos_catalog(conn) -> None:
+    dialect_name = getattr(getattr(conn, "dialect", None), "name", "")
+    if dialect_name == "postgresql":
         conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS cargos_catalogo (
-                    id SERIAL PRIMARY KEY,
-                    nome TEXT NOT NULL,
-                    criado_em TIMESTAMP NOT NULL DEFAULT NOW(),
-                    atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_cargos_catalogo_nome_normalizado
-                ON cargos_catalogo ((LOWER(BTRIM(nome))))
-                """
-            )
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": CARGOS_BOOTSTRAP_LOCK_KEY},
         )
 
 
-def sync_cargos_from_existing(engine) -> None:
-    ensure_cargos_catalog(engine)
+def _ensure_cargos_catalog(conn) -> None:
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS cargos_catalogo (
+                id SERIAL PRIMARY KEY,
+                nome TEXT NOT NULL,
+                criado_em TIMESTAMP NOT NULL DEFAULT NOW(),
+                atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_cargos_catalogo_nome_normalizado
+            ON cargos_catalogo ((LOWER(BTRIM(nome))))
+            """
+        )
+    )
+
+
+def ensure_cargos_catalog(engine, conn=None) -> None:
+    if conn is not None:
+        _ensure_cargos_catalog(conn)
+        return
 
     with engine.begin() as conn:
-        user_rows = conn.execute(
-            text(
-                """
-                SELECT DISTINCT cargo
-                FROM users
-                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
-                """
-            )
-        ).fetchall()
-        request_rows = conn.execute(
-            text(
-                """
-                SELECT DISTINCT cargo
-                FROM solicitacoes_acesso
-                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
-                """
-            )
-        ).fetchall()
-        catalog_rows = conn.execute(
-            text(
-                """
-                SELECT id, nome
-                FROM cargos_catalogo
-                ORDER BY id
-                """
-            )
-        ).fetchall()
+        _lock_cargos_catalog(conn)
+        _ensure_cargos_catalog(conn)
+
+
+def _sync_cargos_from_existing(conn) -> None:
+    user_rows = conn.execute(
+        text(
+            """
+            SELECT DISTINCT cargo
+            FROM users
+            WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+            """
+        )
+    ).fetchall()
+    request_rows = conn.execute(
+        text(
+            """
+            SELECT DISTINCT cargo
+            FROM solicitacoes_acesso
+            WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+            """
+        )
+    ).fetchall()
+    catalog_rows = conn.execute(
+        text(
+            """
+            SELECT id, nome
+            FROM cargos_catalogo
+            ORDER BY id
+            """
+        )
+    ).fetchall()
 
     existing_values = [row[0] for row in user_rows] + [row[0] for row in request_rows]
     canonical_names = []
@@ -98,99 +114,111 @@ def sync_cargos_from_existing(engine) -> None:
             continue
         keep_catalog_rows[normalized] = row.id
 
-    with engine.begin() as conn:
-        if empty_catalog_ids:
-            conn.execute(
-                text("DELETE FROM cargos_catalogo WHERE id = ANY(:ids)"),
-                {"ids": empty_catalog_ids},
-            )
+    conn.execute(
+        text(
+            """
+            UPDATE users
+            SET cargo = LOWER(BTRIM(cargo))
+            WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE solicitacoes_acesso
+            SET cargo = LOWER(BTRIM(cargo))
+            WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+            """
+        )
+    )
 
-        if duplicate_catalog_ids:
-            conn.execute(
-                text("DELETE FROM cargos_catalogo WHERE id = ANY(:ids)"),
-                {"ids": duplicate_catalog_ids},
-            )
-
-        for normalized, row_id in keep_catalog_rows.items():
-            conn.execute(
-                text(
-                    """
-                    UPDATE cargos_catalogo
-                    SET nome = :nome,
-                        atualizado_em = NOW()
-                    WHERE id = :id
-                    """
-                ),
-                {"id": row_id, "nome": normalized},
-            )
+    for raw_value in existing_values:
+        normalized = normalize_cargo_name(raw_value)
+        if not normalized:
+            continue
 
         conn.execute(
             text(
                 """
                 UPDATE users
-                SET cargo = LOWER(BTRIM(cargo))
-                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                SET cargo = :normalized
+                WHERE cargo IS NOT NULL
+                  AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:raw_value))
                 """
-            )
+            ),
+            {"normalized": normalized, "raw_value": raw_value},
         )
         conn.execute(
             text(
                 """
                 UPDATE solicitacoes_acesso
-                SET cargo = LOWER(BTRIM(cargo))
-                WHERE cargo IS NOT NULL AND BTRIM(cargo) <> ''
+                SET cargo = :normalized
+                WHERE cargo IS NOT NULL
+                  AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:raw_value))
                 """
-            )
+            ),
+            {"normalized": normalized, "raw_value": raw_value},
         )
 
-        for raw_value in existing_values:
-            normalized = normalize_cargo_name(raw_value)
-            if not normalized:
-                continue
+    if empty_catalog_ids:
+        conn.execute(
+            text("DELETE FROM cargos_catalogo WHERE id = ANY(:ids)"),
+            {"ids": empty_catalog_ids},
+        )
 
-            conn.execute(
-                text(
-                    """
-                    UPDATE users
-                    SET cargo = :normalized
-                    WHERE cargo IS NOT NULL
-                      AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:raw_value))
-                    """
-                ),
-                {"normalized": normalized, "raw_value": raw_value},
-            )
-            conn.execute(
-                text(
-                    """
-                    UPDATE solicitacoes_acesso
-                    SET cargo = :normalized
-                    WHERE cargo IS NOT NULL
-                      AND LOWER(BTRIM(cargo)) = LOWER(BTRIM(:raw_value))
-                    """
-                ),
-                {"normalized": normalized, "raw_value": raw_value},
-            )
+    if duplicate_catalog_ids:
+        conn.execute(
+            text("DELETE FROM cargos_catalogo WHERE id = ANY(:ids)"),
+            {"ids": duplicate_catalog_ids},
+        )
 
-        for normalized in canonical_names:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO cargos_catalogo (nome)
-                    SELECT :nome
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM cargos_catalogo
-                        WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:nome))
-                    )
-                    """
-                ),
-                {"nome": normalized},
-            )
+    for normalized, row_id in keep_catalog_rows.items():
+        conn.execute(
+            text(
+                """
+                UPDATE cargos_catalogo
+                SET nome = :nome,
+                    atualizado_em = NOW()
+                WHERE id = :id
+                """
+            ),
+            {"id": row_id, "nome": normalized},
+        )
+
+    for normalized in canonical_names:
+        conn.execute(
+            text(
+                """
+                INSERT INTO cargos_catalogo (nome)
+                SELECT :nome
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM cargos_catalogo
+                    WHERE LOWER(BTRIM(nome)) = LOWER(BTRIM(:nome))
+                )
+                """
+            ),
+            {"nome": normalized},
+        )
+
+
+def sync_cargos_from_existing(engine, conn=None) -> None:
+    if conn is not None:
+        _sync_cargos_from_existing(conn)
+        return
+
+    with engine.begin() as conn:
+        _lock_cargos_catalog(conn)
+        _ensure_cargos_catalog(conn)
+        _sync_cargos_from_existing(conn)
 
 
 def bootstrap_cargos_catalog(engine) -> None:
-    ensure_cargos_catalog(engine)
-    sync_cargos_from_existing(engine)
+    with engine.begin() as conn:
+        _lock_cargos_catalog(conn)
+        _ensure_cargos_catalog(conn)
+        _sync_cargos_from_existing(conn)
 
 
 def list_cargos(engine) -> list[str]:

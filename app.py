@@ -247,20 +247,6 @@ def create_db_tables(engine):
                 ADD COLUMN IF NOT EXISTS cargo TEXT
             """))
 
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS cargos_catalogo (
-                    id SERIAL PRIMARY KEY,
-                    nome TEXT NOT NULL,
-                    criado_em TIMESTAMP NOT NULL DEFAULT NOW(),
-                    atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
-                )
-            """))
-
-            conn.execute(text("""
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_cargos_catalogo_nome_normalizado
-                ON cargos_catalogo ((LOWER(BTRIM(nome))))
-            """))
-
             lojas_sql_cols = ", ".join(
                 [f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
             conn.execute(text(f"""
@@ -436,7 +422,7 @@ def main_app():
             engine, BASE_DATA_PATH)
         paginas["Administração"] = lambda: show_admin_page(
             engine, BASE_DATA_PATH)
-        paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine)
+        paginas["Admin Uploads"] = lambda: show_admin_uploads_page(engine, BASE_DATA_PATH)
         paginas["Integração IA"] = lambda: show_admin_ai_page(
             engine, BASE_DATA_PATH)
 
