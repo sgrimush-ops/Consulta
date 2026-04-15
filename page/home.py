@@ -41,7 +41,6 @@ def show_home_page(engine, base_data_path):
         menu_options["👥 Status dos Usuários"] = "Status do Usuário"
         menu_options["⚙️ Administração"] = "Administração"
         menu_options["📦 Admin Uploads"] = "Admin Uploads"
-        menu_options["🤖 Integração IA"] = "Integração IA"
 
     # --- Renderização dos Botões em Grade ---
     st.info("Selecione uma opção abaixo para navegar:")

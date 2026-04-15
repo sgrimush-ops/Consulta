@@ -34,18 +34,6 @@ ProjetoBak/
 └── requirements.txt       # Dependencias Python
 ```
 
-## Integracao de agentes, squads e skills
-
-O projeto agora possui uma camada de integracao para uso no VS Code/Copilot, sem alterar o fluxo principal da aplicacao Streamlit.
-
-- `.github/copilot-instructions.md`: contexto global do projeto para o agente.
-- `.github/agents/`: agentes especializados para operacao de varejo, dados e engenharia.
-- `.github/skills/`: skills reaproveitaveis para governanca e carga/sanitizacao de dados.
-- `.github/prompts/executar-squad-varejo-insight.prompt.md`: atalho para rodar a orquestracao do squad Varejo Insight.
-- `squads/varejo-insight/`: definicao canonica do squad, party, pipeline e artefatos de dominio.
-
-Detalhes operacionais estao em `doc/AGENTES_SQUADS_SKILLS.md`.
-
 ## Funcionalidades
 
 ### Funcionarios (Baklizi)
@@ -61,7 +49,6 @@ Detalhes operacionais estao em `doc/AGENTES_SQUADS_SKILLS.md`.
 - Status do usuario (com cargo)
 - Administracao de usuarios (roles user/admin, cargo, lojas)
 - Admin Uploads
-- Integracao de IA para agentes, squads e skills
 
 ### Atualizações recentes
 - Pedido por Codigo (CD) exige escolha de CD abastecedor (`CD15` ou `CD16`) antes de enviar
