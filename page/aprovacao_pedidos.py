@@ -12,6 +12,17 @@ LISTA_LOJAS = [
     "007", "008", "011", "012", "013", "014", "016", "017", "018"
 ]
 COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
+ORIGEM_CONSUMO = "Pedido de Consumo"
+ORIGEM_CD_GERAL = "Pedido por Código (CD)"
+ORIGEM_CD15 = "CD15"
+ORIGEM_CD16 = "CD16"
+OPCOES_ORIGEM_FILTRO = [
+    "Todas",
+    ORIGEM_CONSUMO,
+    ORIGEM_CD15,
+    ORIGEM_CD16,
+    ORIGEM_CD_GERAL,
+]
 
 
 # --- Funções Auxiliares ---
@@ -90,6 +101,65 @@ def get_product_info(df_produtos, codigo):
     return None
 
 
+def get_origens_cd():
+    """Retorna origens que pertencem ao fluxo de pedidos CD."""
+    return [ORIGEM_CD_GERAL, ORIGEM_CD15, ORIGEM_CD16]
+
+
+def formatar_origem_pedido(origem):
+    """Normaliza origem para exibição e filtros locais."""
+    origem_normalizada = str(origem).strip()
+
+    if not origem_normalizada or origem_normalizada.lower() == "none":
+        origem_normalizada = ORIGEM_CD_GERAL
+
+    if origem_normalizada == ORIGEM_CONSUMO:
+        return f"🛒 {ORIGEM_CONSUMO}"
+
+    return f"📦 {origem_normalizada}"
+
+
+def adicionar_ids_selecionados(ids_atuais, novos_ids):
+    """Acumula ids selecionados sem duplicar."""
+    return list(dict.fromkeys([*ids_atuais, *novos_ids]))
+
+
+def aplicar_filtro_origem_sql(query_base, origem_filtro):
+    """Aplica filtro de origem na query SQL."""
+    if origem_filtro == ORIGEM_CONSUMO:
+        return (
+            query_base
+            + f" AND COALESCE(p.origem_pedido, '{ORIGEM_CD_GERAL}') "
+            + f"= '{ORIGEM_CONSUMO}'"
+        )
+
+    if origem_filtro == ORIGEM_CD15:
+        return (
+            query_base
+            + f" AND COALESCE(p.origem_pedido, '{ORIGEM_CD_GERAL}') "
+            + f"= '{ORIGEM_CD15}'"
+        )
+
+    if origem_filtro == ORIGEM_CD16:
+        return (
+            query_base
+            + f" AND COALESCE(p.origem_pedido, '{ORIGEM_CD_GERAL}') "
+            + f"= '{ORIGEM_CD16}'"
+        )
+
+    if origem_filtro == ORIGEM_CD_GERAL:
+        origens_cd_sql = ", ".join(
+            [f"'{origem}'" for origem in get_origens_cd()]
+        )
+        return (
+            query_base
+            + f" AND COALESCE(p.origem_pedido, '{ORIGEM_CD_GERAL}') "
+            + f"IN ({origens_cd_sql})"
+        )
+
+    return query_base
+
+
 def get_pedidos_para_aprovacao(
     engine,
     date_start,
@@ -130,17 +200,30 @@ def get_pedidos_para_aprovacao(
         if only_pending:
             query = text(str(query) + " AND status_aprovacao = 'Pendente'")
 
-        if origem_filtro == "Pedido de Consumo":
+        if origem_filtro == ORIGEM_CONSUMO:
             query = text(
                 str(query)
-                + " AND COALESCE(origem_pedido, 'Pedido por Código (CD)') "
-                + "= 'Pedido de Consumo'"
+                + f" AND COALESCE(origem_pedido, '{ORIGEM_CD_GERAL}') "
+                + f"= '{ORIGEM_CONSUMO}'"
             )
-        elif origem_filtro == "Pedido por Código (CD)":
+        elif origem_filtro == ORIGEM_CD15:
             query = text(
                 str(query)
-                + " AND COALESCE(origem_pedido, 'Pedido por Código (CD)') "
-                + "IN ('Pedido por Código (CD)', 'CD15', 'CD16')"
+                + f" AND COALESCE(origem_pedido, '{ORIGEM_CD_GERAL}') "
+                + f"= '{ORIGEM_CD15}'"
+            )
+        elif origem_filtro == ORIGEM_CD16:
+            query = text(
+                str(query)
+                + f" AND COALESCE(origem_pedido, '{ORIGEM_CD_GERAL}') "
+                + f"= '{ORIGEM_CD16}'"
+            )
+        elif origem_filtro == ORIGEM_CD_GERAL:
+            origens_cd_sql = ", ".join([f"'{origem}'" for origem in get_origens_cd()])
+            query = text(
+                str(query)
+                + f" AND COALESCE(origem_pedido, '{ORIGEM_CD_GERAL}') "
+                + f"IN ({origens_cd_sql})"
             )
         
         query = text(str(query) + " ORDER BY data_pedido ASC")
@@ -247,9 +330,17 @@ def registrar_download_aprovados(engine, usuario):
         return False
 
 
-def get_alerta_download_pendente(engine, janela_minutos=5):
-    """Retorna status de aprovados sem download no período recente."""
-    limite_aprovacao = now_brazil() - timedelta(minutes=janela_minutos)
+def get_intervalo_hoje():
+    """Retorna início e fim do dia atual no horário do Brasil."""
+    agora = now_brazil()
+    inicio_dia = datetime.combine(agora.date(), datetime.min.time())
+    fim_dia = datetime.combine(agora.date(), datetime.max.time())
+    return inicio_dia, fim_dia
+
+
+def get_alerta_download_pendente(engine):
+    """Retorna status de aprovados do dia sem download registrado."""
+    inicio_dia, fim_dia = get_intervalo_hoje()
 
     query_aprov = text(
         """
@@ -258,7 +349,7 @@ def get_alerta_download_pendente(engine, janela_minutos=5):
             MAX(data_aprovacao) AS ultima_aprovacao
         FROM pedidos_consolidados
         WHERE status_aprovacao = 'Aprovado'
-          AND data_aprovacao >= :limite_aprovacao
+          AND data_aprovacao BETWEEN :inicio_dia AND :fim_dia
         """
     )
 
@@ -266,7 +357,7 @@ def get_alerta_download_pendente(engine, janela_minutos=5):
         with engine.connect() as conn:
             row_aprov = conn.execute(
                 query_aprov,
-                {"limite_aprovacao": limite_aprovacao},
+                {"inicio_dia": inicio_dia, "fim_dia": fim_dia},
             ).fetchone()
 
         total_itens = int((row_aprov.total_itens or 0) if row_aprov else 0)
@@ -282,10 +373,14 @@ def get_alerta_download_pendente(engine, janela_minutos=5):
         ensure_download_aprovados_table(engine)
         query_download = text(
             "SELECT MAX(data_download) AS ultimo_download "
-            "FROM downloads_aprovados_log"
+            "FROM downloads_aprovados_log "
+            "WHERE data_download BETWEEN :inicio_dia AND :fim_dia"
         )
         with engine.connect() as conn:
-            row_down = conn.execute(query_download).fetchone()
+            row_down = conn.execute(
+                query_download,
+                {"inicio_dia": inicio_dia, "fim_dia": fim_dia},
+            ).fetchone()
 
         ultimo_download = row_down.ultimo_download if row_down else None
         pendente = (
@@ -307,6 +402,153 @@ def get_alerta_download_pendente(engine, janela_minutos=5):
             "total_itens": 0,
             "ultima_aprovacao": None,
         }
+
+
+def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
+    """Monta o Excel com os pedidos aprovados no dia."""
+    inicio_dia, fim_dia = get_intervalo_hoje()
+
+    query_sql = f"""
+        SELECT
+            p.id,
+            TO_CHAR(p.data_pedido, 'DD/MM/YYYY') AS data_pedido,
+            TO_CHAR(p.data_aprovacao, 'DD/MM/YYYY') AS data_aprovacao,
+            p.usuario_pedido,
+            p.codigo_interno,
+            p.descricao,
+            p.embseparacao,
+            p.{", p.".join(COLUNAS_LOJAS_PEDIDO)},
+            p.total_cx
+        FROM pedidos_consolidados p
+        WHERE p.status_aprovacao = 'Aprovado'
+          AND p.data_aprovacao BETWEEN :inicio_dia AND :fim_dia
+        """
+    query_sql = aplicar_filtro_origem_sql(query_sql, origem_filtro)
+    query_sql += " ORDER BY p.data_aprovacao DESC"
+    query = text(query_sql)
+
+    df_aprovados = pd.read_sql_query(
+        query,
+        con=engine,
+        params={"inicio_dia": inicio_dia, "fim_dia": fim_dia},
+    )
+
+    if df_aprovados.empty:
+        return None, "Nenhum pedido aprovado hoje para o filtro selecionado."
+
+    lojas_presentes = [
+        col for col in COLUNAS_LOJAS_PEDIDO if col in df_aprovados.columns
+    ]
+
+    for col in lojas_presentes:
+        df_aprovados[col] = pd.to_numeric(
+            df_aprovados[col], errors="coerce"
+        ).fillna(0)
+
+    df_lojas = df_aprovados.melt(
+        id_vars=[
+            "id",
+            "data_pedido",
+            "usuario_pedido",
+            "codigo_interno",
+            "descricao",
+            "embseparacao",
+        ],
+        value_vars=lojas_presentes,
+        var_name="loja_col",
+        value_name="qtd_cx_loja",
+    )
+
+    df_lojas = df_lojas[df_lojas["qtd_cx_loja"] > 0].copy()
+
+    if df_lojas.empty:
+        return (
+            None,
+            "Nenhum item com quantidade por loja nos pedidos aprovados hoje para o filtro selecionado.",
+        )
+
+    df_lojas["loja"] = df_lojas["loja_col"].astype(str).str.replace(
+        "loja_", "", regex=False
+    )
+
+    def formatar_usuarios(series_usuarios):
+        contagem = (
+            series_usuarios.astype(str)
+            .str.strip()
+            .replace("", "unknown")
+            .value_counts()
+        )
+        return ", ".join(
+            [
+                f"{usuario} ({qtd})" if qtd > 1 else usuario
+                for usuario, qtd in contagem.items()
+            ]
+        )
+
+    df_export = (
+        df_lojas.groupby(
+            [
+                "data_pedido",
+                "loja",
+                "codigo_interno",
+                "descricao",
+                "embseparacao",
+            ],
+            as_index=False,
+        )
+        .agg(
+            total_cx=("qtd_cx_loja", "sum"),
+            usuarios_pedido=("usuario_pedido", formatar_usuarios),
+            qtd_lancamentos=("id", "count"),
+        )
+        .sort_values(
+            by=["data_pedido", "loja", "descricao"],
+            ascending=[False, True, True],
+        )
+    )
+
+    df_export = df_export.rename(
+        columns={
+            "data_pedido": "Data Pedido",
+            "loja": "Loja",
+            "codigo_interno": "Código Consinco",
+            "descricao": "Descrição",
+            "embseparacao": "Emb",
+            "total_cx": "Total CX",
+            "usuarios_pedido": "Usuários",
+            "qtd_lancamentos": "Qtd Lançamentos",
+        }
+    )
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_export.to_excel(
+            writer,
+            sheet_name="Pedidos Aprovados",
+            index=False,
+        )
+
+    output.seek(0)
+
+    sufixo_arquivo = "todos"
+    if origem_filtro == ORIGEM_CONSUMO:
+        sufixo_arquivo = "consumo"
+    elif origem_filtro == ORIGEM_CD15:
+        sufixo_arquivo = "cd15"
+    elif origem_filtro == ORIGEM_CD16:
+        sufixo_arquivo = "cd16"
+    elif origem_filtro == ORIGEM_CD_GERAL:
+        sufixo_arquivo = "cd"
+
+    payload = {
+        "bytes": output.getvalue(),
+        "nome": (
+            f"pedidos_aprovados_{sufixo_arquivo}_"
+            f"{inicio_dia.strftime('%Y%m%d')}.xlsx"
+        ),
+        "total_itens": int(df_export.shape[0]),
+    }
+    return payload, None
 
 
 # --- Página Principal ---
@@ -345,7 +587,7 @@ def show_aprovacao_page(engine, base_data_path):
     with col4:
         origem_filtro = st.selectbox(
             "Origem:",
-            ["Todas", "Pedido de Consumo", "Pedido por Código (CD)"],
+            OPCOES_ORIGEM_FILTRO,
             index=0,
             key="origem_filtro_aprov",
         )
@@ -379,15 +621,9 @@ def show_aprovacao_page(engine, base_data_path):
 
     # Marcador visual de origem
     if "origem_pedido" in df_pedidos.columns:
-        df_pedidos["Origem"] = df_pedidos["origem_pedido"].apply(
-            lambda origem: (
-                "🛒 Pedido de Consumo"
-                if str(origem) == "Pedido de Consumo"
-                else f"📦 {str(origem).strip() if str(origem).strip() else 'Pedido por Código (CD)'}"
-            )
-        )
+        df_pedidos["Origem"] = df_pedidos["origem_pedido"].apply(formatar_origem_pedido)
     else:
-        df_pedidos["Origem"] = "📦 Pedido por Código (CD)"
+        df_pedidos["Origem"] = formatar_origem_pedido(ORIGEM_CD_GERAL)
     
     # Preparar colunas para exibição
     cols_exibicao = [
@@ -411,10 +647,12 @@ def show_aprovacao_page(engine, base_data_path):
     selecionados_atuais = set(st.session_state.get(selection_key, []))
     selecionados_atuais = selecionados_atuais.intersection(ids_visiveis)
     st.session_state[selection_key] = list(selecionados_atuais)
+
+    ids_selecionados = st.session_state[selection_key]
     
     # Botões de seleção rápida
     st.markdown("### ⚡ Seleção Rápida")
-    col_marcar, col_desmarcar = st.columns(2)
+    col_marcar, col_desmarcar, col_cd15, col_cd16, col_consumo = st.columns(5)
     
     with col_marcar:
         if st.button("☑️ Marcar Todos", use_container_width=True):
@@ -423,6 +661,39 @@ def show_aprovacao_page(engine, base_data_path):
     with col_desmarcar:
         if st.button("⬜ Desmarcar Todos", use_container_width=True):
             st.session_state[selection_key] = []
+
+    with col_cd15:
+        if st.button("📦 Marcar CD15", use_container_width=True):
+            ids_cd15 = df_para_editar.loc[
+                df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD15),
+                "id_pedido",
+            ].tolist()
+            st.session_state[selection_key] = adicionar_ids_selecionados(
+                ids_selecionados,
+                ids_cd15,
+            )
+
+    with col_cd16:
+        if st.button("📦 Marcar CD16", use_container_width=True):
+            ids_cd16 = df_para_editar.loc[
+                df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD16),
+                "id_pedido",
+            ].tolist()
+            st.session_state[selection_key] = adicionar_ids_selecionados(
+                ids_selecionados,
+                ids_cd16,
+            )
+
+    with col_consumo:
+        if st.button("🛒 Marcar Consumo", use_container_width=True):
+            ids_consumo = df_para_editar.loc[
+                df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CONSUMO),
+                "id_pedido",
+            ].tolist()
+            st.session_state[selection_key] = adicionar_ids_selecionados(
+                ids_selecionados,
+                ids_consumo,
+            )
 
     df_para_editar["Selecionar"] = df_para_editar["id_pedido"].isin(
         st.session_state[selection_key]
@@ -511,153 +782,44 @@ def show_aprovacao_page(engine, base_data_path):
     if "aprovacao_excel_payload" not in st.session_state:
         st.session_state["aprovacao_excel_payload"] = None
 
-    alerta_download = get_alerta_download_pendente(engine, janela_minutos=5)
+    origem_download = st.selectbox(
+        "Filtrar download por origem:",
+        OPCOES_ORIGEM_FILTRO,
+        index=0,
+        key="origem_download_aprov",
+    )
+
+    alerta_download = get_alerta_download_pendente(engine)
     if alerta_download["pendente"]:
         st.warning(
             "⚠️ Existem "
             f"{alerta_download['total_itens']} item(ns) aprovado(s) "
-            "nos últimos 5 minutos sem download registrado."
+            "hoje sem download registrado."
         )
-    
-    if st.button("Gerar Excel de Pedidos Aprovados"):
+
+    payload_dia, erro_payload_dia = gerar_payload_excel_aprovados_dia(
+        engine,
+        origem_download,
+    )
+    if payload_dia:
+        st.caption(
+            f"{payload_dia['total_itens']} linha(s) disponíveis para exportação hoje."
+        )
+    else:
+        st.session_state["aprovacao_excel_payload"] = None
+
+    if st.button(
+        "Gerar Excel de Pedidos Aprovados do Dia",
+        disabled=payload_dia is None,
+    ):
         try:
-            limite_aprovacao = now_brazil() - timedelta(minutes=5)
-
-            query = text(
-                f"""
-                SELECT
-                    p.id,
-                    TO_CHAR(p.data_pedido, 'DD/MM/YYYY') AS data_pedido,
-                    TO_CHAR(p.data_aprovacao, 'DD/MM/YYYY') AS data_aprovacao,
-                    p.usuario_pedido,
-                    p.codigo_interno,
-                    p.descricao,
-                    p.embseparacao,
-                    p.{", p.".join(COLUNAS_LOJAS_PEDIDO)},
-                    p.total_cx
-                FROM pedidos_consolidados p
-                WHERE p.status_aprovacao = 'Aprovado'
-                  AND p.data_aprovacao >= :limite_aprovacao
-                ORDER BY p.data_aprovacao DESC
-                """
-            )
-            
-            df_aprovados = pd.read_sql_query(
-                query,
-                con=engine,
-                params={"limite_aprovacao": limite_aprovacao}
-            )
-            
-            if not df_aprovados.empty:
-                lojas_presentes = [
-                    col for col in COLUNAS_LOJAS_PEDIDO
-                    if col in df_aprovados.columns
-                ]
-
-                for col in lojas_presentes:
-                    df_aprovados[col] = pd.to_numeric(
-                        df_aprovados[col], errors="coerce"
-                    ).fillna(0)
-
-                df_lojas = df_aprovados.melt(
-                    id_vars=[
-                        "id",
-                        "data_pedido",
-                        "usuario_pedido",
-                        "codigo_interno",
-                        "descricao",
-                        "embseparacao",
-                    ],
-                    value_vars=lojas_presentes,
-                    var_name="loja_col",
-                    value_name="qtd_cx_loja",
-                )
-
-                df_lojas = df_lojas[df_lojas["qtd_cx_loja"] > 0].copy()
-
-                if df_lojas.empty:
-                    st.info(
-                        "Nenhum item com quantidade por loja nos pedidos "
-                        "aprovados dos últimos 5 minutos."
-                    )
-                    return
-
-                df_lojas["loja"] = (
-                    df_lojas["loja_col"].astype(str).str.replace(
-                        "loja_", "", regex=False
-                    )
-                )
-
-                def formatar_usuarios(series_usuarios):
-                    contagem = (
-                        series_usuarios.astype(str)
-                        .str.strip()
-                        .replace("", "unknown")
-                        .value_counts()
-                    )
-                    return ", ".join(
-                        [
-                            f"{usuario} ({qtd})" if qtd > 1 else usuario
-                            for usuario, qtd in contagem.items()
-                        ]
-                    )
-
-                df_export = (
-                    df_lojas.groupby(
-                        [
-                            "data_pedido",
-                            "loja",
-                            "codigo_interno",
-                            "descricao",
-                            "embseparacao",
-                        ],
-                        as_index=False,
-                    )
-                    .agg(
-                        total_cx=("qtd_cx_loja", "sum"),
-                        usuarios_pedido=("usuario_pedido", formatar_usuarios),
-                        qtd_lancamentos=("id", "count"),
-                    )
-                    .sort_values(
-                        by=["data_pedido", "loja", "descricao"],
-                        ascending=[False, True, True],
-                    )
-                )
-
-                df_export = df_export.rename(
-                    columns={
-                        "data_pedido": "Data Pedido",
-                        "loja": "Loja",
-                        "codigo_interno": "Código Consinco",
-                        "descricao": "Descrição",
-                        "embseparacao": "Emb",
-                        "total_cx": "Total CX",
-                        "usuarios_pedido": "Usuários",
-                        "qtd_lancamentos": "Qtd Lançamentos",
-                    }
-                )
-
-                # Criar arquivo Excel em memória
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_export.to_excel(
-                        writer,
-                        sheet_name='Pedidos Aprovados',
-                        index=False
-                    )
-                
-                output.seek(0)
-
-                st.session_state["aprovacao_excel_payload"] = {
-                    "bytes": output.getvalue(),
-                    "nome": "pedido.xlsx",
-                }
-            else:
-                st.session_state["aprovacao_excel_payload"] = None
-                st.info("Nenhum pedido aprovado nos últimos 5 minutos.")
-        
+            st.session_state["aprovacao_excel_payload"] = payload_dia
+            st.success("Excel do dia gerado e pronto para download.")
         except Exception as e:
             st.error(f"Erro ao gerar Excel: {e}")
+
+    if payload_dia is None and erro_payload_dia:
+        st.info(erro_payload_dia)
 
     payload_excel = st.session_state.get("aprovacao_excel_payload")
     if payload_excel:
