@@ -412,6 +412,7 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
         SELECT
             p.id,
             TO_CHAR(p.data_pedido, 'DD/MM/YYYY') AS data_pedido,
+            TO_CHAR(p.data_pedido, 'HH24:MI') AS hora_digitacao,
             TO_CHAR(p.data_aprovacao, 'DD/MM/YYYY') AS data_aprovacao,
             p.usuario_pedido,
             p.codigo_interno,
@@ -449,6 +450,7 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
         id_vars=[
             "id",
             "data_pedido",
+            "hora_digitacao",
             "usuario_pedido",
             "codigo_interno",
             "descricao",
@@ -489,6 +491,7 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
         df_lojas.groupby(
             [
                 "data_pedido",
+                "hora_digitacao",
                 "loja",
                 "codigo_interno",
                 "descricao",
@@ -502,14 +505,15 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
             qtd_lancamentos=("id", "count"),
         )
         .sort_values(
-            by=["data_pedido", "loja", "descricao"],
-            ascending=[False, True, True],
+            by=["data_pedido", "hora_digitacao", "loja", "descricao"],
+            ascending=[False, False, True, True],
         )
     )
 
     df_export = df_export.rename(
         columns={
             "data_pedido": "Data Pedido",
+            "hora_digitacao": "Hora Digitação",
             "loja": "Loja",
             "codigo_interno": "Código Consinco",
             "descricao": "Descrição",
@@ -603,177 +607,161 @@ def show_aprovacao_page(engine, base_data_path):
     
     if df_pedidos.empty:
         st.info("Nenhum pedido encontrado no período selecionado.")
-        return
-    
-    st.markdown(f"### 📊 {len(df_pedidos)} pedido(s) encontrado(s)")
-    
-    # Adicionar informações do mix
-    if not df_produtos.empty:
-        df_pedidos['Status Mix'] = df_pedidos['codigo_interno'].apply(
-            lambda x: get_product_info(df_produtos, x)['Mix'] if get_product_info(df_produtos, x) else 'N/A'
-        )
-        df_pedidos['Status Mix'] = df_pedidos['Status Mix'].map({'A': '✅ Ativo', 'S': '⚠️ Suspenso', 'N/A': '❓ N/A'})
     else:
-        df_pedidos['Status Mix'] = '❓ N/A'
-    
-    # Adicionar checkbox para seleção
-    df_pedidos.insert(0, "Selecionar", False)
+        st.markdown(f"### 📊 {len(df_pedidos)} pedido(s) encontrado(s)")
 
-    # Marcador visual de origem
-    if "origem_pedido" in df_pedidos.columns:
-        df_pedidos["Origem"] = df_pedidos["origem_pedido"].apply(formatar_origem_pedido)
-    else:
-        df_pedidos["Origem"] = formatar_origem_pedido(ORIGEM_CD_GERAL)
-    
-    # Preparar colunas para exibição
-    cols_exibicao = [
-        "Selecionar", "id_pedido", "data_pedido_str", "usuario_pedido",
-        "Origem", "codigo_interno", "descricao", "Status Mix",
-        "embseparacao", "total_cx",
-        "status_aprovacao"
-    ] + COLUNAS_LOJAS_PEDIDO
-    
-    # Filtrar apenas colunas que existem
-    cols_exibicao = [col for col in cols_exibicao if col in df_pedidos.columns]
-    
-    df_para_editar = df_pedidos[cols_exibicao].copy()
+        if not df_produtos.empty:
+            df_pedidos['Status Mix'] = df_pedidos['codigo_interno'].apply(
+                lambda x: get_product_info(df_produtos, x)['Mix'] if get_product_info(df_produtos, x) else 'N/A'
+            )
+            df_pedidos['Status Mix'] = df_pedidos['Status Mix'].map({'A': '✅ Ativo', 'S': '⚠️ Suspenso', 'N/A': '❓ N/A'})
+        else:
+            df_pedidos['Status Mix'] = '❓ N/A'
 
-    # Persistir seleção entre reruns (por id_pedido)
-    selection_key = "aprovacao_selected_ids"
-    if selection_key not in st.session_state:
-        st.session_state[selection_key] = []
+        df_pedidos.insert(0, "Selecionar", False)
 
-    ids_visiveis = df_para_editar["id_pedido"].tolist()
-    selecionados_atuais = set(st.session_state.get(selection_key, []))
-    selecionados_atuais = selecionados_atuais.intersection(ids_visiveis)
-    st.session_state[selection_key] = list(selecionados_atuais)
+        if "origem_pedido" in df_pedidos.columns:
+            df_pedidos["Origem"] = df_pedidos["origem_pedido"].apply(formatar_origem_pedido)
+        else:
+            df_pedidos["Origem"] = formatar_origem_pedido(ORIGEM_CD_GERAL)
 
-    ids_selecionados = st.session_state[selection_key]
-    
-    # Botões de seleção rápida
-    st.markdown("### ⚡ Seleção Rápida")
-    col_marcar, col_desmarcar, col_cd15, col_cd16, col_consumo = st.columns(5)
-    
-    with col_marcar:
-        if st.button("☑️ Marcar Todos", use_container_width=True):
-            st.session_state[selection_key] = ids_visiveis.copy()
-    
-    with col_desmarcar:
-        if st.button("⬜ Desmarcar Todos", use_container_width=True):
+        cols_exibicao = [
+            "Selecionar", "id_pedido", "data_pedido_str", "usuario_pedido",
+            "Origem", "codigo_interno", "descricao", "Status Mix",
+            "embseparacao", "total_cx",
+            "status_aprovacao"
+        ] + COLUNAS_LOJAS_PEDIDO
+        cols_exibicao = [col for col in cols_exibicao if col in df_pedidos.columns]
+        df_para_editar = df_pedidos[cols_exibicao].copy()
+
+        selection_key = "aprovacao_selected_ids"
+        if selection_key not in st.session_state:
             st.session_state[selection_key] = []
 
-    with col_cd15:
-        if st.button("📦 Marcar CD15", use_container_width=True):
-            ids_cd15 = df_para_editar.loc[
-                df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD15),
-                "id_pedido",
-            ].tolist()
-            st.session_state[selection_key] = adicionar_ids_selecionados(
-                ids_selecionados,
-                ids_cd15,
-            )
+        ids_visiveis = df_para_editar["id_pedido"].tolist()
+        selecionados_atuais = set(st.session_state.get(selection_key, []))
+        selecionados_atuais = selecionados_atuais.intersection(ids_visiveis)
+        st.session_state[selection_key] = list(selecionados_atuais)
 
-    with col_cd16:
-        if st.button("📦 Marcar CD16", use_container_width=True):
-            ids_cd16 = df_para_editar.loc[
-                df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD16),
-                "id_pedido",
-            ].tolist()
-            st.session_state[selection_key] = adicionar_ids_selecionados(
-                ids_selecionados,
-                ids_cd16,
-            )
+        ids_selecionados = st.session_state[selection_key]
 
-    with col_consumo:
-        if st.button("🛒 Marcar Consumo", use_container_width=True):
-            ids_consumo = df_para_editar.loc[
-                df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CONSUMO),
-                "id_pedido",
-            ].tolist()
-            st.session_state[selection_key] = adicionar_ids_selecionados(
-                ids_selecionados,
-                ids_consumo,
-            )
+        st.markdown("### ⚡ Seleção Rápida")
+        col_marcar, col_desmarcar, col_cd15, col_cd16, col_consumo = st.columns(5)
 
-    df_para_editar["Selecionar"] = df_para_editar["id_pedido"].isin(
-        st.session_state[selection_key]
-    )
-    
-    st.markdown("---")
-    
-    # Configuração do editor
-    column_config = {
-        "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
-        "id_pedido": None,  # Ocultar
-        "data_pedido_str": st.column_config.TextColumn("Data/Hora", disabled=True),
-        "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True, width="small"),
-        "Origem": st.column_config.TextColumn(
-            "Origem",
-            disabled=True,
-            width="medium"
-        ),
-        "codigo_interno": st.column_config.NumberColumn("Cód. Consinco", disabled=True, format="%d"),
-        "descricao": st.column_config.TextColumn("Produto", disabled=True, width="large"),
-        "Status Mix": st.column_config.TextColumn("Mix", disabled=True, width="small"),
-        "embseparacao": st.column_config.NumberColumn("Emb", disabled=True, format="%d"),
-        "total_cx": st.column_config.NumberColumn("Total CX", format="%d"),
-        "status_aprovacao": st.column_config.TextColumn("Status", disabled=True, width="small"),
-    }
-    
-    # Configurar colunas de lojas como editáveis
-    for col in COLUNAS_LOJAS_PEDIDO:
-        if col in df_para_editar.columns:
-            loja_num = col.replace("loja_", "")
-            column_config[col] = st.column_config.NumberColumn(
-                loja_num, min_value=0, step=1, format="%d"
-            )
-    
-    # Editor de dados
-    df_editado = st.data_editor(
-        df_para_editar,
-        column_config=column_config,
-        hide_index=True,
-        use_container_width=True,
-        key="editor_aprovacao_v2"
-    )
+        with col_marcar:
+            if st.button("☑️ Marcar Todos", use_container_width=True):
+                st.session_state[selection_key] = ids_visiveis.copy()
 
-    # Sincronizar seleção manual do editor com session_state
-    selecionados_editor = df_editado.loc[
-        df_editado["Selecionar"] == True, "id_pedido"
-    ].tolist()
-    st.session_state[selection_key] = selecionados_editor
-    
-    # Recalcular total_cx baseado nas quantidades editadas
-    for idx in df_editado.index:
-        soma = sum(df_editado.loc[idx, col] for col in COLUNAS_LOJAS_PEDIDO if col in df_editado.columns)
-        df_editado.loc[idx, "total_cx"] = soma
-    
-    # Botões de ação
-    st.markdown("---")
-    col_aprovar, col_reprovar = st.columns(2)
-    
-    with col_aprovar:
-        if st.button("✅ Aprovar Selecionados", type="primary", use_container_width=True):
-            selecionados = df_editado[df_editado["Selecionar"] == True]
-            
-            if selecionados.empty:
-                st.warning("Nenhum pedido selecionado.")
-            else:
-                if update_pedidos_aprovados(engine, selecionados):
-                    st.success(f"✅ {len(selecionados)} pedido(s) aprovado(s) com sucesso!")
-                    st.rerun()
-    
-    with col_reprovar:
-        if st.button("❌ Reprovar Selecionados", use_container_width=True):
-            selecionados = df_editado[df_editado["Selecionar"] == True]
-            
-            if selecionados.empty:
-                st.warning("Nenhum pedido selecionado.")
-            else:
-                ids_reprovar = selecionados["id_pedido"].tolist()
-                if reprovar_pedidos(engine, ids_reprovar):
-                    st.success(f"❌ {len(selecionados)} pedido(s) reprovado(s)!")
-                    st.rerun()
+        with col_desmarcar:
+            if st.button("⬜ Desmarcar Todos", use_container_width=True):
+                st.session_state[selection_key] = []
+
+        with col_cd15:
+            if st.button("📦 Marcar CD15", use_container_width=True):
+                ids_cd15 = df_para_editar.loc[
+                    df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD15),
+                    "id_pedido",
+                ].tolist()
+                st.session_state[selection_key] = adicionar_ids_selecionados(
+                    ids_selecionados,
+                    ids_cd15,
+                )
+
+        with col_cd16:
+            if st.button("📦 Marcar CD16", use_container_width=True):
+                ids_cd16 = df_para_editar.loc[
+                    df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD16),
+                    "id_pedido",
+                ].tolist()
+                st.session_state[selection_key] = adicionar_ids_selecionados(
+                    ids_selecionados,
+                    ids_cd16,
+                )
+
+        with col_consumo:
+            if st.button("🛒 Marcar Consumo", use_container_width=True):
+                ids_consumo = df_para_editar.loc[
+                    df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CONSUMO),
+                    "id_pedido",
+                ].tolist()
+                st.session_state[selection_key] = adicionar_ids_selecionados(
+                    ids_selecionados,
+                    ids_consumo,
+                )
+
+        df_para_editar["Selecionar"] = df_para_editar["id_pedido"].isin(
+            st.session_state[selection_key]
+        )
+
+        st.markdown("---")
+
+        column_config = {
+            "Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False),
+            "id_pedido": None,
+            "data_pedido_str": st.column_config.TextColumn("Data/Hora", disabled=True),
+            "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True, width="small"),
+            "Origem": st.column_config.TextColumn(
+                "Origem",
+                disabled=True,
+                width="medium"
+            ),
+            "codigo_interno": st.column_config.NumberColumn("Cód. Consinco", disabled=True, format="%d"),
+            "descricao": st.column_config.TextColumn("Produto", disabled=True, width="large"),
+            "Status Mix": st.column_config.TextColumn("Mix", disabled=True, width="small"),
+            "embseparacao": st.column_config.NumberColumn("Emb", disabled=True, format="%d"),
+            "total_cx": st.column_config.NumberColumn("Total CX", format="%d"),
+            "status_aprovacao": st.column_config.TextColumn("Status", disabled=True, width="small"),
+        }
+
+        for col in COLUNAS_LOJAS_PEDIDO:
+            if col in df_para_editar.columns:
+                loja_num = col.replace("loja_", "")
+                column_config[col] = st.column_config.NumberColumn(
+                    loja_num, min_value=0, step=1, format="%d"
+                )
+
+        df_editado = st.data_editor(
+            df_para_editar,
+            column_config=column_config,
+            hide_index=True,
+            use_container_width=True,
+            key="editor_aprovacao_v2"
+        )
+
+        selecionados_editor = df_editado.loc[
+            df_editado["Selecionar"] == True, "id_pedido"
+        ].tolist()
+        st.session_state[selection_key] = selecionados_editor
+
+        for idx in df_editado.index:
+            soma = sum(df_editado.loc[idx, col] for col in COLUNAS_LOJAS_PEDIDO if col in df_editado.columns)
+            df_editado.loc[idx, "total_cx"] = soma
+
+        st.markdown("---")
+        col_aprovar, col_reprovar = st.columns(2)
+
+        with col_aprovar:
+            if st.button("✅ Aprovar Selecionados", type="primary", use_container_width=True):
+                selecionados = df_editado[df_editado["Selecionar"] == True]
+
+                if selecionados.empty:
+                    st.warning("Nenhum pedido selecionado.")
+                else:
+                    if update_pedidos_aprovados(engine, selecionados):
+                        st.success(f"✅ {len(selecionados)} pedido(s) aprovado(s) com sucesso!")
+                        st.rerun()
+
+        with col_reprovar:
+            if st.button("❌ Reprovar Selecionados", use_container_width=True):
+                selecionados = df_editado[df_editado["Selecionar"] == True]
+
+                if selecionados.empty:
+                    st.warning("Nenhum pedido selecionado.")
+                else:
+                    ids_reprovar = selecionados["id_pedido"].tolist()
+                    if reprovar_pedidos(engine, ids_reprovar):
+                        st.success(f"❌ {len(selecionados)} pedido(s) reprovado(s)!")
+                        st.rerun()
     
     # --- Download de Pedidos Aprovados ---
     st.markdown("---")
