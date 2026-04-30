@@ -512,7 +512,7 @@ def show_pedido_consumo_page(engine, base_data_path):
                             }
 
                             for loja in lista_lojas_global:
-                                col_loja_name = f"loja_{loja}"
+                                col_loja_name = f"loja_{str(loja).lower()}"
                                 if (
                                     loja == loja_setor
                                     and loja in lojas_autorizadas
@@ -760,7 +760,9 @@ def show_pedido_consumo_page(engine, base_data_path):
                 pedido_inputs[loja] = 0
 
             for loja in lista_lojas_global:
-                pedido_data[f"loja_{loja}"] = [pedido_inputs.get(loja, 0)]
+                pedido_data[f"loja_{str(loja).lower()}"] = [
+                    pedido_inputs.get(loja, 0)
+                ]
 
             df_to_save = pd.DataFrame(pedido_data)
 

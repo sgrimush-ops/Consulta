@@ -542,7 +542,9 @@ def show_pedidos_cd_page(engine, base_data_path):
             
             # Adicionar quantidades por loja
             for loja in LISTA_LOJAS_GLOBAL:
-                pedido_data[f"loja_{loja}"] = [pedido_inputs.get(loja, 0)]
+                pedido_data[f"loja_{str(loja).lower()}"] = [
+                    pedido_inputs.get(loja, 0)
+                ]
             
             df_to_save = pd.DataFrame(pedido_data)
             
