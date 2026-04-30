@@ -186,6 +186,7 @@ def get_pending_access_requests(engine):
                 nome,
                 cargo,
                 loja,
+                COALESCE(empresa, 'Baklizi') AS empresa,
                 senha_sugerida,
                 username_sugerido,
                 data_solicitacao
@@ -209,6 +210,7 @@ def get_pending_access_requests(engine):
                 "nome": "Nome",
                 "cargo": "Cargo",
                 "loja": "Loja",
+                "empresa": "Empresa",
                 "senha_sugerida": "Senha Sugerida",
                 "username_sugerido": "Usuário Sugerido",
                 "data_solicitacao": "Data Solicitação",
@@ -327,7 +329,7 @@ def process_access_requests(engine, df_requests, admin_username):
             continue
 
         try:
-            empresa = "Baklizi"
+            empresa = str(row.get("Empresa", "Baklizi")).strip() or "Baklizi"
             if add_new_user(
                 engine,
                 username,

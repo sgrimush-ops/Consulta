@@ -37,7 +37,7 @@ def _usuario_ja_existe(engine, username: str) -> bool:
         return bool(conn.execute(query, {"username": username}).scalar())
 
 
-def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sugerida: str):
+def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sugerida: str, empresa: str = "Baklizi"):
     username_sugerido = _normalize_username_from_nome(nome)
 
     if not username_sugerido:
@@ -58,6 +58,7 @@ def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sug
             nome,
             cargo,
             loja,
+            empresa,
             senha_sugerida,
             username_sugerido,
             status,
@@ -66,6 +67,7 @@ def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sug
             :nome,
             :cargo,
             :loja,
+            :empresa,
             :senha_sugerida,
             :username_sugerido,
             'Pendente',
@@ -81,6 +83,7 @@ def criar_solicitacao_acesso(engine, nome: str, cargo: str, loja: str, senha_sug
                 "nome": nome.strip(),
                 "cargo": normalize_cargo_name(cargo) if cargo else None,
                 "loja": loja,
+                "empresa": empresa.strip() if empresa else "Baklizi",
                 "senha_sugerida": senha_sugerida,
                 "username_sugerido": username_sugerido,
                 "data_solicitacao": now_brazil(),
@@ -106,11 +109,14 @@ def show_solicitacao_acesso_page(engine, base_data_path):
         )
         return
 
+    EMPRESAS_DISPONIVEIS = ["Baklizi", "Free Shop", "Monaco"]
+
     with st.form("form_solicitacao_acesso", clear_on_submit=True):
         nome = st.text_input("1º - Nome")
         cargo = st.selectbox("2º - Cargo", cargos_disponiveis, index=None, placeholder="Selecione um cargo")
         loja = st.selectbox("3º - Loja", LISTA_LOJAS, index=None)
-        senha_sugerida = st.text_input("4º - Senha sugerida", type="password")
+        empresa = st.selectbox("4º - Empresa", EMPRESAS_DISPONIVEIS, index=0)
+        senha_sugerida = st.text_input("5º - Senha sugerida", type="password")
 
         enviar = st.form_submit_button("Enviar para aprovação")
 
@@ -124,6 +130,9 @@ def show_solicitacao_acesso_page(engine, base_data_path):
             if not loja:
                 st.warning("Selecione a loja.")
                 return
+            if not empresa:
+                st.warning("Selecione a empresa.")
+                return
             if len(senha_sugerida) < 4:
                 st.warning("A senha sugerida deve ter pelo menos 4 caracteres.")
                 return
@@ -134,6 +143,7 @@ def show_solicitacao_acesso_page(engine, base_data_path):
                 cargo,
                 loja,
                 senha_sugerida,
+                empresa,
             )
 
             if sucesso:
