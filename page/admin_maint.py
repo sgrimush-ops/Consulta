@@ -1,5 +1,5 @@
 import streamlit as st
-from sqlalchemy import text 
+from sqlalchemy import text, inspect
 import pandas as pd
 import hashlib
 import json
@@ -179,14 +179,24 @@ def _normalize_username_from_nome(nome: str) -> str:
 
 def get_pending_access_requests(engine):
     try:
+        columns = {
+            str(col.get("name", "")).strip().lower()
+            for col in inspect(engine).get_columns("solicitacoes_acesso")
+        }
+        empresa_expr = (
+            "COALESCE(empresa, 'Baklizi') AS empresa"
+            if "empresa" in columns
+            else "'Baklizi' AS empresa"
+        )
+
         query = text(
-            """
+            f"""
             SELECT
                 id,
                 nome,
                 cargo,
                 loja,
-                COALESCE(empresa, 'Baklizi') AS empresa,
+                {empresa_expr},
                 senha_sugerida,
                 username_sugerido,
                 data_solicitacao

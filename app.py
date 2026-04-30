@@ -117,6 +117,25 @@ def check_login_and_get_roles(engine, username, password):
     return False, "user", []
 
 
+def ensure_admin_test_access(engine, username, role, lojas):
+    """Garante acesso total para o admin ale durante testes."""
+    if str(username).strip().lower() != "ale" or str(role).strip().lower() != "admin":
+        return lojas
+
+    lojas_teste = list(LISTA_LOJAS)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE users SET lojas_acesso = :lojas WHERE username = :username"),
+                {"lojas": json.dumps(lojas_teste), "username": "ale"},
+            )
+    except Exception:
+        # Mesmo sem persistencia em banco, mantem acesso total em sessao.
+        pass
+
+    return lojas_teste
+
+
 def update_user_status(username, status):
     try:
         current_time = now_brazil()
@@ -262,6 +281,17 @@ def create_db_tables(engine):
                 WHERE empresa IS NULL OR BTRIM(empresa) = ''
             """))
 
+            conn.execute(text("""
+                ALTER TABLE solicitacoes_acesso
+                ADD COLUMN IF NOT EXISTS empresa TEXT DEFAULT 'Baklizi'
+            """))
+
+            conn.execute(text("""
+                UPDATE solicitacoes_acesso
+                SET empresa = 'Baklizi'
+                WHERE empresa IS NULL OR BTRIM(empresa) = ''
+            """))
+
             lojas_sql_cols = ", ".join(
                 [f"loja_{loja} INTEGER DEFAULT 0" for loja in LISTA_LOJAS])
             conn.execute(text(f"""
@@ -363,6 +393,7 @@ def login_page(engine):
         logged_in, role, lojas = check_login_and_get_roles(
             engine, username, senha)
         if logged_in:
+            lojas = ensure_admin_test_access(engine, username, role, lojas)
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
             st.session_state["role"] = role
