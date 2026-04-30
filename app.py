@@ -28,8 +28,12 @@ st.set_page_config(page_title="Gestão de Produtos", layout="wide")
 BASE_DATA_PATH = os.environ.get("RENDER_DISK_PATH", "data")
 os.makedirs(BASE_DATA_PATH, exist_ok=True)
 
-LISTA_LOJAS = ["001", "002", "003", "004", "005", "006",
-               "007", "008", "011", "012", "013", "014", "016", "017", "018"]
+LISTA_LOJAS = [
+    "001", "002", "003", "004", "005", "006", "007", "008",
+    "011", "012", "013", "014", "016", "017", "018",
+    "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08",
+    "F10", "F11", "M12", "M13", "ADM", "RH"
+]
 
 # =========================================================
 # CONEXÃO DE BANCO
@@ -220,6 +224,7 @@ def create_db_tables(engine):
                     ultimo_acesso TIMESTAMP,
                     status_logado TEXT,
                     role TEXT DEFAULT 'user',
+                    empresa TEXT DEFAULT 'Baklizi',
                     cargo TEXT,
                     lojas_acesso TEXT
                 )
@@ -244,6 +249,17 @@ def create_db_tables(engine):
             conn.execute(text("""
                 ALTER TABLE users
                 ADD COLUMN IF NOT EXISTS cargo TEXT
+            """))
+
+            conn.execute(text("""
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS empresa TEXT DEFAULT 'Baklizi'
+            """))
+
+            conn.execute(text("""
+                UPDATE users
+                SET empresa = 'Baklizi'
+                WHERE empresa IS NULL OR BTRIM(empresa) = ''
             """))
 
             lojas_sql_cols = ", ".join(

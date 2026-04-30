@@ -17,7 +17,7 @@ def get_user_status_df(engine):
     try:
         # MUDANÇA: Usando 'engine' e 'text()'
         query = text(
-            "SELECT username, cargo, ultimo_acesso, status_logado FROM users")
+            "SELECT username, empresa, cargo, ultimo_acesso, status_logado FROM users")
         df_users = pd.read_sql_query(query, con=engine)
     except Exception as e:
         st.error(f"Erro ao carregar usuários: {e}")
@@ -108,11 +108,12 @@ def show_status_page(engine, base_data_path):
 
     # --- NOVO DISPLAY COM CORES ---
     # Cabeçalho da Tabela
-    col1, col2, col3, col4 = st.columns([1.5, 1.5, 2, 1.5])
+    col1, col2, col3, col4, col5 = st.columns([1.5, 1.3, 1.4, 2, 1.5])
     col1.markdown("**Usuário**")
-    col2.markdown("**Cargo**")
-    col3.markdown("**Último Acesso**")
-    col4.markdown("**Status**")
+    col2.markdown("**Empresa**")
+    col3.markdown("**Cargo**")
+    col4.markdown("**Último Acesso**")
+    col5.markdown("**Status**")
 
     st.markdown("<hr style='margin-top:0px; margin-bottom:10px;'>",
                 unsafe_allow_html=True)
@@ -128,7 +129,8 @@ def show_status_page(engine, base_data_path):
                 else row['Tempo_Formatado']
             )
 
-            col1_disp, col2_disp, col3_disp, col4_disp = st.columns([1.5, 1.5, 2, 1.5])
+            col1_disp, col2_disp, col3_disp, col4_disp, col5_disp = st.columns([1.5, 1.3, 1.4, 2, 1.5])
+            empresa = row.get('empresa') or "Baklizi"
             cargo = row.get('cargo') or ""
 
             # Aplica a cor usando HTML/Markdown
@@ -136,15 +138,18 @@ def show_status_page(engine, base_data_path):
                 f"<span style='color: {cor};'>{row['username']}</span>",
                 unsafe_allow_html=True)
             col2_disp.markdown(
-                f"<span style='color: {cor};'>{cargo}</span>",
+                f"<span style='color: {cor};'>{empresa}</span>",
                 unsafe_allow_html=True)
             col3_disp.markdown(
+                f"<span style='color: {cor};'>{cargo}</span>",
+                unsafe_allow_html=True)
+            col4_disp.markdown(
                 (
                     f"<span style='color: {cor};'>{row['ultimo_acesso_str']}"
                     f"</span>"
                 ),
                 unsafe_allow_html=True)
-            col4_disp.markdown(
+            col5_disp.markdown(
                 f"<span style='color: {cor};'>**{status_texto}**</span>",
                 unsafe_allow_html=True)
 

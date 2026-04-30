@@ -9,19 +9,31 @@ from utils.timezone import now_brazil, today_brazil
 # --- Configurações ---
 LISTA_LOJAS = [
     "001", "002", "003", "004", "005", "006",
-    "007", "008", "011", "012", "013", "014", "016", "017", "018"
+    "007", "008", "011", "012", "013", "014", "016", "017", "018",
+    "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08",
+    "F10", "F11", "M12", "M13", "ADM", "RH"
 ]
-COLUNAS_LOJAS_PEDIDO = [f"loja_{loja}" for loja in LISTA_LOJAS]
+COLUNAS_LOJAS_PEDIDO = [f"loja_{str(loja).lower()}" for loja in LISTA_LOJAS]
 ORIGEM_CONSUMO = "Pedido de Consumo"
 ORIGEM_CD_GERAL = "Pedido por Código (CD)"
 ORIGEM_CD15 = "CD15"
 ORIGEM_CD16 = "CD16"
+FILTRO_LOJA_TODAS = "Todas"
+FILTRO_LOJA_FREE_SHOPS = "Somente Free Shops (F*)"
+FILTRO_LOJA_RH = "Somente RH"
+FILTRO_LOJA_ADM = "Somente ADM"
 OPCOES_ORIGEM_FILTRO = [
     "Todas",
     ORIGEM_CONSUMO,
     ORIGEM_CD15,
     ORIGEM_CD16,
     ORIGEM_CD_GERAL,
+]
+OPCOES_FILTRO_LOJA = [
+    FILTRO_LOJA_TODAS,
+    FILTRO_LOJA_FREE_SHOPS,
+    FILTRO_LOJA_RH,
+    FILTRO_LOJA_ADM,
 ]
 
 
@@ -160,6 +172,43 @@ def aplicar_filtro_origem_sql(query_base, origem_filtro):
     return query_base
 
 
+def filtrar_pedidos_por_tipo_loja(df: pd.DataFrame, filtro_loja: str) -> pd.DataFrame:
+    """Filtra os pedidos com base nas lojas preenchidas em cada item."""
+    if df.empty or filtro_loja == FILTRO_LOJA_TODAS:
+        return df
+
+    colunas_free_shops = [
+        f"loja_{loja.lower()}" for loja in LISTA_LOJAS if str(loja).upper().startswith("F")
+    ]
+
+    if filtro_loja == FILTRO_LOJA_FREE_SHOPS:
+        colunas_alvo = [col for col in colunas_free_shops if col in df.columns]
+    elif filtro_loja == FILTRO_LOJA_RH:
+        colunas_alvo = ["loja_rh"] if "loja_rh" in df.columns else []
+    elif filtro_loja == FILTRO_LOJA_ADM:
+        colunas_alvo = ["loja_adm"] if "loja_adm" in df.columns else []
+    else:
+        return df
+
+    if not colunas_alvo:
+        return pd.DataFrame(columns=df.columns)
+
+    mascara = (df[colunas_alvo].fillna(0).sum(axis=1) > 0)
+    return df.loc[mascara].copy()
+
+
+def get_colunas_exclusivas_consumo():
+    """Retorna colunas de lojas exclusivas para pedidos de consumo."""
+    colunas_f = [
+        col for col in COLUNAS_LOJAS_PEDIDO
+        if col.replace("loja_", "").upper().startswith("F")
+    ]
+    colunas_fixas = [
+        col for col in ["loja_adm", "loja_rh"] if col in COLUNAS_LOJAS_PEDIDO
+    ]
+    return [*colunas_f, *colunas_fixas]
+
+
 def get_pedidos_para_aprovacao(
     engine,
     date_start,
@@ -179,6 +228,7 @@ def get_pedidos_para_aprovacao(
                 p.id AS id_pedido,
                 TO_CHAR(p.data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
                 p.usuario_pedido,
+                COALESCE(u.empresa, 'Baklizi') AS empresa,
                 p.codigo_interno,
                 p.descricao,
                 p.embseparacao,
@@ -191,6 +241,7 @@ def get_pedidos_para_aprovacao(
                 p.status_item,
                 p.status_aprovacao
             FROM pedidos_consolidados p
+            LEFT JOIN users u ON LOWER(u.username) = LOWER(p.usuario_pedido)
             WHERE p.data_pedido BETWEEN :start_str AND :end_str
         """
         )
@@ -241,6 +292,46 @@ def get_pedidos_para_aprovacao(
 def update_pedidos_aprovados(engine, df_editado_selecionado):
     """Atualiza o banco com quantidades editadas e aprova os itens."""
     try:
+        df_para_salvar = df_editado_selecionado.copy()
+        colunas_exclusivas_consumo = [
+            col for col in get_colunas_exclusivas_consumo()
+            if col in df_para_salvar.columns
+        ]
+
+        if colunas_exclusivas_consumo:
+            if "origem_pedido" in df_para_salvar.columns:
+                mascara_nao_consumo = (
+                    df_para_salvar["origem_pedido"].fillna(ORIGEM_CD_GERAL)
+                    .astype(str)
+                    .str.strip()
+                    != ORIGEM_CONSUMO
+                )
+            else:
+                origem_series = pd.Series(
+                    [ORIGEM_CD_GERAL] * len(df_para_salvar),
+                    index=df_para_salvar.index,
+                )
+                mascara_nao_consumo = (
+                    origem_series
+                    .astype(str)
+                    .str.strip()
+                    != formatar_origem_pedido(ORIGEM_CONSUMO)
+                )
+
+            if mascara_nao_consumo.any():
+                df_para_salvar.loc[
+                    mascara_nao_consumo,
+                    colunas_exclusivas_consumo,
+                ] = 0
+
+            colunas_soma = [
+                col for col in COLUNAS_LOJAS_PEDIDO if col in df_para_salvar.columns
+            ]
+            if colunas_soma:
+                df_para_salvar["total_cx"] = (
+                    df_para_salvar[colunas_soma].sum(axis=1).astype(int)
+                )
+
         data_aprovacao_dt = now_brazil()
         set_lojas_sql = ", ".join([f"{col} = :{col}" for col in COLUNAS_LOJAS_PEDIDO])
         
@@ -257,7 +348,7 @@ def update_pedidos_aprovados(engine, df_editado_selecionado):
         )
         
         with engine.begin() as conn:
-            for _, row in df_editado_selecionado.iterrows():
+            for _, row in df_para_salvar.iterrows():
                 params = {"id_pedido": row["id_pedido"], "data_aprovacao": data_aprovacao_dt}
                 params["total_cx"] = row["total_cx"]
                 
@@ -415,12 +506,14 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
             TO_CHAR(p.data_pedido, 'HH24:MI') AS hora_digitacao,
             TO_CHAR(p.data_aprovacao, 'DD/MM/YYYY') AS data_aprovacao,
             p.usuario_pedido,
+            COALESCE(u.empresa, 'Baklizi') AS empresa,
             p.codigo_interno,
             p.descricao,
             p.embseparacao,
             p.{", p.".join(COLUNAS_LOJAS_PEDIDO)},
             p.total_cx
         FROM pedidos_consolidados p
+        LEFT JOIN users u ON LOWER(u.username) = LOWER(p.usuario_pedido)
         WHERE p.status_aprovacao = 'Aprovado'
           AND p.data_aprovacao BETWEEN :inicio_dia AND :fim_dia
         """
@@ -452,6 +545,7 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
             "data_pedido",
             "hora_digitacao",
             "usuario_pedido",
+            "empresa",
             "codigo_interno",
             "descricao",
             "embseparacao",
@@ -487,6 +581,16 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
             ]
         )
 
+    def formatar_empresas(series_empresas):
+        empresas = sorted(
+            {
+                str(empresa).strip()
+                for empresa in series_empresas
+                if str(empresa).strip()
+            }
+        )
+        return ", ".join(empresas) if empresas else "Baklizi"
+
     df_export = (
         df_lojas.groupby(
             [
@@ -502,6 +606,7 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
         .agg(
             total_cx=("qtd_cx_loja", "sum"),
             usuarios_pedido=("usuario_pedido", formatar_usuarios),
+            empresas=("empresa", formatar_empresas),
             qtd_lancamentos=("id", "count"),
         )
         .sort_values(
@@ -520,6 +625,7 @@ def gerar_payload_excel_aprovados_dia(engine, origem_filtro="Todas"):
             "embseparacao": "Emb",
             "total_cx": "Total CX",
             "usuarios_pedido": "Usuários",
+            "empresas": "Empresa",
             "qtd_lancamentos": "Qtd Lançamentos",
         }
     )
@@ -569,7 +675,7 @@ def show_aprovacao_page(engine, base_data_path):
     
     # --- Filtros ---
     st.markdown("### 🔍 Filtros")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         date_start = st.date_input(
@@ -595,6 +701,14 @@ def show_aprovacao_page(engine, base_data_path):
             index=0,
             key="origem_filtro_aprov",
         )
+
+    with col5:
+        filtro_loja = st.selectbox(
+            "Lojas no pedido:",
+            OPCOES_FILTRO_LOJA,
+            index=0,
+            key="filtro_loja_aprov",
+        )
     
     # Buscar pedidos
     df_pedidos = get_pedidos_para_aprovacao(
@@ -604,6 +718,7 @@ def show_aprovacao_page(engine, base_data_path):
         only_pending,
         origem_filtro,
     )
+    df_pedidos = filtrar_pedidos_por_tipo_loja(df_pedidos, filtro_loja)
     
     if df_pedidos.empty:
         st.info("Nenhum pedido encontrado no período selecionado.")
@@ -627,7 +742,7 @@ def show_aprovacao_page(engine, base_data_path):
 
         cols_exibicao = [
             "Selecionar", "id_pedido", "data_pedido_str", "usuario_pedido",
-            "Origem", "codigo_interno", "descricao", "Status Mix",
+            "empresa", "Origem", "origem_pedido", "codigo_interno", "descricao", "Status Mix",
             "embseparacao", "total_cx",
             "status_aprovacao"
         ] + COLUNAS_LOJAS_PEDIDO
@@ -700,6 +815,7 @@ def show_aprovacao_page(engine, base_data_path):
             "id_pedido": None,
             "data_pedido_str": st.column_config.TextColumn("Data/Hora", disabled=True),
             "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True, width="small"),
+            "empresa": st.column_config.TextColumn("Empresa", disabled=True, width="small"),
             "Origem": st.column_config.TextColumn(
                 "Origem",
                 disabled=True,

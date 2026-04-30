@@ -463,6 +463,9 @@ def _carregar_embalagem_query(base_data_path=None):
         "codigo",
     ]
     aliases_emb = [
+        "embl_transferencia",
+        "embltransferencia",
+        "embl transferencia",
         "embalagemtransferencia",
         "embalagem de transferencia",
         "embalagem transferência",

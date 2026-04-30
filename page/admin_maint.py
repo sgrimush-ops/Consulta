@@ -8,12 +8,25 @@ from utils.cargos import add_cargo, bootstrap_cargos_catalog, cargo_exists, get_
 from utils.timezone import now_brazil
 
 # --- Configurações Globais ---
-LISTA_LOJAS = ["001", "002", "003", "004", "005", "006", "007", "008", "011", "012", "013", "014", "016", "017", "018"]
+LISTA_LOJAS = [
+    "001", "002", "003", "004", "005", "006", "007", "008",
+    "011", "012", "013", "014", "016", "017", "018",
+    "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08",
+    "F10", "F11", "M12", "M13", "ADM", "RH"
+]
 ROLES_DISPONIVEIS = ["user", "admin"]
+EMPRESAS_DISPONIVEIS = ["Baklizi", "Free Shop", "Monaco"]
 
 
 def _format_cargo_option(cargo: str) -> str:
     return cargo if cargo else "Sem cargo"
+
+
+def _normalize_empresa_option(empresa: str) -> str:
+    empresa_limpa = str(empresa or "").strip()
+    if empresa_limpa in EMPRESAS_DISPONIVEIS:
+        return empresa_limpa
+    return "Baklizi"
 
 # --- Funções Auxiliares de Hashing ---
 def make_hashes(password):
@@ -23,10 +36,10 @@ def make_hashes(password):
 
 # MUDANÇA: Removido @st.cache_data (já estava removido, mas confirmando)
 def get_all_users_details(engine):
-    """Busca todos os usuários, seus roles, cargos e lojas."""
+    """Busca todos os usuários, seus roles, empresa, cargos e lojas."""
     try:
         df = pd.read_sql_query(
-            text("SELECT username, role, cargo, lojas_acesso FROM users"),
+            text("SELECT username, role, empresa, cargo, lojas_acesso FROM users"),
             con=engine
         )
         
@@ -40,11 +53,13 @@ def get_all_users_details(engine):
                 return "Erro de Formato"
                 
         df['lojas_acesso'] = df['lojas_acesso'].apply(format_lojas)
+        df['empresa'] = df['empresa'].apply(_normalize_empresa_option)
         df['cargo'] = df['cargo'].fillna("")
         df.rename(
             columns={
                 'username': 'Usuário',
                 'role': 'Role',
+                'empresa': 'Empresa',
                 'cargo': 'Cargo',
                 'lojas_acesso': 'Lojas'
             },
@@ -54,27 +69,29 @@ def get_all_users_details(engine):
         
     except Exception as e:
         st.error(f"Erro ao carregar usuários: {e}")
-        return pd.DataFrame(columns=['Usuário', 'Role', 'Cargo', 'Lojas'])
+        return pd.DataFrame(columns=['Usuário', 'Role', 'Empresa', 'Cargo', 'Lojas'])
 
-def add_new_user(engine, username, password, role, cargo, lojas_acesso_list):
+def add_new_user(engine, username, password, role, empresa, cargo, lojas_acesso_list):
     """Adiciona um novo usuário completo ao DB."""
     try:
         hashed_password = make_hashes(password)
         lojas_acesso_json = json.dumps(lojas_acesso_list)
         cargo_value = normalize_cargo_name(cargo) or None
+        empresa_value = _normalize_empresa_option(empresa)
 
         if cargo_value and not cargo_exists(engine, cargo_value):
             st.error("Selecione um cargo valido cadastrado na lista de cargos.")
             return False
         
         query = text("""
-            INSERT INTO users (username, password, role, cargo, lojas_acesso, status_logado) 
-            VALUES (:username, :password, :role, :cargo, :lojas, :status)
+            INSERT INTO users (username, password, role, empresa, cargo, lojas_acesso, status_logado) 
+            VALUES (:username, :password, :role, :empresa, :cargo, :lojas, :status)
         """)
         params = {
             "username": username.lower(),
             "password": hashed_password,
             "role": role,
+            "empresa": empresa_value,
             "cargo": cargo_value,
             "lojas": lojas_acesso_json,
             "status": 'DESLOGADO'
@@ -104,22 +121,24 @@ def delete_user(engine, username):
         st.error(f"Erro ao deletar usuário: {e}")
         return False
 
-def update_user_permissions(engine, username, role, cargo, lojas_acesso_list):
-    """Atualiza o role, cargo e as lojas de um usuário."""
+def update_user_permissions(engine, username, role, empresa, cargo, lojas_acesso_list):
+    """Atualiza role, empresa, cargo e lojas de um usuário."""
     try:
         lojas_acesso_json = json.dumps(lojas_acesso_list)
         cargo_value = normalize_cargo_name(cargo) or None
+        empresa_value = _normalize_empresa_option(empresa)
 
         if cargo_value and not cargo_exists(engine, cargo_value):
             st.error("Selecione um cargo valido cadastrado na lista de cargos.")
             return False
         
         query = text("""
-            UPDATE users SET role = :role, cargo = :cargo, lojas_acesso = :lojas 
+            UPDATE users SET role = :role, empresa = :empresa, cargo = :cargo, lojas_acesso = :lojas 
             WHERE username = :username
         """)
         params = {
             "role": role,
+            "empresa": empresa_value,
             "cargo": cargo_value,
             "lojas": lojas_acesso_json,
             "username": username.lower()
@@ -308,11 +327,13 @@ def process_access_requests(engine, df_requests, admin_username):
             continue
 
         try:
+            empresa = "Baklizi"
             if add_new_user(
                 engine,
                 username,
                 senha_sugerida,
                 "user",
+                empresa,
                 cargo,
                 [loja] if loja else [],
             ):
@@ -339,7 +360,7 @@ def show_admin_page(engine, base_data_path):
     """Cria a interface do painel de administração."""
     bootstrap_cargos_catalog(engine)
     st.title("🛡️ Painel de Administração")
-    st.markdown("Gerencie usuários, funções (roles), cargos e acesso às lojas.")
+    st.markdown("Gerencie usuários, funções (roles), empresa, cargos e acesso às lojas.")
     
     if st.button("🔄 Atualizar Lista de Usuários"):
         # MUDANÇA: Removida a linha get_all_users_details.clear()
@@ -354,6 +375,7 @@ def show_admin_page(engine, base_data_path):
     else:
         sort_col_map = {
             "Nome": "Usuário",
+            "Empresa": "Empresa",
             "Cargo": "Cargo",
             "Lojas": "Lojas",
         }
@@ -390,6 +412,12 @@ def show_admin_page(engine, base_data_path):
             new_username = st.text_input("Novo Login (Username)", key="add_user").lower()
             new_password = st.text_input("Senha Inicial", type="password", key="add_pass")
             new_role = st.selectbox("Função (Role):", ROLES_DISPONIVEIS, index=0, key="add_role")
+            new_empresa = st.selectbox(
+                "Empresa:",
+                EMPRESAS_DISPONIVEIS,
+                index=0,
+                key="add_empresa",
+            )
             cargo_options_add = [""] + cargos_disponiveis
             new_cargo = st.selectbox(
                 "Cargo:",
@@ -409,7 +437,7 @@ def show_admin_page(engine, base_data_path):
                 if not (new_username and new_password):
                     st.warning("Preencha pelo menos o Login e a Senha.")
                 else:
-                    if add_new_user(engine, new_username, new_password, new_role, new_cargo, new_lojas):
+                    if add_new_user(engine, new_username, new_password, new_role, new_empresa, new_cargo, new_lojas):
                         st.success(f"Usuário '{new_username}' criado com sucesso!")
                         # MUDANÇA: Removida a linha get_all_users_details.clear()
                         st.rerun()
@@ -432,6 +460,7 @@ def show_admin_page(engine, base_data_path):
             if user_to_manage:
                 user_data = df_users[df_users['Usuário'] == user_to_manage].iloc[0]
                 current_role_index = ROLES_DISPONIVEIS.index(user_data['Role']) if user_data['Role'] in ROLES_DISPONIVEIS else 0
+                current_empresa = _normalize_empresa_option(user_data.get('Empresa', 'Baklizi'))
                 current_cargo = user_data.get('Cargo', "")
                 cargo_options_manage = [""] + cargos_disponiveis
                 if current_cargo and current_cargo not in cargo_options_manage:
@@ -439,14 +468,16 @@ def show_admin_page(engine, base_data_path):
                 
                 try:
                     with engine.connect() as conn:
-                        query = text("SELECT lojas_acesso FROM users WHERE username = :username")
+                        query = text("SELECT lojas_acesso, empresa FROM users WHERE username = :username")
                         result = conn.execute(query, {"username": user_to_manage.lower()})
-                        lojas_json_raw = result.fetchone()
+                        user_raw = result.fetchone()
                     
-                    if lojas_json_raw and lojas_json_raw[0]:
-                        current_lojas = json.loads(lojas_json_raw[0])
+                    if user_raw and user_raw[0]:
+                        current_lojas = json.loads(user_raw[0])
                     else:
                         current_lojas = []
+                    if user_raw and user_raw[1]:
+                        current_empresa = _normalize_empresa_option(user_raw[1])
                 except Exception as e:
                     current_lojas = []
                     print(f"Erro ao carregar lojas para {user_to_manage}: {e}")
@@ -459,6 +490,13 @@ def show_admin_page(engine, base_data_path):
                         ROLES_DISPONIVEIS, 
                         index=current_role_index, 
                         key="manage_role"
+                    )
+
+                    managed_empresa = st.selectbox(
+                        "Empresa:",
+                        EMPRESAS_DISPONIVEIS,
+                        index=EMPRESAS_DISPONIVEIS.index(current_empresa) if current_empresa in EMPRESAS_DISPONIVEIS else 0,
+                        key="manage_empresa",
                     )
 
                     managed_cargo = st.selectbox(
@@ -477,7 +515,7 @@ def show_admin_page(engine, base_data_path):
                     )
                     
                     if st.form_submit_button("Salvar Alterações de Acesso"):
-                        if update_user_permissions(engine, user_to_manage, managed_role, managed_cargo, managed_lojas):
+                        if update_user_permissions(engine, user_to_manage, managed_role, managed_empresa, managed_cargo, managed_lojas):
                             st.success(f"Permissões de '{user_to_manage}' atualizadas!")
                             # MUDANÇA: Removida a linha get_all_users_details.clear()
                             st.rerun()

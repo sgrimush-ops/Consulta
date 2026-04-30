@@ -413,7 +413,11 @@ def show_pedidos_cd_page(engine, base_data_path):
         
         # Verificar lojas de acesso do usuário
         lojas_acesso = st.session_state.get("lojas_acesso", [])
-        if not lojas_acesso:
+        lojas_acesso_normal = [
+            loja for loja in LISTA_LOJAS_GLOBAL if loja in set(lojas_acesso)
+        ]
+
+        if not lojas_acesso_normal:
             st.error("Você não tem lojas associadas ao seu perfil. Contate um administrador.")
             return
         
@@ -425,7 +429,7 @@ def show_pedidos_cd_page(engine, base_data_path):
             cols_per_row = 3
             cols = st.columns(cols_per_row)
             
-            for idx, loja in enumerate(lojas_acesso):
+            for idx, loja in enumerate(lojas_acesso_normal):
                 col_idx = idx % cols_per_row
                 with cols[col_idx]:
                     pedido_inputs[loja] = st.number_input(
@@ -560,12 +564,14 @@ def show_pedidos_cd_page(engine, base_data_path):
                 id,
                 codigo_interno,
                 descricao,
+                COALESCE(u.empresa, 'Baklizi') AS empresa,
                 COALESCE(origem_pedido, 'Pedido por Código (CD)') AS origem_pedido,
                 embseparacao,
                 total_cx,
                 TO_CHAR(data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido,
                 status_aprovacao
             FROM pedidos_consolidados
+            LEFT JOIN users u ON LOWER(u.username) = LOWER(pedidos_consolidados.usuario_pedido)
             WHERE usuario_pedido = :username
               AND status_aprovacao = 'Pendente'
             ORDER BY data_pedido DESC
@@ -592,6 +598,9 @@ def show_pedidos_cd_page(engine, base_data_path):
                     ),
                     "descricao": st.column_config.TextColumn(
                         "Produto", width="large", disabled=True
+                    ),
+                    "empresa": st.column_config.TextColumn(
+                        "Empresa", disabled=True, width="small"
                     ),
                     "origem_pedido": st.column_config.TextColumn(
                         "Origem/CD", disabled=True, width="small"

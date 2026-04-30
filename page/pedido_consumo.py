@@ -311,8 +311,10 @@ def show_pedido_consumo_page(engine, base_data_path):
         st.session_state.consumo_search_results = None
 
     lista_lojas_global = [
-        "001", "002", "003", "004", "005", "006",
-        "007", "008", "011", "012", "013", "014", "016", "017", "018"
+        "001", "002", "003", "004", "005", "006", "007", "008",
+        "011", "012", "013", "014", "016", "017", "018",
+        "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08",
+        "F10", "F11", "M12", "M13", "ADM", "RH"
     ]
 
     df_produtos = load_products_from_consumo_table(engine)
