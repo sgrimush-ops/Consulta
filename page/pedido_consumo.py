@@ -300,16 +300,9 @@ def show_pedido_consumo_page(engine, base_data_path):
     """Página de pedido de consumo usando exclusivamente a tabela consumo."""
     _ = base_data_path
 
-    st.title("📦 Pedido de Consumo")
-    st.markdown("Sistema de pedidos alimentado pela tabela `consumo` do banco")
-
-    if "consumo_searched_item" not in st.session_state:
-        st.session_state.consumo_searched_item = None
-    if "consumo_pedido_details" not in st.session_state:
-        st.session_state.consumo_pedido_details = {}
 
     st.title("📦 Pedido de Consumo")
-    st.markdown("Sistema de pedidos alimentado pela tabela `consumo` (parquet simplificado)")
+    st.markdown("Sistema de pedidos alimentado pela tabela `consumo`.")
 
     if "consumo_searched_item" not in st.session_state:
         st.session_state.consumo_searched_item = None
@@ -329,12 +322,6 @@ def show_pedido_consumo_page(engine, base_data_path):
 
     total_produtos = len(df_produtos)
     st.metric("Total de Produtos", total_produtos)
-    st.markdown("---")
-    st.markdown("### 🔍 Buscar Produto")
-
-
-    st.markdown("---")
-    st.markdown("### 🔍 Buscar Produto")
 
     with st.form("consumo_search_form"):
         search_type = st.radio(
