@@ -297,11 +297,11 @@ def get_orders_history_30d(engine, username):
 
 
 def show_pedido_consumo_page(engine, base_data_path):
-        # Definição das listas de lojas
-        from app import LISTA_LOJAS
-        lista_lojas_global = LISTA_LOJAS
-        lojas_autorizadas = st.session_state.get("lojas_autorizadas", LISTA_LOJAS)
     """Página de pedido de consumo usando exclusivamente a tabela consumo."""
+    # Definição das listas de lojas
+    from app import LISTA_LOJAS
+    lista_lojas_global = LISTA_LOJAS
+    lojas_autorizadas = st.session_state.get("lojas_autorizadas", LISTA_LOJAS)
     _ = base_data_path
 
 
