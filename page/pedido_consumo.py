@@ -307,15 +307,16 @@ def show_pedido_consumo_page(engine, base_data_path):
         st.session_state.consumo_searched_item = None
     if "consumo_pedido_details" not in st.session_state:
         st.session_state.consumo_pedido_details = {}
+
+    st.title("📦 Pedido de Consumo")
+    st.markdown("Sistema de pedidos alimentado pela tabela `consumo` (parquet simplificado)")
+
+    if "consumo_searched_item" not in st.session_state:
+        st.session_state.consumo_searched_item = None
+    if "consumo_pedido_details" not in st.session_state:
+        st.session_state.consumo_pedido_details = {}
     if "consumo_search_results" not in st.session_state:
         st.session_state.consumo_search_results = None
-
-    lista_lojas_global = [
-        "001", "002", "003", "004", "005", "006", "007", "008",
-        "011", "012", "013", "014", "016", "017", "018",
-        "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08",
-        "F10", "F11", "M12", "M13", "ADM", "RH"
-    ]
 
     df_produtos = load_products_from_consumo_table(engine)
 
@@ -327,118 +328,9 @@ def show_pedido_consumo_page(engine, base_data_path):
         return
 
     total_produtos = len(df_produtos)
-
-    col_total, _ = st.columns([1, 2])
-    col_total.metric("Total de Produtos", total_produtos)
-
+    st.metric("Total de Produtos", total_produtos)
     st.markdown("---")
-    st.markdown("### 🏷️ Pedido Rápido por Setor")
-
-    lojas_acesso = st.session_state.get("lojas_acesso", [])
-    lojas_autorizadas = [
-        loja for loja in lista_lojas_global if loja in set(lojas_acesso)
-    ]
-
-    if not lojas_autorizadas:
-        st.error(
-            "Você não tem lojas associadas ao seu perfil. "
-            "Contate um administrador."
-        )
-        return
-
-    setores_disponiveis = sorted(
-        [
-            setor
-            for setor in df_produtos["setor"].dropna().astype(str).unique()
-            if setor.strip()
-        ]
-    )
-
-    if not setores_disponiveis:
-        st.info("Não há informação de setor na base de consumo.")
-    else:
-        col_setor, col_loja = st.columns([2, 1])
-        with col_setor:
-            setor_selecionado = st.selectbox(
-                "Filtrar setor:",
-                setores_disponiveis,
-                key="consumo_setor_filter",
-            )
-        with col_loja:
-            loja_setor = st.selectbox(
-                "Loja do pedido:",
-                lojas_autorizadas,
-                key="consumo_setor_loja",
-            )
-
-        df_setor = df_produtos[
-            df_produtos["setor"].astype(str) == str(setor_selecionado)
-        ].copy()
-        df_setor = df_setor[["cod_consinco", "descricao", "Emb"]]
-        df_setor = df_setor.sort_values("descricao", ascending=True)
-        busca_key = f"consumo_busca_setor_{setor_selecionado}"
-
-        termo_setor = st.text_input(
-            "Buscar item no setor (código ou descrição):",
-            placeholder="Ex: 10480 ou CERVEJA",
-            key=busca_key,
-        ).strip()
-
-        _, col_busca2, _ = st.columns([1, 1, 2])
-
-        if termo_setor:
-            mask_desc = df_setor["descricao"].str.contains(
-                termo_setor,
-                case=False,
-                na=False,
-            )
-            mask_cod = (
-                df_setor["cod_consinco"].astype(str).str.contains(
-                    termo_setor,
-                    case=False,
-                    na=False,
-                )
-            )
-            df_setor = df_setor[mask_desc | mask_cod]
-
-        st.caption(f"Itens exibidos no setor: {len(df_setor)}")
-
-        if df_setor.empty:
-            st.info("Nenhum item encontrado para o filtro informado.")
-        else:
-            qtd_state_key = f"consumo_qtd_setor_{setor_selecionado}"
-            if qtd_state_key not in st.session_state:
-                st.session_state[qtd_state_key] = {}
-
-            qtd_map = st.session_state[qtd_state_key]
-
-            with col_busca2:
-                if st.button(
-                    "☑️ Selecionar todos (1 CX)",
-                    key=f"consumo_select_all_{setor_selecionado}",
-                ):
-                    for cod in df_setor["cod_consinco"].tolist():
-                        qtd_map[str(int(cod))] = 1
-                    st.session_state[qtd_state_key] = qtd_map
-                    st.rerun()
-
-            col_qtd1, col_qtd2, _ = st.columns([1, 1, 2])
-            with col_qtd1:
-                if st.button(
-                    "🧽 Zerar quantidades",
-                    key=f"consumo_zerar_qtd_{setor_selecionado}",
-                ):
-                    for cod in df_setor["cod_consinco"].tolist():
-                        qtd_map[str(int(cod))] = 0
-                    st.session_state[qtd_state_key] = qtd_map
-                    st.rerun()
-
-            df_setor["qtd_cx"] = (
-                df_setor["cod_consinco"]
-                .astype(str)
-                .map(lambda cod: int(qtd_map.get(cod, 0)))
-            )
-
+    st.markdown("### 🔍 Buscar Produto")
             st.caption(
                 "Preencha apenas a coluna `Qtd CX` para os itens desejados e "
                 "clique em enviar."
