@@ -28,7 +28,6 @@
 ### 🔧 Arquivos impactados
 - `page/admin_uploads.py`
 - `page/aprovacao_pedidos.py`
-- `page/consulta_mix.py`
 - `page/pedido_cd.py`
 - `utils/produtos_loader.py`
 - `bdados/con5cod.parquet`

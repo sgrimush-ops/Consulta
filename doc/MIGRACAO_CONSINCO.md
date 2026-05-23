@@ -42,7 +42,6 @@
 ## 🆕 Nova Página: Consulta de Mix
 
 ### Localização
-- **Arquivo:** `page/consulta_mix.py`
 - **Menu:** "Consulta de Mix"
 - **Acesso:** Todos os usuários logados
 

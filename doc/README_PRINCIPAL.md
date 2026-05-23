@@ -17,7 +17,6 @@ ProjetoBak/
 │
 ├── page/                    # Modulos de paginas
 │   ├── home.py               # Pagina inicial
-│   ├── consulta_mix.py       # Consulta de produtos (cod_consinco)
 │   ├── pedido_cd.py          # Pedidos por codigo
 │   ├── pedido_consumo.py     # Pedidos de consumo
 │   ├── aprovacao_pedidos.py  # Aprovacao de pedidos (admin)
