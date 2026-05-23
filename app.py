@@ -9,7 +9,6 @@ from utils.timezone import now_brazil
 
 # --- Importa as páginas ---
 from page.home import show_home_page
-from page.consulta_mix import show_consulta_mix_page
 from page.aprovacao_pedidos import show_aprovacao_page
 from page.status_usuarios import show_status_page
 from page.admin_maint import show_admin_page
@@ -448,7 +447,6 @@ def main_app():
     # Menu
     paginas = {
         "Home": lambda: show_home_page(engine, BASE_DATA_PATH),
-        "Consulta de Mix": lambda: show_consulta_mix_page(engine, BASE_DATA_PATH),
         "Alterar Senha": lambda: show_mudar_senha_page(engine, BASE_DATA_PATH),
         "Contato": lambda: show_contato_page(engine, BASE_DATA_PATH),
         "Solicitar Acesso": lambda: show_solicitacao_acesso_page(engine, BASE_DATA_PATH),

@@ -75,7 +75,6 @@ def main() -> int:
         modules = [
             "page.__init__",
             "page.home",
-            "page.consulta_mix",
             "page.pedido_cd",
             "page.aprovacao_pedidos",
         ]
