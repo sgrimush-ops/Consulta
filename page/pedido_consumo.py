@@ -127,51 +127,26 @@ def load_products_from_consumo_table(engine):
     if df.empty:
         return pd.DataFrame()
 
-    col_cod = _find_column(
-        df,
-        [
-            "codigo",
-            "cod_consinco",
-            "codigo_consinco",
-            "codigo_interno"
-        ],
-    )
-    col_desc = _find_column(
-        df,
-        ["descricao consinco", "descricao", "descrição",],
-    )
-    col_desc_consinco = _find_column(
-        df,
-        [
-            "descricao consinco",,
-            "descrição consinco",
-        ],
-    )
-    col_emb = _find_column(df, ["embalagem", "Emb", "emb"])
-
-    if not col_cod or not col_desc or not col_emb:
-        st.error(
-            "A tabela consumo precisa ter ao menos as colunas de código, "
-            "descrição e embalagem."
-        )
-        return pd.DataFrame()
+    # Considera apenas nomes padronizados do consumo.parquet
+    # Usar nomes exatos do CSV/parquet: 'codigo', 'descricao consinco', 'embalagem'
+    required_columns = ["codigo", "descricao consinco", "embalagem"]
+    for col in required_columns:
+        if col not in df.columns:
+            st.error(
+                f"A tabela consumo precisa ter a coluna '{col}'. "
+                "Verifique o arquivo consumo.parquet."
+            )
+            return pd.DataFrame()
 
     result = pd.DataFrame()
-    result["cod_consinco"] = pd.to_numeric(df[col_cod], errors="coerce")
-    result["descricao"] = df[col_desc].astype(str)
+    result["codigo"] = pd.to_numeric(df["codigo"], errors="coerce")
+    result["descricao consinco"] = df["descricao consinco"].astype(str)
+    result["embalagem"] = pd.to_numeric(df["embalagem"], errors="coerce")
 
-    if col_desc_consinco:
-        result["descricao_consinco"] = df[col_desc_consinco].astype(str)
-    else:
-        result["descricao_consinco"] = ""
-
-    result["Emb"] = pd.to_numeric(df[col_emb], errors="coerce")
-
-    result = result.dropna(subset=["cod_consinco", "Emb"])
-    result["cod_consinco"] = result["cod_consinco"].astype(int)
-    result["Emb"] = result["Emb"].astype(int)
-    result["setor"] = result["setor"].fillna("Não informado")
-    result = result.drop_duplicates(subset=["cod_consinco"], keep="first")
+    result = result.dropna(subset=["codigo", "embalagem"])
+    result["codigo"] = result["codigo"].astype(int)
+    result["embalagem"] = result["embalagem"].astype(int)
+    result = result.drop_duplicates(subset=["codigo"], keep="first")
 
     return result
 
@@ -183,21 +158,16 @@ def search_product(df_produtos, search_term, search_type="codigo"):
     if df_produtos.empty:
         return pd.DataFrame()
 
+
     if search_type == "codigo":
         try:
             cod = int(search_term)
-            return df_produtos[df_produtos["cod_consinco"] == cod]
+            return df_produtos[df_produtos["codigo"] == cod]
         except ValueError:
             return pd.DataFrame()
 
-    if search_type == "descricao":
-        mask = df_produtos["descricao"].str.contains(
-            search_term, case=False, na=False
-        )
-        return df_produtos[mask]
-
-    if search_type == "descricao_consinco":
-        mask = df_produtos["descricao_consinco"].str.contains(
+    if search_type == "descricao" or search_type == "descricao_consinco":
+        mask = df_produtos["descricao consinco"].str.contains(
             search_term, case=False, na=False
         )
         return df_produtos[mask]
@@ -368,23 +338,17 @@ def show_pedido_consumo_page(engine, base_data_path):
     ):
         st.markdown("### 📋 Resultados da Busca")
         st.info(
-            "Encontrados "
-            f"{len(st.session_state.consumo_search_results)} produtos. "
-            "Selecione um:"
+            f"Encontrados {len(st.session_state.consumo_search_results)} produtos. Selecione um:"
         )
 
         results_display = st.session_state.consumo_search_results.copy()
-        results_display = results_display[
-            [
-                "cod_consinco",
-                "descricao",
-                "descricao_consinco",
-                "Emb",
-            ]
-        ]
+        results_display = results_display[[
+            "codigo",
+            "descricao consinco",
+            "embalagem",
+        ]]
         results_display.columns = [
-            "Código Consinco",
-            "Descrição",
+            "Código",
             "Descrição Consinco",
             "Embalagem",
         ]
@@ -393,24 +357,22 @@ def show_pedido_consumo_page(engine, base_data_path):
             "Escolha o produto:",
             range(len(results_display)),
             format_func=lambda i: (
-                f"{results_display.iloc[i]['Código Consinco']} - "
-                f"{results_display.iloc[i]['Descrição']}"
+                f"{results_display.iloc[i]['Código']} - "
+                f"{results_display.iloc[i]['Descrição Consinco']}"
             ),
             key="consumo_select_result",
         )
 
         if st.button("✅ Confirmar Seleção", key="consumo_confirm_select"):
             st.session_state.consumo_searched_item = (
-                st.session_state.consumo_search_results.iloc[
-                    selected_idx
-                ].to_dict()
+                st.session_state.consumo_search_results.iloc[selected_idx].to_dict()
             )
             st.session_state.consumo_search_results = None
             st.rerun()
 
     if st.session_state.consumo_searched_item:
         item = st.session_state.consumo_searched_item
-        codigo_produto = int(item["cod_consinco"])
+        codigo_produto = int(item["codigo"])
         username = st.session_state.get("username", "unknown")
 
         last_order = get_last_item_order_30d(engine, username, codigo_produto)
@@ -434,12 +396,12 @@ def show_pedido_consumo_page(engine, base_data_path):
             )
 
         st.markdown("---")
-        st.subheader(f"Produto Selecionado: {item['descricao']}")
+        st.subheader(f"Produto Selecionado: {item['descricao consinco']}")
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Código Consinco", codigo_produto)
-        col2.metric("Descrição Consinco", item["descricao_consinco"])
-        col3.metric("Emb. (Un/Cx)", int(item["Emb"]))
+        col1.metric("Código", codigo_produto)
+        col2.metric("Descrição Consinco", item["descricao consinco"])
+        col3.metric("Emb. (Un/Cx)", int(item["embalagem"]))
 
         st.markdown("---")
         st.subheader("Digite as quantidades por loja (em caixas):")
@@ -471,7 +433,7 @@ def show_pedido_consumo_page(engine, base_data_path):
 
             st.markdown("---")
             total_cx = sum(pedido_inputs.values())
-            total_un = total_cx * int(item["Emb"])
+            total_un = total_cx * int(item["embalagem"])
 
             col_total1, col_total2 = st.columns(2)
             col_total1.metric("Total de Caixas", total_cx)
@@ -512,10 +474,10 @@ def show_pedido_consumo_page(engine, base_data_path):
 
             pedido_data = {
                 "codigo_interno": [codigo_produto],
-                "descricao": [item["descricao"]],
-                "codigo_ean": [item["descricao_consinco"]],
+                "descricao": [item["descricao consinco"]],
+                "codigo_ean": [""] ,  # Sem EAN disponível
                 "origem_pedido": ["Pedido de Consumo"],
-                "embseparacao": [int(item["Emb"])],
+                "embseparacao": [int(item["embalagem"])],
                 "data_pedido": [now_brazil()],
                 "usuario_pedido": [
                     st.session_state.get("username", "unknown")
