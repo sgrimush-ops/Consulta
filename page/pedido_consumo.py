@@ -138,22 +138,16 @@ def load_products_from_consumo_table(engine):
     )
     col_desc = _find_column(
         df,
-        ["descricao consinco", "descricao", "descrição", "descricao sw", "descricao_sw"],
+        ["descricao consinco", "descricao", "descrição",],
     )
     col_desc_consinco = _find_column(
         df,
         [
-            "descricao consinco",
-            "descricao_consinco",
+            "descricao consinco",,
             "descrição consinco",
-            "desc_consinco",
         ],
     )
-    col_emb = _find_column(df, ["embalagem", "Emb", "emb", "embseparacao"])
-    col_setor = _find_column(
-        df,
-        ["setor", "secao", "seção", "departamento", "categoria"],
-    )
+    col_emb = _find_column(df, ["embalagem", "Emb", "emb"])
 
     if not col_cod or not col_desc or not col_emb:
         st.error(
@@ -172,10 +166,6 @@ def load_products_from_consumo_table(engine):
         result["descricao_consinco"] = ""
 
     result["Emb"] = pd.to_numeric(df[col_emb], errors="coerce")
-    if col_setor:
-        result["setor"] = df[col_setor].astype(str).str.strip()
-    else:
-        result["setor"] = "Não informado"
 
     result = result.dropna(subset=["cod_consinco", "Emb"])
     result["cod_consinco"] = result["cod_consinco"].astype(int)
@@ -330,7 +320,7 @@ def show_pedido_consumo_page(engine, base_data_path):
     with st.form("consumo_search_form"):
         search_type = st.radio(
             "Tipo de busca:",
-            ["Por Código", "Por Descrição Consinco", "Por Descrição"],
+            ["Por Código", "Por Descrição"],
             horizontal=True,
         )
 
@@ -340,15 +330,10 @@ def show_pedido_consumo_page(engine, base_data_path):
                 placeholder="Ex: 10480",
                 max_chars=10,
             )
-        elif search_type == "Por Descrição":
+        else:
             search_term = st.text_input(
                 "Digite parte da descrição do produto:",
                 placeholder="Ex: CERVEJA",
-            )
-        else:
-            search_term = st.text_input(
-                "Digite parte da descrição Consinco:",
-                placeholder="Ex: CERVEJA PILSEN",
             )
 
         submitted = st.form_submit_button("🔍 Buscar")
@@ -359,10 +344,8 @@ def show_pedido_consumo_page(engine, base_data_path):
 
             if search_type == "Por Código":
                 search_mode = "codigo"
-            elif search_type == "Por Descrição":
-                search_mode = "descricao"
             else:
-                search_mode = "descricao_consinco"
+                search_mode = "descricao"
 
             results = search_product(df_produtos, search_term, search_mode)
 
