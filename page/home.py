@@ -23,7 +23,6 @@ def show_home_page(engine, base_data_path):
 
     # --- Dicionário de Atalhos (Rótulo : Chave da Página no app.py) ---
     menu_options = {
-        "🔎 Consulta de Mix": "Consulta de Mix",
         "📞 Contato / Chamados": "Contato",
         "🔐 Alterar Senha": "Alterar Senha",
     }
