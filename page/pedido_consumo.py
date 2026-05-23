@@ -297,6 +297,10 @@ def get_orders_history_30d(engine, username):
 
 
 def show_pedido_consumo_page(engine, base_data_path):
+        # Definição das listas de lojas
+        from app import LISTA_LOJAS
+        lista_lojas_global = LISTA_LOJAS
+        lojas_autorizadas = st.session_state.get("lojas_autorizadas", LISTA_LOJAS)
     """Página de pedido de consumo usando exclusivamente a tabela consumo."""
     _ = base_data_path
 
@@ -326,7 +330,7 @@ def show_pedido_consumo_page(engine, base_data_path):
     with st.form("consumo_search_form"):
         search_type = st.radio(
             "Tipo de busca:",
-            ["Por Código", "Por Descrição", "Por Descrição Consinco"],
+            ["Por Código", "Por Descrição Consinco", "Por Descrição"],
             horizontal=True,
         )
 
