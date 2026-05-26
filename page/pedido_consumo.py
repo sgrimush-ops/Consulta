@@ -261,7 +261,7 @@ def show_pedido_consumo_page(engine, base_data_path):
     # Definição das listas de lojas
     from app import LISTA_LOJAS
     lista_lojas_global = LISTA_LOJAS
-    lojas_autorizadas = st.session_state.get("lojas_autorizadas", LISTA_LOJAS)
+    lojas_autorizadas = st.session_state.get("lojas_acesso", LISTA_LOJAS)
     _ = base_data_path
 
 
