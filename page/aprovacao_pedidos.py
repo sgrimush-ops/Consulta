@@ -5,6 +5,7 @@ from sqlalchemy import text
 from datetime import datetime, timedelta, date
 import io
 from utils.timezone import now_brazil, today_brazil
+from utils.cargos import is_user_consumo_cd
 
 # --- Configurações ---
 LISTA_LOJAS = [
@@ -694,10 +695,13 @@ def show_aprovacao_page(engine, base_data_path):
     with col3:
         only_pending = st.checkbox("Apenas Pendentes", value=True)
 
+    is_consumo_cd = is_user_consumo_cd(engine)
+    opcoes_origem = [ORIGEM_CONSUMO] if is_consumo_cd else OPCOES_ORIGEM_FILTRO
+
     with col4:
         origem_filtro = st.selectbox(
             "Origem:",
-            OPCOES_ORIGEM_FILTRO,
+            opcoes_origem,
             index=0,
             key="origem_filtro_aprov",
         )
@@ -761,48 +765,70 @@ def show_aprovacao_page(engine, base_data_path):
         ids_selecionados = st.session_state[selection_key]
 
         st.markdown("### ⚡ Seleção Rápida")
-        col_marcar, col_desmarcar, col_cd15, col_cd16, col_consumo = st.columns(5)
+        if is_consumo_cd:
+            col_marcar, col_desmarcar, col_consumo = st.columns(3)
 
-        with col_marcar:
-            if st.button("☑️ Marcar Todos", use_container_width=True):
-                st.session_state[selection_key] = ids_visiveis.copy()
+            with col_marcar:
+                if st.button("☑️ Marcar Todos", use_container_width=True):
+                    st.session_state[selection_key] = ids_visiveis.copy()
 
-        with col_desmarcar:
-            if st.button("⬜ Desmarcar Todos", use_container_width=True):
-                st.session_state[selection_key] = []
+            with col_desmarcar:
+                if st.button("⬜ Desmarcar Todos", use_container_width=True):
+                    st.session_state[selection_key] = []
 
-        with col_cd15:
-            if st.button("📦 Marcar CD15", use_container_width=True):
-                ids_cd15 = df_para_editar.loc[
-                    df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD15),
-                    "id_pedido",
-                ].tolist()
-                st.session_state[selection_key] = adicionar_ids_selecionados(
-                    ids_selecionados,
-                    ids_cd15,
-                )
+            with col_consumo:
+                if st.button("🛒 Marcar Consumo", use_container_width=True):
+                    ids_consumo = df_para_editar.loc[
+                        df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CONSUMO),
+                        "id_pedido",
+                    ].tolist()
+                    st.session_state[selection_key] = adicionar_ids_selecionados(
+                        ids_selecionados,
+                        ids_consumo,
+                    )
+        else:
+            col_marcar, col_desmarcar, col_cd15, col_cd16, col_consumo = st.columns(5)
 
-        with col_cd16:
-            if st.button("📦 Marcar CD16", use_container_width=True):
-                ids_cd16 = df_para_editar.loc[
-                    df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD16),
-                    "id_pedido",
-                ].tolist()
-                st.session_state[selection_key] = adicionar_ids_selecionados(
-                    ids_selecionados,
-                    ids_cd16,
-                )
+            with col_marcar:
+                if st.button("☑️ Marcar Todos", use_container_width=True):
+                    st.session_state[selection_key] = ids_visiveis.copy()
 
-        with col_consumo:
-            if st.button("🛒 Marcar Consumo", use_container_width=True):
-                ids_consumo = df_para_editar.loc[
-                    df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CONSUMO),
-                    "id_pedido",
-                ].tolist()
-                st.session_state[selection_key] = adicionar_ids_selecionados(
-                    ids_selecionados,
-                    ids_consumo,
-                )
+            with col_desmarcar:
+                if st.button("⬜ Desmarcar Todos", use_container_width=True):
+                    st.session_state[selection_key] = []
+
+            with col_cd15:
+                if st.button("📦 Marcar CD15", use_container_width=True):
+                    ids_cd15 = df_para_editar.loc[
+                        df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD15),
+                        "id_pedido",
+                    ].tolist()
+                    st.session_state[selection_key] = adicionar_ids_selecionados(
+                        ids_selecionados,
+                        ids_cd15,
+                    )
+
+            with col_cd16:
+                if st.button("📦 Marcar CD16", use_container_width=True):
+                    ids_cd16 = df_para_editar.loc[
+                        df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CD16),
+                        "id_pedido",
+                    ].tolist()
+                    st.session_state[selection_key] = adicionar_ids_selecionados(
+                        ids_selecionados,
+                        ids_cd16,
+                    )
+
+            with col_consumo:
+                if st.button("🛒 Marcar Consumo", use_container_width=True):
+                    ids_consumo = df_para_editar.loc[
+                        df_para_editar["Origem"] == formatar_origem_pedido(ORIGEM_CONSUMO),
+                        "id_pedido",
+                    ].tolist()
+                    st.session_state[selection_key] = adicionar_ids_selecionados(
+                        ids_selecionados,
+                        ids_consumo,
+                    )
 
         df_para_editar["Selecionar"] = df_para_editar["id_pedido"].isin(
             st.session_state[selection_key]
@@ -888,7 +914,7 @@ def show_aprovacao_page(engine, base_data_path):
 
     origem_download = st.selectbox(
         "Filtrar download por origem:",
-        OPCOES_ORIGEM_FILTRO,
+        opcoes_origem,
         index=0,
         key="origem_download_aprov",
     )

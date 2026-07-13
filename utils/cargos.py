@@ -92,7 +92,11 @@ def _sync_cargos_from_existing(conn) -> None:
         )
     ).fetchall()
 
-    existing_values = [row[0] for row in user_rows] + [row[0] for row in request_rows]
+    existing_values = (
+        [row[0] for row in user_rows]
+        + [row[0] for row in request_rows]
+        + ["consumo cd"]
+    )
     canonical_names = []
     seen_names = set()
     for raw_value in existing_values:
@@ -421,3 +425,38 @@ def get_cargo_normalization_preview(engine) -> list[dict[str, object]]:
         )
 
     return preview
+
+
+def is_user_consumo_cd(engine=None, session_state=None) -> bool:
+    """Verifica se o usuário atual possui cargo ou role 'consumo cd'."""
+    if session_state is None:
+        try:
+            import streamlit as st
+            session_state = st.session_state
+        except Exception:
+            return False
+
+    role = str(session_state.get("role", "")).strip().lower()
+    if role == "admin":
+        return False
+
+    cargo = str(session_state.get("cargo", "")).strip().lower()
+
+    if not cargo and engine is not None:
+        username = session_state.get("username")
+        if username:
+            try:
+                with engine.connect() as conn:
+                    result = conn.execute(
+                        text("SELECT cargo FROM users WHERE LOWER(username) = :u"),
+                        {"u": str(username).strip().lower()},
+                    ).scalar()
+                    if result:
+                        cargo = str(result).strip().lower()
+                        session_state["cargo"] = cargo
+            except Exception:
+                pass
+
+    role_norm = normalize_cargo_name(role)
+    cargo_norm = normalize_cargo_name(cargo)
+    return "consumo cd" in cargo_norm or "consumo cd" in role_norm

@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 from sqlalchemy import create_engine, text, event
-from utils.cargos import bootstrap_cargos_catalog
+from utils.cargos import bootstrap_cargos_catalog, is_user_consumo_cd
 from utils.timezone import now_brazil
 
 # --- Importa as páginas ---
@@ -98,12 +98,12 @@ def check_login_and_get_roles(engine, username, password):
     # A definição aqui está correta (3 argumentos)
     with engine.connect() as conn:
         query = text(
-            "SELECT password, role, lojas_acesso FROM users WHERE username = :username")
+            "SELECT password, role, lojas_acesso, cargo FROM users WHERE username = :username")
         result = conn.execute(query, {"username": username.lower()})
         data = result.fetchone()
 
     if data:
-        hashed_password, role, lojas_acesso_json = data
+        hashed_password, role, lojas_acesso_json, cargo = data
         if check_hashes(password, hashed_password):
             lojas = []
             if lojas_acesso_json:
@@ -112,8 +112,8 @@ def check_login_and_get_roles(engine, username, password):
                 except json.JSONDecodeError:
                     lojas = []
             lojas = normalize_lojas_acesso(lojas)
-            return True, (role or "user"), lojas
-    return False, "user", []
+            return True, (role or "user"), lojas, (cargo or "")
+    return False, "user", [], ""
 
 
 def ensure_admin_test_access(engine, username, role, lojas):
@@ -148,11 +148,11 @@ def update_user_status(username, status):
 
 
 def update_user_last_access(username):
-    """Atualiza o último acesso do usuário sem mudar o status"""
+    """Atualiza o último acesso do usuário e garante status LOGADO durante interação."""
     try:
         current_time = now_brazil()
         query = text(
-            "UPDATE users SET ultimo_acesso = :time "
+            "UPDATE users SET ultimo_acesso = :time, status_logado = 'LOGADO' "
             "WHERE username = :username")
         with engine.begin() as conn:
             conn.execute(query, {
@@ -164,7 +164,7 @@ def update_user_last_access(username):
 
 
 def cleanup_inactive_users():
-    """Marca usuários como DESLOGADO se inativos por 30+ segundos"""
+    """Marca usuários como DESLOGADO se inativos por mais de 5 minutos"""
     try:
         query = text("""
             UPDATE users
@@ -172,7 +172,7 @@ def cleanup_inactive_users():
             WHERE status_logado = 'LOGADO'
             AND ultimo_acesso < (
                 CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo'
-            ) - INTERVAL '30 seconds'
+            ) - INTERVAL '5 minutes'
         """)
         with engine.begin() as conn:
             conn.execute(query)
@@ -389,7 +389,7 @@ def login_page(engine):
     senha = st.text_input("Senha:", type="password")
 
     if st.button("Entrar", type="primary"):
-        logged_in, role, lojas = check_login_and_get_roles(
+        logged_in, role, lojas, cargo = check_login_and_get_roles(
             engine, username, senha)
         if logged_in:
             lojas = ensure_admin_test_access(engine, username, role, lojas)
@@ -397,6 +397,7 @@ def login_page(engine):
             st.session_state["username"] = username
             st.session_state["role"] = role
             st.session_state["lojas_acesso"] = lojas
+            st.session_state["cargo"] = cargo
             update_user_status(username, "LOGADO")
             st.rerun()
         else:
@@ -459,9 +460,11 @@ def main_app():
         paginas["Pedido por Código (CD)"] = lambda: show_pedidos_cd_page(
             engine, BASE_DATA_PATH)
 
-    if st.session_state.get("role") == "admin":
+    if st.session_state.get("role") == "admin" or is_user_consumo_cd(engine):
         paginas["Aprovação de Pedidos"] = lambda: show_aprovacao_page(
             engine, BASE_DATA_PATH)
+
+    if st.session_state.get("role") == "admin":
         paginas["Status do Usuário"] = lambda: show_status_page(
             engine, BASE_DATA_PATH)
         paginas["Administração"] = lambda: show_admin_page(

@@ -28,5 +28,6 @@ if __name__ == "__main__":
 
     # Atualiza submódulo na raiz
     run(f"git add ProjetoBak_Sincronizador", cwd=pasta_raiz)
-    run(f"git commit -m 'chore(submodule): atualiza ProjetoBak_Sincronizador após ajuste'", cwd=pasta_raiz)
+    # Usar aspas duplas para evitar erro de parsing no Windows
+    run(f'git commit -m "chore(submodule): atualiza ProjetoBak_Sincronizador apos ajuste"', cwd=pasta_raiz)
     run("git push", cwd=pasta_raiz)

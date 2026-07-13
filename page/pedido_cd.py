@@ -144,6 +144,26 @@ def load_products_from_parquet(engine=None):
         return pd.DataFrame()
 
 
+def get_cd15_stock_from_parquet(codigo_produto: int) -> float | None:
+    """Busca a QUANTIDADE_DISPONIVEL do produto no CD15 (CODIGO_EMPRESA == 15) no query.parquet."""
+    parquet_path = os.path.join("bdados", "query.parquet")
+    if not os.path.exists(parquet_path):
+        return None
+    try:
+        df = pd.read_parquet(parquet_path)
+        if 'CODIGO_EMPRESA' not in df.columns or 'CODIGO_PRODUTO' not in df.columns or 'QUANTIDADE_DISPONIVEL' not in df.columns:
+            return None
+        mask_emp = df['CODIGO_EMPRESA'].astype(str).str.strip() == '15'
+        mask_prod = df['CODIGO_PRODUTO'].astype(str).str.strip() == str(codigo_produto).strip()
+        df_cd15 = df[mask_emp & mask_prod]
+        if not df_cd15.empty:
+            qtd = pd.to_numeric(df_cd15['QUANTIDADE_DISPONIVEL'], errors='coerce').sum()
+            return float(qtd)
+        return None
+    except Exception:
+        return None
+
+
 def search_product(df_produtos, search_term, search_type='codigo'):
     """
     Busca produto por código ou descrição.
@@ -408,6 +428,20 @@ def show_pedidos_cd_page(engine, base_data_path):
         else:
             col4.warning("⚠️ SUSPENSO no Mix")
         
+        # Consulta de estoque no CD15 (query.parquet)
+        estoque_cd15 = get_cd15_stock_from_parquet(codigo_produto)
+        col_est1, col_est2 = st.columns([3, 2])
+        with col_est1:
+            if estoque_cd15 is not None:
+                if estoque_cd15 > 0:
+                    st.info(f"📦 **Estoque Disponível CD15 (`query.parquet`):** `{estoque_cd15:,.0f}` caixas/unidades")
+                else:
+                    st.warning("⚠️ **Estoque Disponível CD15 (`query.parquet`):** `0` (Sem Estoque)")
+            else:
+                st.caption("ℹ️ Produto sem saldo de estoque registrado no CD15 (`query.parquet`).")
+        with col_est2:
+            st.caption("ℹ️ *Para produtos/pedidos do CD16, a informação do `query.parquet` é ignorada.*")
+        
         st.markdown("---")
         st.subheader(
             "Digite as quantidades por loja (em caixas para CD15) e para (CD16 POR KG!!!!):"
@@ -468,19 +502,26 @@ def show_pedidos_cd_page(engine, base_data_path):
                 if cd_abastecedor not in ("CD15", "CD16"):
                     st.warning("⚠️ Pedido não será enviado, informe um CD.")
                 elif total_cx > 0:
-                    # Verificar se produto está suspenso
-                    if status_mix == 'S':
+                    estoque_cd15_val = get_cd15_stock_from_parquet(codigo_produto)
+                    sem_estoque_cd15 = (cd_abastecedor == "CD15") and (
+                        estoque_cd15_val is None or estoque_cd15_val <= 0 or estoque_cd15_val < total_cx
+                    )
+                    precisa_conf_susp = (status_mix == 'S')
+
+                    if precisa_conf_susp or sem_estoque_cd15:
                         st.session_state.pedido_details = {
                             "pedido_inputs": pedido_inputs,
                             "total_cx": total_cx,
                             "codigo_produto": codigo_produto,
                             "item": item,
                             "cd_abastecedor": cd_abastecedor,
-                            "aguardando_confirmacao_suspenso": True
+                            "aguardando_confirmacao_suspenso": precisa_conf_susp,
+                            "aguardando_confirmacao_estoque": sem_estoque_cd15,
+                            "estoque_cd15": estoque_cd15_val,
                         }
                         st.rerun()
                     else:
-                        # Produto ativo, processa diretamente
+                        # Produto ativo e com estoque suficiente, processa diretamente
                         st.session_state.pedido_details = {
                             "pedido_inputs": pedido_inputs,
                             "total_cx": total_cx,
@@ -493,26 +534,39 @@ def show_pedidos_cd_page(engine, base_data_path):
                 else:
                     st.warning("Nenhuma quantidade foi digitada. O pedido não foi enviado.")
         
-        # --- Confirmação para produto SUSPENSO ---
-        if st.session_state.pedido_details.get("aguardando_confirmacao_suspenso", False):
+        # --- Confirmação para produto SUSPENSO e/ou SEM ESTOQUE CD15 ---
+        precisa_conf_suspenso = st.session_state.pedido_details.get("aguardando_confirmacao_suspenso", False)
+        precisa_conf_estoque = st.session_state.pedido_details.get("aguardando_confirmacao_estoque", False)
+
+        if precisa_conf_suspenso or precisa_conf_estoque:
             st.markdown("---")
-            st.warning("### ⚠️ ATENÇÃO: Produto SUSPENSO no Mix")
-            st.markdown(
-                "**Este produto está marcado como SUSPENSO no sistema.**\n\n"
-                "Isso significa que ele pode não fazer mais parte do mix regular.\n\n"
-                "Deseja mesmo continuar com o pedido?"
-            )
-            
+            if precisa_conf_suspenso:
+                st.warning("### ⚠️ ATENÇÃO: Produto SUSPENSO no Mix")
+                st.markdown(
+                    "**Este produto está marcado como SUSPENSO no sistema.**\n\n"
+                    "Isso significa que ele pode não fazer mais parte do mix regular."
+                )
+
+            if precisa_conf_estoque:
+                est_val = st.session_state.pedido_details.get("estoque_cd15")
+                est_str = f"{est_val:,.0f}" if est_val is not None else "0"
+                st.error("### ⚠️ ATENÇÃO: Envio de Pedido sem Estoque no CD15")
+                st.markdown(
+                    f"**O estoque disponível importado no `query.parquet` para este item no CD15 é: `{est_str}` caixas/unidades.**\n\n"
+                    "**Deseja enviar pedido para analise mesmo sem estoque no CD?**"
+                )
+
             col_sim, col_nao = st.columns(2)
             
             with col_sim:
-                if st.button("✅ Sim, confirmar pedido", use_container_width=True, type="primary"):
+                if st.button("✅ Sim", use_container_width=True, type="primary"):
                     st.session_state.pedido_details["confirmar_pedido"] = True
                     st.session_state.pedido_details["aguardando_confirmacao_suspenso"] = False
+                    st.session_state.pedido_details["aguardando_confirmacao_estoque"] = False
                     st.rerun()
             
             with col_nao:
-                if st.button("❌ Não, cancelar", use_container_width=True):
+                if st.button("❌ Não", use_container_width=True):
                     st.session_state.pedido_details = {}
                     st.info("Pedido cancelado.")
                     st.rerun()

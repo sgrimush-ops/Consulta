@@ -77,6 +77,7 @@ def main() -> int:
             "page.home",
             "page.pedido_cd",
             "page.aprovacao_pedidos",
+            "page.status_usuarios",
         ]
 
         for m in modules:
@@ -124,6 +125,59 @@ def main() -> int:
         assert str(res["embalagem"].dtype) == "int64"
         assert str(res["codigo_interno"].dtype) == "int64"
         print("format_ok")
+
+        # Teste verificação de cargo consumo cd
+        from utils.cargos import is_user_consumo_cd
+
+        assert not is_user_consumo_cd(session_state={"role": "admin", "cargo": "consumo cd"})
+        assert is_user_consumo_cd(session_state={"role": "user", "cargo": "consumo cd"})
+        assert is_user_consumo_cd(session_state={"role": "consumo cd", "cargo": ""})
+        assert is_user_consumo_cd(session_state={"role": "user", "cargo": "Consumo CD"})
+        assert not is_user_consumo_cd(session_state={"role": "user", "cargo": "comprador"})
+        print("cargo_consumo_cd_ok")
+
+        # Teste da tela de status dos usuários e exclusão em lote
+        from page.status_usuarios import get_user_status_df, delete_users_batch
+        from sqlalchemy import text as _text
+        with engine.begin() as conn:
+            conn.execute(_text("""
+                CREATE TABLE users (
+                    username TEXT PRIMARY KEY,
+                    empresa TEXT,
+                    cargo TEXT,
+                    ultimo_acesso TEXT,
+                    status_logado TEXT
+                )
+            """))
+            conn.execute(_text("""
+                INSERT INTO users (username, empresa, cargo, ultimo_acesso, status_logado) VALUES
+                ('u_nunca', 'Baklizi', 'gerente', NULL, 'DESLOGADO'),
+                ('u_65dias', 'Baklizi', 'caixa', '2025-01-01 10:00:00', 'DESLOGADO'),
+                ('u_online', 'Baklizi', 'admin', '2099-01-01 10:00:00', 'LOGADO')
+            """))
+
+        df_s = get_user_status_df(engine)
+        assert len(df_s) == 3
+        categorias = dict(zip(df_s['username'], df_s['Categoria']))
+        assert categorias['u_nunca'] == "Nunca Acessou"
+        assert categorias['u_65dias'] == "Inativo (60+ dias)"
+        assert df_s.loc[df_s['username'] == 'u_nunca', 'Elegivel_Exclusao'].values[0] == True
+        assert df_s.loc[df_s['username'] == 'u_65dias', 'Elegivel_Exclusao'].values[0] == True
+
+        deletados = delete_users_batch(engine, ['u_nunca', 'u_65dias'])
+        assert deletados == 2
+        print("status_usuarios_ok")
+
+        from page.pedido_cd import get_cd15_stock_from_parquet
+        stock_val = get_cd15_stock_from_parquet(3938)
+        if stock_val is not None:
+            assert stock_val == 98.0
+            print("estoque_query_parquet_ok")
+
+        from page.home import get_query_parquet_last_update
+        last_up = get_query_parquet_last_update()
+        assert last_up is not None and "às" in last_up
+        print("home_last_update_ok")
 
         print("SMOKE_ALL_OK")
         return 0
