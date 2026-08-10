@@ -29,7 +29,6 @@ def load_produtos_merged(engine):
             SELECT 
                 cod_consinco, 
                 descricao, 
-                transicao, 
                 embalagem as Emb, 
                 status_mix as Mix,
                 'Custom' as origem,
@@ -47,8 +46,8 @@ def load_produtos_merged(engine):
         df_custom = pd.DataFrame()
         codigos_custom = set()
     
-    # 2. Carregar produtos do parquet
-    parquet_path = os.path.join("bdados", "con5cod.parquet")
+    # 2. Carregar produtos do parquet (query.parquet)
+    parquet_path = os.path.join("bdados", "query.parquet")
     
     if os.path.exists(parquet_path):
         try:
@@ -56,37 +55,36 @@ def load_produtos_merged(engine):
                 pd.read_parquet(parquet_path)
             )
             
-            # Mapear colunas novas
+            # Remover duplicatas porque query.parquet tem linhas por loja
+            df_parquet = df_parquet.drop_duplicates(subset=['CODIGO_PRODUTO'])
+            
+            # Mapear colunas do query.parquet
             column_mapping = {
-                'codigoconsinco': 'cod_consinco',
-                'Código Produto': 'cod_consinco',
-                'Codigo Produto': 'cod_consinco',
-                'codigo transicao': 'transicao',
-                'CODACESSO': 'transicao',
-                'Empresa : Produto': 'descricao',
-                'Empresa: Produto': 'descricao',
-                'embalagem': 'Emb',
-                'EmbSeparacao': 'Emb',
-                'ltmix': 'Mix',
-                'capacidade': 'CapacidadeGondola',
-                'CapacidadeGondola': 'CapacidadeGondola'
+                'CODIGO_PRODUTO': 'cod_consinco',
+                'DESCRICAO_PRODUTO': 'descricao',
+                'EMBL_TRANSFERENCIA': 'Emb'
             }
             
             df_parquet.rename(columns=column_mapping, inplace=True)
             
             # Garantir colunas essenciais
             if 'cod_consinco' not in df_parquet.columns:
-                raise ValueError("Coluna 'cod_consinco' não encontrada no parquet")
+                raise ValueError("Coluna 'cod_consinco' (CODIGO_PRODUTO) não encontrada no parquet")
             if 'descricao' not in df_parquet.columns:
                 df_parquet['descricao'] = 'SEM DESCRIÇÃO'
-            if 'transicao' not in df_parquet.columns:
-                df_parquet['transicao'] = 0
+            
+            # Utilizar EMBL_COMPRA caso a TRANSFERENCIA venha nula ou zerada, senao default 1
             if 'Emb' not in df_parquet.columns:
-                df_parquet['Emb'] = 1
-            if 'Mix' not in df_parquet.columns:
-                df_parquet['Mix'] = 'A'
-            if 'CapacidadeGondola' not in df_parquet.columns:
-                df_parquet['CapacidadeGondola'] = 0
+                if 'EMBL_COMPRA' in df_parquet.columns:
+                    df_parquet['Emb'] = df_parquet['EMBL_COMPRA']
+                else:
+                    df_parquet['Emb'] = 1
+            
+            # Preencher com 1 caso ainda haja nulos
+            df_parquet['Emb'] = df_parquet['Emb'].fillna(1).replace(0, 1)
+            
+            # Todo produto no query.parquet é considerado ativo (Mix 'A')
+            df_parquet['Mix'] = 'A'
             
             df_parquet['cod_consinco'] = df_parquet['cod_consinco'].astype(int)
             df_parquet['origem'] = 'Parquet'
@@ -98,12 +96,12 @@ def load_produtos_merged(engine):
         except Exception as e:
             raise Exception(f"Erro ao carregar parquet: {e}")
     else:
-        raise Exception("Arquivo parquet não encontrado: bdados/con5cod.parquet")
+        raise Exception("Arquivo parquet não encontrado: bdados/query.parquet")
     
     # 3. Mesclar: Custom + Parquet (custom já filtrou duplicatas do parquet)
     if not df_custom.empty:
         # Garantir que as colunas sejam compatíveis
-        cols_finais = ['cod_consinco', 'descricao', 'transicao', 'Emb', 'Mix', 'origem']
+        cols_finais = ['cod_consinco', 'descricao', 'Emb', 'Mix', 'origem']
         df_final = pd.concat([
             df_custom[cols_finais],
             df_parquet[cols_finais]
@@ -126,7 +124,7 @@ def get_produto_info(engine, cod_consinco):
     try:
         # Verificar primeiro no banco custom
         query = text("""
-            SELECT cod_consinco, descricao, transicao, embalagem as Emb, status_mix as Mix
+            SELECT cod_consinco, descricao, embalagem as Emb, status_mix as Mix
             FROM produtos_custom
             WHERE cod_consinco = :cod
         """)
@@ -140,7 +138,7 @@ def get_produto_info(engine, cod_consinco):
         pass
     
     # Se não encontrou no custom, buscar no parquet
-    parquet_path = os.path.join("bdados", "con5cod.parquet")
+    parquet_path = os.path.join("bdados", "query.parquet")
     
     if os.path.exists(parquet_path):
         try:
@@ -148,16 +146,9 @@ def get_produto_info(engine, cod_consinco):
             
             # Mapear colunas novas
             column_mapping = {
-                'codigoconsinco': 'cod_consinco',
-                'Código Produto': 'cod_consinco',
-                'Codigo Produto': 'cod_consinco',
-                'codigo transicao': 'transicao',
-                'CODACESSO': 'transicao',
-                'Empresa : Produto': 'descricao',
-                'Empresa: Produto': 'descricao',
-                'embalagem': 'Emb',
-                'EmbSeparacao': 'Emb',
-                'ltmix': 'Mix'
+                'CODIGO_PRODUTO': 'cod_consinco',
+                'DESCRICAO_PRODUTO': 'descricao',
+                'EMBL_TRANSFERENCIA': 'Emb'
             }
             
             df.rename(columns=column_mapping, inplace=True)
@@ -168,7 +159,13 @@ def get_produto_info(engine, cod_consinco):
             resultado = df[df['cod_consinco'] == int(cod_consinco)]
             
             if not resultado.empty:
-                return resultado.iloc[0].to_dict()
+                info = resultado.iloc[0].to_dict()
+                info['Mix'] = 'A' # Adiciona status ativo fixo
+                
+                if pd.isna(info.get('Emb')) or info.get('Emb') == 0:
+                    info['Emb'] = info.get('EMBL_COMPRA', 1)
+                    
+                return info
         except Exception:
             pass
     

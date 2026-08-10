@@ -59,41 +59,41 @@ def formatar_tipos_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def load_products_from_parquet():
     """Carrega produtos do arquivo parquet."""
-    parquet_path = os.path.join("bdados", "con5cod.parquet")
+    parquet_path = os.path.join("bdados", "query.parquet")
     
     if not os.path.exists(parquet_path):
         return pd.DataFrame()
     
     try:
-        df = pd.read_parquet(parquet_path)        
+        df = pd.read_parquet(parquet_path)
+        df = df.drop_duplicates(subset=['CODIGO_PRODUTO'])
+        
         # Mapear colunas novas
         column_mapping = {
-            'codigoconsinco': 'cod_consinco',
-            'Código Produto': 'cod_consinco',
-            'codigo transicao': 'transicao',
-            'CODACESSO': 'transicao',
-            'Empresa : Produto': 'descricao',
-            'embalagem': 'Emb',
-            'EmbSeparacao': 'Emb',
-            'ltmix': 'Mix',
-            'capacidade': 'CapacidadeGondola',
-            'CapacidadeGondola': 'CapacidadeGondola'
+            'CODIGO_PRODUTO': 'cod_consinco',
+            'DESCRICAO_PRODUTO': 'descricao',
+            'EMBL_TRANSFERENCIA': 'Emb'
         }
         
         df.rename(columns=column_mapping, inplace=True)
         
         # Garantir colunas minimas
         if 'cod_consinco' not in df.columns:
-            raise ValueError("Coluna 'cod_consinco' não encontrada")
+            raise ValueError("Coluna 'cod_consinco' (CODIGO_PRODUTO) não encontrada")
         if 'descricao' not in df.columns:
             df['descricao'] = 'SEM DESCRIÇÃO'
+            
         if 'Emb' not in df.columns:
-            df['Emb'] = 1
-        if 'Mix' not in df.columns:
-            df['Mix'] = 'A'
-        if 'CapacidadeGondola' not in df.columns:
-            df['CapacidadeGondola'] = 0
+            if 'EMBL_COMPRA' in df.columns:
+                df['Emb'] = df['EMBL_COMPRA']
+            else:
+                df['Emb'] = 1
+                
+        df['Emb'] = df['Emb'].fillna(1).replace(0, 1)
+        
+        df['Mix'] = 'A'
         df['cod_consinco'] = df['cod_consinco'].astype(int)
+        
         return df
     except Exception:
         return pd.DataFrame()

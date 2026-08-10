@@ -81,7 +81,7 @@ def _normalizar_nomes_colunas(df):
 
 def load_products_from_parquet(engine=None):
     """Carrega produtos do arquivo parquet e aplica correções do banco."""
-    parquet_path = os.path.join("bdados", "con5cod.parquet")
+    parquet_path = os.path.join("bdados", "query.parquet")
     
     if not os.path.exists(parquet_path):
         return pd.DataFrame()
@@ -89,37 +89,34 @@ def load_products_from_parquet(engine=None):
     try:
         df = _normalizar_nomes_colunas(pd.read_parquet(parquet_path))
         
+        # Como query.parquet tem 1 linha por loja, precisamos remover duplicatas 
+        # para a listagem geral de produtos não ficar poluída
+        df = df.drop_duplicates(subset=['CODIGO_PRODUTO'])
+        
         # Mapear colunas novas para nomes esperados
         column_mapping = {
-            'codigoconsinco': 'cod_consinco',
-            'Código Produto': 'cod_consinco',
-            'Codigo Produto': 'cod_consinco',
-            'codigo transicao': 'transicao',
-            'CODACESSO': 'transicao',
-            'Empresa : Produto': 'descricao',
-            'Empresa: Produto': 'descricao',
-            'embalagem': 'Emb',
-            'EmbSeparacao': 'Emb',
-            'ltmix': 'Mix',
-            'capacidade': 'CapacidadeGondola',
-            'CapacidadeGondola': 'CapacidadeGondola'
+            'CODIGO_PRODUTO': 'cod_consinco',
+            'DESCRICAO_PRODUTO': 'descricao',
+            'EMBL_TRANSFERENCIA': 'Emb'
         }
         
         df.rename(columns=column_mapping, inplace=True)
         
         # Garantir colunas essenciais com valores padrao se ausentes
         if 'cod_consinco' not in df.columns:
-            raise ValueError("Coluna 'cod_consinco' ou 'Código Produto' não encontrada no arquivo")
+            raise ValueError("Coluna 'cod_consinco' ou 'CODIGO_PRODUTO' não encontrada no arquivo")
         if 'descricao' not in df.columns:
             df['descricao'] = 'SEM DESCRIÇÃO'
-        if 'transicao' not in df.columns:
-            df['transicao'] = 0
+        
         if 'Emb' not in df.columns:
-            df['Emb'] = 1
-        if 'Mix' not in df.columns:
-            df['Mix'] = 'A'
-        if 'CapacidadeGondola' not in df.columns:
-            df['CapacidadeGondola'] = 0
+            if 'EMBL_COMPRA' in df.columns:
+                df['Emb'] = df['EMBL_COMPRA']
+            else:
+                df['Emb'] = 1
+                
+        df['Emb'] = df['Emb'].fillna(1).replace(0, 1)
+        
+        df['Mix'] = 'A'
         
         # Garantir que cod_consinco é inteiro
         df['cod_consinco'] = df['cod_consinco'].astype(int)
@@ -164,6 +161,22 @@ def get_cd15_stock_from_parquet(codigo_produto: int) -> float | None:
         return None
 
 
+def get_lojas_ativas_para_produto(codigo_produto: int) -> list:
+    """Busca em query.parquet quais lojas (CODIGO_EMPRESA) possuem este produto ativo."""
+    parquet_path = os.path.join("bdados", "query.parquet")
+    if not os.path.exists(parquet_path):
+        return []
+    try:
+        df = pd.read_parquet(parquet_path)
+        if 'CODIGO_EMPRESA' not in df.columns or 'CODIGO_PRODUTO' not in df.columns:
+            return []
+        mask_prod = df['CODIGO_PRODUTO'].astype(str).str.strip() == str(codigo_produto).strip()
+        lojas = df.loc[mask_prod, 'CODIGO_EMPRESA'].unique()
+        return [int(l) for l in lojas if pd.notna(l)]
+    except Exception:
+        return []
+
+
 def search_product(df_produtos, search_term, search_type='codigo'):
     """
     Busca produto por código ou descrição.
@@ -182,10 +195,9 @@ def search_product(df_produtos, search_term, search_type='codigo'):
     if search_type == 'codigo':
         try:
             cod = int(search_term)
-            # Busca por cod_consinco ou transicao
+            # Busca por cod_consinco apenas
             result = df_produtos[
-                (df_produtos['cod_consinco'] == cod) |
-                (df_produtos['transicao'] == cod)
+                (df_produtos['cod_consinco'] == cod)
             ]
             return result
         except ValueError:
@@ -342,7 +354,7 @@ def show_pedidos_cd_page(engine, base_data_path):
         
         if search_type == "Por Código":
             search_term = st.text_input(
-                "Digite o código Consinco ou código de transição:",
+                "Digite o código Consinco:",
                 placeholder="Ex: 10480",
                 max_chars=10
             )
@@ -381,8 +393,8 @@ def show_pedidos_cd_page(engine, base_data_path):
         
         results_display = st.session_state.search_results.copy()
         results_display['Status'] = results_display['Mix'].map({'A': 'Ativo', 'S': 'Suspenso'})
-        results_display = results_display[['cod_consinco', 'descricao', 'transicao', 'Status', 'Emb']]
-        results_display.columns = ['Código Consinco', 'Descrição', 'Cód. Transição', 'Status', 'Embalagem']
+        results_display = results_display[['cod_consinco', 'descricao', 'Status', 'Emb']]
+        results_display.columns = ['Código Consinco', 'Descrição', 'Status', 'Embalagem']
         
         # Usar selectbox para seleção
         selected_idx = st.selectbox(
@@ -417,16 +429,15 @@ def show_pedidos_cd_page(engine, base_data_path):
         st.markdown("---")
         st.subheader(f"Produto Selecionado: {item['descricao']}")
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         col1.metric("Código Consinco", codigo_produto)
-        col2.metric("Cód. Transição", item['transicao'])
-        col3.metric("Emb. (Un/Cx)", int(item['Emb']))
+        col2.metric("Emb. (Un/Cx)", int(item['Emb']))
         
         # Indicador de status
         if status_mix == 'A':
-            col4.success("✅ ATIVO no Mix")
+            col3.success("✅ ATIVO no Mix")
         else:
-            col4.warning("⚠️ SUSPENSO no Mix")
+            col3.warning("⚠️ SUSPENSO no Mix")
         
         # Consulta de estoque no CD15 (query.parquet)
         estoque_cd15 = get_cd15_stock_from_parquet(codigo_produto)
@@ -457,6 +468,9 @@ def show_pedidos_cd_page(engine, base_data_path):
             st.error("Você não tem lojas associadas ao seu perfil. Contate um administrador.")
             return
         
+        # Buscar quais lojas têm o produto ativo
+        lojas_ativas_produto = get_lojas_ativas_para_produto(codigo_produto)
+        
         # --- Formulário de Pedido ---
         with st.form("pedido_form"):
             pedido_inputs = {}
@@ -468,11 +482,14 @@ def show_pedidos_cd_page(engine, base_data_path):
             for idx, loja in enumerate(lojas_acesso_normal):
                 col_idx = idx % cols_per_row
                 with cols[col_idx]:
+                    is_active = (loja in lojas_ativas_produto)
+                    label = f"Loja {loja}" if is_active else f"Loja {loja} (Inativo)"
                     pedido_inputs[loja] = st.number_input(
-                        f"Loja {loja}",
+                        label,
                         min_value=0,
                         step=1,
-                        key=f"loja_{loja}_{codigo_produto}"
+                        key=f"loja_{loja}_{codigo_produto}",
+                        disabled=not is_active
                     )
             
             st.markdown("---")
@@ -584,7 +601,7 @@ def show_pedidos_cd_page(engine, base_data_path):
             pedido_data = {
                 "codigo_interno": [codigo_produto],
                 "descricao": [item['descricao']],
-                "ean": [item['transicao']],  # Usando transição como referência
+                "ean": [0],  
                 "embseparacao": [int(item['Emb'])],
                 "data_pedido": [now_brazil()],
                 "usuario_pedido": [st.session_state.get("username", "unknown")],

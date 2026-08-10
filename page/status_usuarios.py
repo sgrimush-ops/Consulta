@@ -36,7 +36,7 @@ def get_user_status_df(engine) -> pd.DataFrame:
     """
     try:
         query = text(
-            "SELECT username, empresa, cargo, ultimo_acesso, status_logado FROM users"
+            "SELECT username, empresa, cargo, ultimo_acesso, status_logado, lojas FROM users"
         )
         df_users = pd.read_sql_query(query, con=engine)
     except Exception as e:
@@ -139,6 +139,8 @@ def get_user_status_df(engine) -> pd.DataFrame:
     # Garantir strings limpas nas colunas informativas
     df_users['empresa'] = df_users['empresa'].fillna('Baklizi')
     df_users['cargo'] = df_users['cargo'].fillna('')
+    if 'lojas' in df_users.columns:
+        df_users['lojas'] = df_users['lojas'].fillna('')
 
     df_users = df_users.sort_values(
         by=['Sort_Key', 'Tempo_Segundos'], ascending=[True, True]
@@ -258,13 +260,14 @@ def show_status_page(engine, base_data_path):
         "username": st.column_config.TextColumn("Usuário", disabled=True),
         "empresa": st.column_config.TextColumn("Empresa", disabled=True),
         "cargo": st.column_config.TextColumn("Cargo", disabled=True),
+        "lojas": st.column_config.TextColumn("Lojas", disabled=True),
         "ultimo_acesso_str": st.column_config.TextColumn("Último Acesso", disabled=True),
         "Tempo_Formatado": st.column_config.TextColumn("Tempo Inativo", disabled=True),
         "Badge": st.column_config.TextColumn("Status / Classificação", disabled=True),
     }
 
     cols_table = [
-        "Selecionar", "username", "empresa", "cargo",
+        "Selecionar", "username", "empresa", "cargo", "lojas",
         "ultimo_acesso_str", "Tempo_Formatado", "Badge"
     ]
 
