@@ -199,6 +199,15 @@ def create_db_tables(engine):
     # Esta função agora aceita 1 argumento (engine)
     try:
         with engine.begin() as conn:
+            # Tabela de sincronizacao de arquivos binarios
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS arquivos_sync (
+                    nome VARCHAR(255) PRIMARY KEY,
+                    conteudo BYTEA NOT NULL,
+                    data_atualizacao TIMESTAMP NOT NULL DEFAULT NOW()
+                );
+            """))
+
             # Tabela de produtos customizados (PRIORIDADE MÁXIMA)
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS produtos_custom (
@@ -359,6 +368,50 @@ def create_db_tables(engine):
         st.warning(f"Aviso: Falha ao tentar criar tabelas no BD. {e}")
         pass
 
+def sincronizar_arquivos_do_banco(engine, base_data_path):
+    """
+    Verifica se há versões mais recentes dos arquivos no banco e faz o download.
+    Roda apenas uma vez a cada carregamento ou quando o app acorda.
+    """
+    try:
+        from page.admin_uploads import _resolver_pastas_destino
+        with engine.connect() as conn:
+            query = text("SELECT nome, data_atualizacao FROM arquivos_sync")
+            arquivos_banco = conn.execute(query).fetchall()
+
+        if not arquivos_banco:
+            return
+
+        pastas_destino = _resolver_pastas_destino(base_data_path)
+        pasta_principal = pastas_destino[0] if pastas_destino else base_data_path
+        os.makedirs(pasta_principal, exist_ok=True)
+
+        for nome, data_banco in arquivos_banco:
+            caminho_local = os.path.join(pasta_principal, nome)
+            precisa_baixar = False
+            
+            if not os.path.exists(caminho_local):
+                precisa_baixar = True
+            else:
+                # Usa timestamp de modificacao do arquivo local
+                data_local_ts = os.path.getmtime(caminho_local)
+                from datetime import timezone
+                # Compara timestamp do arquivo com data do banco
+                if data_banco.timestamp() > data_local_ts:
+                    precisa_baixar = True
+
+            if precisa_baixar:
+                # Baixa o conteúdo do banco e salva
+                with engine.connect() as conn:
+                    result = conn.execute(text("SELECT conteudo FROM arquivos_sync WHERE nome = :nome"), {"nome": nome}).fetchone()
+                    if result and result[0]:
+                        for pasta in pastas_destino:
+                            os.makedirs(pasta, exist_ok=True)
+                            with open(os.path.join(pasta, nome), "wb") as f:
+                                f.write(result[0])
+    except Exception as e:
+        pass  # Evitar que quebre a inicializacao
+
 # =========================================================
 # NAVEGAÇÃO E LOGIN
 # =========================================================
@@ -408,6 +461,9 @@ def login_page(engine):
 def main_app():
     engine = get_engine()
     create_db_tables(engine)
+    
+    # Executa sincronização silenciosa de arquivos vindo do banco
+    sincronizar_arquivos_do_banco(engine, BASE_DATA_PATH)
 
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
