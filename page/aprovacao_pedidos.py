@@ -230,6 +230,7 @@ def get_pedidos_para_aprovacao(
                 TO_CHAR(p.data_pedido, 'DD/MM/YYYY HH24:MI') AS data_pedido_str,
                 p.usuario_pedido,
                 COALESCE(u.empresa, 'Baklizi') AS empresa,
+                COALESCE(u.lojas_acesso, '') AS loja_usuario,
                 p.codigo_interno,
                 p.descricao,
                 p.embseparacao,
@@ -746,7 +747,7 @@ def show_aprovacao_page(engine, base_data_path):
 
         cols_exibicao = [
             "Selecionar", "id_pedido", "data_pedido_str", "usuario_pedido",
-            "empresa", "Origem", "origem_pedido", "codigo_interno", "descricao", "Status Mix",
+            "empresa", "loja_usuario", "Origem", "codigo_interno", "descricao", "Status Mix",
             "embseparacao", "total_cx",
             "status_aprovacao"
         ] + COLUNAS_LOJAS_PEDIDO
@@ -842,6 +843,7 @@ def show_aprovacao_page(engine, base_data_path):
             "data_pedido_str": st.column_config.TextColumn("Data/Hora", disabled=True),
             "usuario_pedido": st.column_config.TextColumn("Usuário", disabled=True, width="small"),
             "empresa": st.column_config.TextColumn("Empresa", disabled=True, width="small"),
+            "loja_usuario": st.column_config.TextColumn("Lojas de Acesso", disabled=True, width="small"),
             "Origem": st.column_config.TextColumn(
                 "Origem",
                 disabled=True,
