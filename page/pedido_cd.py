@@ -172,7 +172,15 @@ def get_lojas_ativas_para_produto(codigo_produto: int) -> list:
             return []
         mask_prod = df['CODIGO_PRODUTO'].astype(str).str.strip() == str(codigo_produto).strip()
         lojas = df.loc[mask_prod, 'CODIGO_EMPRESA'].unique()
-        return [int(l) for l in lojas if pd.notna(l)]
+        lojas_formatadas = []
+        for l in lojas:
+            if pd.notna(l):
+                try:
+                    # Tenta converter para float e int para remover decimais (.0) e formata com 3 zeros
+                    lojas_formatadas.append(f"{int(float(l)):03d}")
+                except ValueError:
+                    lojas_formatadas.append(str(l).strip())
+        return lojas_formatadas
     except Exception:
         return []
 
@@ -392,9 +400,8 @@ def show_pedidos_cd_page(engine, base_data_path):
         st.info(f"Encontrados {len(st.session_state.search_results)} produtos. Selecione um:")
         
         results_display = st.session_state.search_results.copy()
-        results_display['Status'] = results_display['Mix'].map({'A': 'Ativo', 'S': 'Suspenso'})
-        results_display = results_display[['cod_consinco', 'descricao', 'Status', 'Emb']]
-        results_display.columns = ['Código Consinco', 'Descrição', 'Status', 'Embalagem']
+        results_display = results_display[['cod_consinco', 'descricao', 'Emb']]
+        results_display.columns = ['Código Consinco', 'Descrição', 'Embalagem']
         
         # Usar selectbox para seleção
         selected_idx = st.selectbox(
@@ -429,15 +436,9 @@ def show_pedidos_cd_page(engine, base_data_path):
         st.markdown("---")
         st.subheader(f"Produto Selecionado: {item['descricao']}")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("Código Consinco", codigo_produto)
         col2.metric("Emb. (Un/Cx)", int(item['Emb']))
-        
-        # Indicador de status
-        if status_mix == 'A':
-            col3.success("✅ ATIVO no Mix")
-        else:
-            col3.warning("⚠️ SUSPENSO no Mix")
         
         # Consulta de estoque no CD15 (query.parquet)
         estoque_cd15 = get_cd15_stock_from_parquet(codigo_produto)
