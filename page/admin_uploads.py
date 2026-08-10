@@ -73,7 +73,7 @@ def _normalizar_nomes_colunas(df):
 def show_admin_uploads_page(engine=None, base_data_path=None):
     """
     Cria a interface para upload dos arquivos
-    ean_dun.parquet, query.parquet e consumo.parquet.
+    query.parquet e consumo.parquet.
     """
     if engine is None:
         from app import get_engine
@@ -87,7 +87,7 @@ def show_admin_uploads_page(engine=None, base_data_path=None):
         os.makedirs(pasta, exist_ok=True)
 
     st.markdown(
-        "Faça o upload dos arquivos `ean_dun.parquet`, "
+        "Faça o upload dos arquivos "
         "`query.parquet` e `consumo.parquet`."
     )
     st.caption(f"Pasta principal de armazenamento: {os.path.abspath(pasta_dados)}")
@@ -99,68 +99,6 @@ def show_admin_uploads_page(engine=None, base_data_path=None):
         arquivos_txt = ", ".join(arquivos) if arquivos else "(nenhum .parquet)"
         st.caption(f"{pasta}: {arquivos_txt}")
 
-    st.subheader("Upload do Arquivo ean_dun.parquet")
-
-    col_ean_actions, _ = st.columns([1, 3])
-    with col_ean_actions:
-        if st.button("Limpar upload EAN/DUN", key="clear_ean_dun_upload"):
-            st.session_state.pop("ean_dun_uploader", None)
-            st.session_state.pop("ean_dun_preview_hash", None)
-            st.rerun()
-
-    uploaded_ean_dun = st.file_uploader(
-        "Selecione o arquivo `ean_dun.parquet`",
-        type="parquet",
-        key="ean_dun_uploader"
-    )
-
-    if uploaded_ean_dun is not None:
-        try:
-            ean_dun_bytes = uploaded_ean_dun.getvalue()
-            if not ean_dun_bytes:
-                st.warning("Arquivo EAN/DUN vazio. Verifique o upload e tente novamente.")
-                return
-
-            ean_dun_hash = hashlib.sha256(ean_dun_bytes).hexdigest()
-            st.session_state["ean_dun_preview_hash"] = ean_dun_hash
-
-            st.caption(
-                f"Arquivo carregado: {uploaded_ean_dun.name} | "
-                f"Tamanho: {len(ean_dun_bytes):,} bytes | "
-                f"Hash: {ean_dun_hash[:12]}"
-            )
-
-            df_ean_dun = _normalizar_nomes_colunas(
-                pd.read_parquet(io.BytesIO(ean_dun_bytes))
-            )
-            st.write("Amostra dos dados EAN/DUN (upload atual):")
-            st.dataframe(df_ean_dun.head())
-            st.info(f"📊 Total de linhas: {len(df_ean_dun):,}")
-            st.caption("Colunas detectadas: " + ", ".join(df_ean_dun.columns.astype(str).tolist()))
-
-            if st.button("Salvar ean_dun em bdados", type="primary", key="save_ean_dun"):
-                with st.spinner("Salvando ean_dun.parquet..."):
-                    destinos_salvos = _salvar_em_todas_as_pastas(
-                        ean_dun_bytes,
-                        "ean_dun.parquet",
-                        base_data_path=base_data_path,
-                    )
-
-                    st.cache_data.clear()
-                    st.success("✅ Arquivo ean_dun.parquet atualizado com sucesso!")
-                    st.caption("Arquivos salvos em: " + " | ".join(destinos_salvos))
-                    st.caption(
-                        "Se estiver no Render, configure EAN_DUN_PARQUET_PATH "
-                        f"com este caminho: {destinos_salvos[0]}"
-                    )
-                    st.balloons()
-        except Exception as e:
-            st.error(
-                "Ocorreu um erro ao processar o arquivo `ean_dun.parquet`: "
-                f"{e}"
-            )
-
-    st.divider()
     st.subheader("Upload do Arquivo query.parquet")
 
     col_query_actions, _ = st.columns([1, 3])
